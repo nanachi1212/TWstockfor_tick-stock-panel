@@ -1,1 +1,1 @@
-"""TickFlow 适配层 — 能力探测 / 调度 / Repository。"""
+"""TickFlow 適配層 — 能力探測 / 調度 / Repository。"""

@@ -13,10 +13,10 @@ T = TypeVar("T")
 # Reserve 20% of a source's declared request budget for other local consumers.
 SAFETY_RPM_FACTOR = 0.8
 
-# 进程级共享限速器: 按 rpm 分桶的「下一个可用时刻」表 (Lock 守护)。
-# 限制: sleep_between_batches(index=0) 只登记槽位、不 sleep, 因此多个调用方若同时以
-# index=0 启动, 仍可能瞬时突发超过单能力 rpm。后续 index>0 批次会按同一时间轴排队。
-# Phase 1 / Stage A: 不要并发启动多个 probe 或大批量 sync; 跨进程仍靠错峰, 非账户级限频。
+# 進程級共享限速器: 按 rpm 分桶的「下一個可用時刻」表 (Lock 守護)。
+# 限制: sleep_between_batches(index=0) 只登記槽位、不 sleep, 因此多個呼叫方若同時以
+# index=0 啟動, 仍可能瞬時突發超過單能力 rpm。後續 index>0 批次會按同一時間軸排隊。
+# Phase 1 / Stage A: 不要併發啟動多個 probe 或大批量 sync; 跨進程仍靠錯峰, 非帳戶級限頻。
 _slot_lock = threading.Lock()
 # Buckets use an rpm integer or a source name such as "taiwan:twse".
 _next_slot: dict[object, float] = {}
@@ -30,10 +30,10 @@ def apply_safety_rpm(rpm: int | None, *, factor: float = SAFETY_RPM_FACTOR) -> i
 
 
 def _reserve_slot(rpm: int, interval: float, key: object | None = None) -> float:
-    """在共享时间轴上为一次请求预约一个发包槽, 返回需等待的秒数 (>=0)。
+    """在共享時間軸上為一次請求預約一個發包槽, 返回需等待的秒數 (>=0)。
 
-    interval = 60/rpm。now 早于该 rpm 桶的 next_slot 时排到 next_slot, 否则排到 now;
-    随后把该桶 next_slot 后移 interval。持锁仅做时间账目, 不在锁内 sleep。
+    interval = 60/rpm。now 早於該 rpm 桶的 next_slot 時排到 next_slot, 否則排到 now;
+    隨後把該桶 next_slot 後移 interval。持鎖僅做時間賬目, 不在鎖內 sleep。
     """
     if key is None:
         key = rpm if rpm and rpm > 0 else -1

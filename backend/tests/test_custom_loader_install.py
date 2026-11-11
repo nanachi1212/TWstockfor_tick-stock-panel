@@ -1,10 +1,10 @@
-"""loader.install_plugin 单元测试 — uv 安装必须显式指定目标环境。
+"""loader.install_plugin 單元測試 — uv 安裝必須顯式指定目標環境。
 
-回归场景: dev.ps1 直接跑 backend/.venv/Scripts/python.exe 而不 activate venv,
-后端进程的 VIRTUAL_ENV 为空; 此时 `uv pip install -r ...` 不传 --python 会落到
-PATH 上的基础解释器 (如 conda base, 常为只读) → 装错环境 + exit 2 (访问拒绝)。
-修复: uv 命令显式传 `--python sys.executable` 锁定后端自身 venv, 与 pip 回退
-路径 (sys.executable -m pip) 的目标一致。
+迴歸場景: dev.ps1 直接跑 backend/.venv/Scripts/python.exe 而不 activate venv,
+後端進程的 VIRTUAL_ENV 為空; 此時 `uv pip install -r ...` 不傳 --python 會落到
+PATH 上的基礎解釋器 (如 conda base, 常為只讀) → 裝錯環境 + exit 2 (訪問拒絕)。
+修復: uv 命令顯式傳 `--python sys.executable` 鎖定後端自身 venv, 與 pip 回退
+路徑 (sys.executable -m pip) 的目標一致。
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from app.data_providers.custom import loader
 
 
 def _patch_uv_install(monkeypatch, returncodes):
-    """替换 loader.shutil.which 与 subprocess.run, 捕获 uv 命令行。"""
+    """替換 loader.shutil.which 與 subprocess.run, 捕獲 uv 命令行。"""
     calls: list[list[str]] = []
 
     def fake_which(cmd, *_a, **_k):
@@ -32,7 +32,7 @@ def _patch_uv_install(monkeypatch, returncodes):
 
 
 def _fake_python_plugin(monkeypatch, tmp_path):
-    """在临时目录铺设最小 python 插件, 并把 plugins_dir 指过去 (自包含)。"""
+    """在臨時目錄鋪設最小 python 外掛, 並把 plugins_dir 指過去 (自包含)。"""
     pdir = tmp_path / "baostock"
     pdir.mkdir()
     (pdir / "plugin.yaml").write_text(
@@ -44,13 +44,13 @@ def _fake_python_plugin(monkeypatch, tmp_path):
 
 
 def test_install_plugin_uv_targets_running_interpreter(monkeypatch, tmp_path):
-    """uv 分支必须传 --python sys.executable, 不能留给 uv 自动探测。"""
+    """uv 分支必須傳 --python sys.executable, 不能留給 uv 自動探測。"""
     _fake_python_plugin(monkeypatch, tmp_path)
     calls = _patch_uv_install(monkeypatch, [0])
 
     ok, msg = loader.install_plugin("baostock")
     assert ok, msg
-    assert calls, "应调用 uv"
+    assert calls, "應呼叫 uv"
     uv_cmd = calls[0]
     assert uv_cmd[0] == "/fake/uv"
     assert "--python" in uv_cmd
@@ -59,13 +59,13 @@ def test_install_plugin_uv_targets_running_interpreter(monkeypatch, tmp_path):
 
 
 def test_install_plugin_uv_retry_keeps_python_target(monkeypatch, tmp_path):
-    """exit 2 → --no-config 重试时也必须保持 --python 目标。"""
+    """exit 2 → --no-config 重試時也必須保持 --python 目標。"""
     _fake_python_plugin(monkeypatch, tmp_path)
     calls = _patch_uv_install(monkeypatch, [2, 0])
 
     ok, msg = loader.install_plugin("baostock")
     assert ok, msg
-    assert len(calls) == 2, f"应触发一次重试, 实际 {len(calls)} 次"
+    assert len(calls) == 2, f"應觸發一次重試, 實際 {len(calls)} 次"
     for cmd in calls:
         assert "--python" in cmd
         idx = cmd.index("--python")
@@ -73,7 +73,7 @@ def test_install_plugin_uv_retry_keeps_python_target(monkeypatch, tmp_path):
 
 
 def test_uninstall_plugin_uv_targets_running_interpreter(monkeypatch, tmp_path):
-    """uv 卸载同样必须传 --python sys.executable, 否则会动到基础解释器。"""
+    """uv 解除安裝同樣必須傳 --python sys.executable, 否則會動到基礎解釋器。"""
     calls: list[list[str]] = []
 
     def fake_which(cmd, *_a, **_k):
@@ -89,7 +89,7 @@ def test_uninstall_plugin_uv_targets_running_interpreter(monkeypatch, tmp_path):
 
     ok, msg = loader.uninstall_plugin("baostock")
     assert ok, msg
-    assert calls, "应调用 uv"
+    assert calls, "應呼叫 uv"
     uv_cmd = calls[0]
     assert uv_cmd[0] == "/fake/uv"
     assert "uninstall" in uv_cmd

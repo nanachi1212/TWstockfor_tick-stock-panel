@@ -1,9 +1,9 @@
-"""日 K 同步服务(§7.7 Step 1)。
+"""日 K 同步服務(§7.7 Step 1)。
 
-调度器在 capability 允许下,把符号集合的日 K 批量同步到本地 Parquet。
+調度器在 capability 允許下,把符號集合的日 K 批量同步到本地 Parquet。
 策略:
-  - 日 K 仅使用 `kline.daily.batch`
-  - 除权因子仅使用 `adj_factor`
+  - 日 K 僅使用 `kline.daily.batch`
+  - 除權因子僅使用 `adj_factor`
 """
 from __future__ import annotations
 
@@ -30,27 +30,27 @@ def _reject_ashare_symbols(symbols: list[str]) -> None:
 
 
 def _atomic_write_parquet(df: pl.DataFrame, out) -> None:
-    """先写临时文件再原子替换, 避免进程中断留下损坏的 parquet。
+    """先寫臨時文件再原子替換, 避免進程中斷留下損壞的 parquet。
 
-    与 repository._atomic_write_parquet 同语义。adj_factor 的 all.parquet 是全市场
-    单文件、每次「读→concat→原地写」, 直接 write_parquet(out) 在进程被 kill
-    (dev.sh 清端口用 kill -9)、reap 超时或断电时会留下半截文件, 之后复权视图
-    scan_parquet 整条链路报错、enriched 全市场重算不出。临时文件后缀 .tmp 不匹配
-    *.parquet glob, 不会被扫描误读。
+    與 repository._atomic_write_parquet 同語義。adj_factor 的 all.parquet 是全市場
+    單文件、每次「讀→concat→原地寫」, 直接 write_parquet(out) 在進程被 kill
+    (dev.sh 清端口用 kill -9)、reap 超時或斷電時會留下半截文件, 之後復權視圖
+    scan_parquet 整條鏈路報錯、enriched 全市場重算不出。臨時文件後綴 .tmp 不匹配
+    *.parquet glob, 不會被掃描誤讀。
     """
     tmp = out.with_name(out.name + ".tmp")
     df.write_parquet(tmp)
-    tmp.replace(out)  # 同目录 rename, POSIX/NTFS 均为原子操作
+    tmp.replace(out)  # 同目錄 rename, POSIX/NTFS 均為原子操作
 
 
-# 标准列(无论 SDK 返回什么形状,我们把它规范成这套)
+# 標準列(無論 SDK 返回什麼形狀,我們把它規範成這套)
 CANONICAL_DAILY_COLS = [
     "symbol", "date", "open", "high", "low", "close", "volume", "amount",
 ]
 
 
 def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
-    """把 SDK 返回的 pandas/任意 DataFrame 规范成 canonical 列。"""
+    """把 SDK 返回的 pandas/任意 DataFrame 規範成 canonical 列。"""
     if df_in is None or len(df_in) == 0:
         return pl.DataFrame()
 
@@ -72,7 +72,7 @@ def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     if "symbol" not in df.columns and default_symbol is not None:
         df = df.with_columns(pl.lit(default_symbol).alias("symbol"))
 
-    # 类型规范
+    # 類型規範
     if "date" in df.columns and df.schema["date"] != pl.Date:
         df = df.with_columns(pl.col("date").cast(pl.Date, strict=False))
 
@@ -83,7 +83,7 @@ def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
         if col in df.columns:
             df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
 
-    # 过滤停牌日 (open/high 为 0; close 可能被填充为前收盘价, 不能用全零判断)
+    # 過濾停牌日 (open/high 為 0; close 可能被填充為前收盤價, 不能用全零判斷)
     df = filter_halt_days(df)
 
     # 只保留 canonical 列
@@ -245,8 +245,8 @@ def _normalize_adj_factor(raw) -> pl.DataFrame:
     if df.is_empty():
         return df
     # rename: timestamp/date → trade_date, adj_factor → ex_factor
-    # 注意: 新版 SDK 可能同时返回 timestamp 和 trade_date (或 adj_factor 和 ex_factor),
-    # 直接 rename 会产生重复列报错。仅当目标列不存在时才 rename。
+    # 注意: 新版 SDK 可能同時返回 timestamp 和 trade_date (或 adj_factor 和 ex_factor),
+    # 直接 rename 會產生重複列報錯。僅當目標列不存在時才 rename。
     rename_map: dict[str, str] = {}
     for src, dst in (("timestamp", "trade_date"), ("date", "trade_date"), ("adj_factor", "ex_factor")):
         if src in df.columns and dst not in df.columns:
@@ -305,7 +305,7 @@ def sync_adj_factor(symbols: list[str], repo: KlineRepository,
     return new_data.height, affected
 
 
-# ===== 分钟 K 同步 =====
+# ===== 分鐘 K 同步 =====
 
 CANONICAL_MINUTE_COLS = [
     "symbol", "datetime", "open", "high", "low", "close", "volume", "amount",
@@ -313,7 +313,7 @@ CANONICAL_MINUTE_COLS = [
 
 
 def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
-    """把 SDK 返回的分钟 K 数据规范成 canonical 列。"""
+    """把 SDK 返回的分鐘 K 資料規範成 canonical 列。"""
     if df_in is None or len(df_in) == 0:
         return pl.DataFrame()
 
@@ -329,7 +329,7 @@ def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     }
     df = df.rename({k: v for k, v in rename_map.items() if k in df.columns})
 
-    # datetime 列:优先用 timestamp(毫秒精度),其次 trade_time
+    # datetime 列:優先用 timestamp(毫秒精度),其次 trade_time
     if "timestamp" in df.columns:
         df = df.with_columns(
             pl.from_epoch("timestamp", time_unit="ms").alias("datetime"),
@@ -347,7 +347,7 @@ def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     if "symbol" not in df.columns and default_symbol is not None:
         df = df.with_columns(pl.lit(default_symbol).alias("symbol"))
 
-    # 类型规范:统一转 Datetime('us')
+    # 類型規範:統一轉 Datetime('us')
     if "datetime" in df.columns:
         dt_type = df.schema["datetime"]
         if not isinstance(dt_type, pl.Datetime) or dt_type.time_unit != "us":
@@ -365,14 +365,14 @@ def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
 
 
 def _datetime_to_ms(dt: datetime) -> int:
-    """datetime → 毫秒时间戳 (供 SDK start_time / end_time 使用)。"""
+    """datetime → 毫秒時間戳 (供 SDK start_time / end_time 使用)。"""
     return int(dt.timestamp() * 1000)
 
 
 def _write_minute_partition(df: pl.DataFrame, minute_dir) -> int:
-    """按 _trade_date 分区落盘分钟 K (读旧→concat→unique→原子写)。返回写入行数。
+    """按 _trade_date 分區落盤分鐘 K (讀舊→concat→unique→原子寫)。返回寫入行數。
 
-    抽自原 sync_and_persist_minute 末尾的循环, 供流式落盘 (每段一次) 与一次性迁移共用。
+    抽自原 sync_and_persist_minute 末尾的循環, 供流式落盤 (每段一次) 與一次性遷移共用。
     """
     if df.is_empty():
         return 0
@@ -539,7 +539,7 @@ def fetch_adj_factor_single(symbol: str) -> pl.DataFrame:
 
 
 def _latest_minute_datetime(repo: KlineRepository) -> datetime | None:
-    """本地分钟 K 数据的最新时间。"""
+    """本地分鐘 K 資料的最新時間。"""
     try:
         res = repo.execute_one("SELECT max(datetime) FROM kline_minute")
         if res and res[0]:
@@ -553,7 +553,7 @@ def _latest_minute_datetime(repo: KlineRepository) -> datetime | None:
 
 
 def _earliest_minute_datetime(repo: KlineRepository) -> datetime | None:
-    """本地分钟 K 数据的最早时间 (用于向前扩展的起点)。"""
+    """本地分鐘 K 資料的最早時間 (用於向前擴展的起點)。"""
     try:
         res = repo.execute_one("SELECT min(datetime) FROM kline_minute")
         if res and res[0]:
@@ -567,7 +567,7 @@ def _earliest_minute_datetime(repo: KlineRepository) -> datetime | None:
 
 
 def _cleanup_null_datetime_minute(repo: KlineRepository) -> None:
-    """检测并清除 datetime 全为 null 的旧版分钟 K 数据(迁移用)。"""
+    """檢測並清除 datetime 全為 null 的舊版分鐘 K 資料(遷移用)。"""
     minute_dir = repo.store.data_dir / "kline_minute"
     if not minute_dir.exists():
         return
@@ -576,7 +576,7 @@ def _cleanup_null_datetime_minute(repo: KlineRepository) -> None:
             "SELECT count(*) AS total, count(datetime) AS non_null FROM kline_minute"
         )
         if row and row[0] > 0 and (row[1] is None or row[1] == 0):
-            # 全部 datetime 为 null — 清除所有分钟 K parquet
+            # 全部 datetime 為 null — 清除所有分鐘 K parquet
             n = 0
             for f in minute_dir.rglob("*.parquet"):
                 f.unlink()
@@ -587,7 +587,7 @@ def _cleanup_null_datetime_minute(repo: KlineRepository) -> None:
 
 
 def _migrate_symbol_to_date_partition(repo: KlineRepository) -> None:
-    """将旧版 symbol= 分区迁移为 date= 分区。迁移完成后删除旧目录。"""
+    """將舊版 symbol= 分區遷移為 date= 分區。遷移完成後刪除舊目錄。"""
     minute_dir = repo.store.data_dir / "kline_minute"
     if not minute_dir.exists():
         return
@@ -611,7 +611,7 @@ def _migrate_symbol_to_date_partition(repo: KlineRepository) -> None:
                 pass
 
     if not all_frames:
-        # 数据全部不可用，直接删旧目录
+        # 資料全部不可用，直接刪舊目錄
         for d in old_dirs:
             d.mkdir(parents=True, exist_ok=True)
             for f in d.rglob("*"):
@@ -623,7 +623,7 @@ def _migrate_symbol_to_date_partition(repo: KlineRepository) -> None:
     combined = pl.concat(all_frames, how="diagonal_relaxed")
     combined = combined.unique(subset=["symbol", "datetime"], keep="last")
 
-    # 按日期写新分区
+    # 按日期寫新分區
     combined = combined.with_columns(pl.col("datetime").dt.date().alias("_trade_date"))
     for day_df in combined.partition_by("_trade_date"):
         trade_date = day_df["_trade_date"][0]
@@ -632,12 +632,12 @@ def _migrate_symbol_to_date_partition(repo: KlineRepository) -> None:
         day_df = day_df.drop("_trade_date").sort("symbol", "datetime")
         _atomic_write_parquet(day_df, out)
 
-    # 删旧目录
+    # 刪舊目錄
     for d in old_dirs:
         for f in d.rglob("*"):
             if f.is_file():
                 f.unlink()
-        # 移除空目录
+        # 移除空目錄
         try:
             d.rmdir()
         except OSError:
@@ -655,14 +655,14 @@ def sync_and_persist_minute(
     extend_backward: bool = False,
     force_full_days: bool = False,
 ) -> int:
-    """同步分钟 K 并存到 Parquet(前复权价格, SDK 端 adjust=qfq)。返回写入行数。
+    """同步分鐘 K 並存到 Parquet(前復權價格, SDK 端 adjust=qfq)。返回寫入行數。
 
-    使用 start_time / end_time 区间拉取, 确保所有标的覆盖同一时间段。
-    on_chunk_done(current, total) 每个 chunk 完成后回调。
-    force_full_days=True 时强制回溯 days 自然日 (不增量补, 用于个股补齐历史)。
+    使用 start_time / end_time 區間拉取, 確保所有標的覆蓋同一時間段。
+    on_chunk_done(current, total) 每個 chunk 完成後回調。
+    force_full_days=True 時強制回溯 days 自然日 (不增量補, 用於個股補齊歷史)。
     """
     minute_provider = preferences.get_minute_data_provider()
-    # resolver 调用统一走 _resolve_minute_provider, 与 _try_custom_minute 共用异常边界。
+    # resolver 呼叫統一走 _resolve_minute_provider, 與 _try_custom_minute 共用異常邊界。
     # Missing or failed custom sources remain unavailable; no implicit fallback.
     _, fallback, resolve_err = _resolve_minute_provider(minute_provider)
     minute_is_custom = not fallback
@@ -674,34 +674,34 @@ def sync_and_persist_minute(
     if not minute_is_custom:
         return 0
 
-    # 迁移:旧版 _normalize_minute 未转换 timestamp→datetime,导致全部 datetime 为 null
-    # 检测到后直接清除(这些数据无法使用)
+    # 遷移:舊版 _normalize_minute 未轉換 timestamp→datetime,導致全部 datetime 為 null
+    # 檢測到後直接清除(這些資料無法使用)
     _cleanup_null_datetime_minute(repo)
 
-    # 迁移:旧版按 symbol= 分区转为 date= 分区
+    # 遷移:舊版按 symbol= 分區轉為 date= 分區
     _migrate_symbol_to_date_partition(repo)
 
     now = datetime.now()
 
     if extend_backward:
-        # 向前扩展模式: 从本地最早数据往前补, 叠加已有数据避免缺口。
+        # 向前擴展模式: 從本地最早資料往前補, 疊加已有資料避免缺口。
         earliest_dt = _earliest_minute_datetime(repo)
-        # 按交易日换算自然日 (7/5 系数)。>41 交易日时 +10 天余量覆盖节假日。
-        # (分段由 sync_minute_batch 的 segment_trading_days 控制, 与此处的区间天数独立。)
+        # 按交易日換算自然日 (7/5 係數)。>41 交易日時 +10 天餘量覆蓋節假日。
+        # (分段由 sync_minute_batch 的 segment_trading_days 控制, 與此處的區間天數獨立。)
         calendar_days = int(days * 7 / 5) + (10 if days > 41 else 0)
         if earliest_dt:
             end_time = earliest_dt
             start_time = end_time - timedelta(days=calendar_days)
         else:
-            # 本地无数据 → 从今天往前拉
+            # 本地無資料 → 從今天往前拉
             start_time = now - timedelta(days=calendar_days)
             end_time = now
     else:
-        # 默认增量模式: 首次拉取回溯 N 天, 已有数据则从最新时间增量补到今天
-        # force_full_days=True: 强制回溯 days 自然日 (个股补齐历史, 不增量)
+        # 預設增量模式: 首次拉取回溯 N 天, 已有資料則從最新時間增量補到今天
+        # force_full_days=True: 強制回溯 days 自然日 (個股補齊歷史, 不增量)
         last_dt = _latest_minute_datetime(repo)
         if force_full_days:
-            # 按交易日换算自然日 (7/5 系数), 确保覆盖足够交易日
+            # 按交易日換算自然日 (7/5 係數), 確保覆蓋足夠交易日
             calendar_days = int(days * 7 / 5) + 5
             start_time = now - timedelta(days=calendar_days)
         elif last_dt:
@@ -718,14 +718,14 @@ def sync_and_persist_minute(
         default_rpm_when_unset=False,
     )
 
-    # 流式落盘: 每段拉完立即写盘, 内存峰值 = 单段 (而非全量)。
-    # 全量攒内存曾导致 1 年全市场分钟 K OOM 卡死 (3 亿行 / 数十 GB)。
+    # 流式落盤: 每段拉完立即寫盤, 記憶體峰值 = 單段 (而非全量)。
+    # 全量攢記憶體曾導致 1 年全市場分鐘 K OOM 卡死 (3 億行 / 數十 GB)。
     minute_dir = repo.store.data_dir / "kline_minute"
-    written_box = [0]  # list 闭包, 绕过 Python 闭包外层赋值
+    written_box = [0]  # list 閉包, 繞過 Python 閉包外層賦值
 
     def _persist(seg_df: pl.DataFrame) -> None:
-        # 单股自动补齐可能与另一个补齐请求同时写同一日期分区。Windows 不允许
-        # 替换仍被另一写入占用的临时文件,因此读-改-写必须复用仓库写锁。
+        # 單股自動補齊可能與另一個補齊請求同時寫同一日期分區。Windows 不允許
+        # 替換仍被另一寫入佔用的臨時文件,因此讀-改-寫必須複用倉庫寫鎖。
         with repo._write_lock:
             written_box[0] += _write_minute_partition(seg_df, minute_dir)
 
@@ -743,7 +743,7 @@ def sync_and_persist_minute(
         return 0
     written = written_box[0]
 
-    # 刷新视图
+    # 刷新視圖
     try:
         d = repo.store.data_dir.as_posix()
         repo.db.execute(

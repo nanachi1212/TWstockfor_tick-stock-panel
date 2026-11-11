@@ -13,9 +13,9 @@ import {
   getFrontendExtensionRoutes,
 } from './extensions/registry'
 
-// 代码分割: 页面全部 lazy 加载, 避免首屏打包所有页面 (ECharts / lightweight-charts /
-// framer-motion 等重库) → 大幅减小首屏 bundle。命名导出用 .then 映射为 default。
-// Layout / Onboarding / Auth 为应用外壳与入口, 保持同步加载。
+// 代碼分割: 頁面全部 lazy 載入, 避免首屏打包所有頁面 (ECharts / lightweight-charts /
+// framer-motion 等重庫) → 大幅減小首屏 bundle。命名匯出用 .then 映射為 default。
+// Layout / Onboarding / Auth 為應用外殼與入口, 保持同步載入。
 const Watchlist = lazy(() => import('./pages/Watchlist').then(m => ({ default: m.Watchlist })))
 const Monitor = lazy(() => import('./pages/Monitor').then(m => ({ default: m.Monitor })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -77,18 +77,18 @@ finalizeFrontendExtensions(CORE_ROUTE_PATHS)
 const frontendExtensionRoutes = getFrontendExtensionRoutes()
 const frontendExtensionErrors = getFrontendExtensionLoadErrors()
 if (frontendExtensionErrors.length > 0) {
-  console.error('部分前端扩展加载失败', frontendExtensionErrors)
+  console.error('部分前端擴展載入失敗', frontendExtensionErrors)
 }
 
-// 首次使用守卫 —— 未完成向导则重定向到 /onboarding
-// 只挂在根路由上;/onboarding 本身不被守卫,避免循环重定向。
-// settings 由 Layout 预取,守卫判定不产生额外请求。
+// 首次使用守衛 —— 未完成嚮導則重定向到 /onboarding
+// 只掛在根路由上;/onboarding 本身不被守衛,避免循環重定向。
+// settings 由 Layout 預取,守衛判定不產生額外請求。
 function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const settings = useSettings()
 
-  // 仅首次加载(本地无缓存)时显示占位。
-  // 后台重取 (isFetching) 时本地已有上一份缓存可用, 直接放行, 避免切页时整屏 logo 闪烁。
-  // 防误重定向已由 Onboarding/AI 等处 invalidate 前的 setQueryData 同步缓存兜底。
+  // 僅首次載入(本地無快取)時顯示佔位。
+  // 後台重取 (isFetching) 時本地已有上一份快取可用, 直接放行, 避免切頁時整屏 logo 閃爍。
+  // 防誤重定向已由 Onboarding/AI 等處 invalidate 前的 setQueryData 同步快取兜底。
   if (settings.isLoading) {
     return (
       <div className="min-h-screen bg-base grid place-items-center">
@@ -100,7 +100,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // 查询出错或字段缺失时不拦截 —— 宁可放行,也不把用户卡在空白页
+  // 查詢出錯或字段缺失時不攔截 —— 寧可放行,也不把使用者卡在空白頁
   if (settings.data && settings.data.onboarding_completed === false) {
     return <Navigate to="/onboarding" replace />
   }
@@ -143,9 +143,9 @@ export const router = createBrowserRouter([
       { path: 'monitor', element: <Monitor /> },
       { path: 'branding', element: <Branding /> },
       { path: 'settings', element: <Settings /> },
-      // 隐藏路由：开发者工具（不暴露在菜单，仅供调试）
+      // 隱藏路由：開發者工具（不暴露在選單，僅供調試）
       { path: 'dev', element: <Dev /> },
-      // 旧路由兼容重定向
+      // 舊路由相容重定向
       { path: 'settings/keys', element: <Navigate to="/settings?tab=data-sources" replace /> },
       { path: 'settings/ai', element: <Navigate to="/settings?tab=ai" replace /> },
       { path: 'settings/queries', element: <Navigate to="/settings?tab=queries" replace /> },

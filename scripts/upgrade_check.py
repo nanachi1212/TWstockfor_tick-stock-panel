@@ -66,14 +66,14 @@ def _print_paths(title: str, paths: list[str]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="只读检查当前二开分支升级到目标 Git ref 时的源码重叠与文本冲突",
+        description="只讀檢查當前二開分支升級到目標 Git ref 時的源碼重疊與文本衝突",
     )
-    parser.add_argument("target", help="目标 Tag/分支/commit, 例如 v0.3.1")
+    parser.add_argument("target", help="目標 Tag/分支/commit, 例如 v0.3.1")
     parser.add_argument(
         "--repo",
         type=Path,
         default=Path.cwd(),
-        help="仓库路径, 默认当前目录",
+        help="倉庫路徑, 預設當前目錄",
     )
     args = parser.parse_args(argv)
 
@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         target = _resolve_commit(root, args.target)
         base = _git(root, "merge-base", current, target).stdout.strip()
         if not base:
-            raise RuntimeError("当前分支与目标版本没有共同基线")
+            raise RuntimeError("當前分支與目標版本沒有共同基線")
 
         current_paths = _lines(_git(root, "diff", "--name-only", f"{base}..{current}"))
         target_paths = _lines(_git(root, "diff", "--name-only", f"{base}..{target}"))
@@ -91,29 +91,29 @@ def main(argv: list[str] | None = None) -> int:
         conflicts = _merge_tree_conflicts(root, base, current, target)
         dirty = sorted(_lines(_git(root, "status", "--short")))
 
-        print("Nanachi 的台股監控看板 二开升级预检")
-        print(f"仓库: {root}")
-        print(f"当前: {current[:12]}")
-        print(f"目标: {args.target} ({target[:12]})")
-        print(f"共同基线: {base[:12]}")
-        print(f"当前分支修改文件: {len(current_paths)}")
-        print(f"目标版本修改文件: {len(target_paths)}")
-        _print_paths("双方修改的同一文件", overlap)
-        _print_paths("Git 三方预演识别的文本冲突", conflicts)
+        print("Nanachi 的台股監控看板 二開升級預檢")
+        print(f"倉庫: {root}")
+        print(f"當前: {current[:12]}")
+        print(f"目標: {args.target} ({target[:12]})")
+        print(f"共同基線: {base[:12]}")
+        print(f"當前分支修改文件: {len(current_paths)}")
+        print(f"目標版本修改文件: {len(target_paths)}")
+        _print_paths("雙方修改的同一文件", overlap)
+        _print_paths("Git 三方預演識別的文本衝突", conflicts)
 
         if dirty:
-            print(f"\n未提交工作区条目: {len(dirty)}")
-            print("  注意: 未提交内容不会进入 Git 三方预演, 请先提交到临时分支后再复检。")
+            print(f"\n未提交工作區條目: {len(dirty)}")
+            print("  注意: 未提交內容不會進入 Git 三方預演, 請先提交到臨時分支後再複檢。")
         if conflicts:
-            print("\n结论: 需要人工解决文本冲突并执行完整回归。")
+            print("\n結論: 需要人工解決文本衝突並執行完整迴歸。")
             return 2
         if overlap:
-            print("\n结论: Git 未发现文本冲突, 但重叠文件需要检查语义兼容和测试。")
+            print("\n結論: Git 未發現文本衝突, 但重疊文件需要檢查語義相容和測試。")
             return 0
-        print("\n结论: 未发现源码重叠; 仍需执行目标版本的验证矩阵。")
+        print("\n結論: 未發現源碼重疊; 仍需執行目標版本的驗證矩陣。")
         return 0
     except (OSError, RuntimeError) as exc:
-        print(f"升级预检失败: {exc}", file=sys.stderr)
+        print(f"升級預檢失敗: {exc}", file=sys.stderr)
         return 1
 
 

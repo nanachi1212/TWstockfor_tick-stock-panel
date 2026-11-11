@@ -1,8 +1,8 @@
-"""自定义源实时行情涨跌幅单位自适应归一测试。
+"""自定義源即時行情漲跌幅單位自適應歸一測試。
 
-契约要求 change_pct/amplitude/turnover_rate 用小数制 (0.0366 = 3.66%),
-但不少第三方接口(如 a-stock-data)直接返回 3.66 表示 3.66%。未归一会把
-行业/概念统计与前端 x100 展示整体放大 100 倍(用户反馈)。
+契約要求 change_pct/amplitude/turnover_rate 用小數制 (0.0366 = 3.66%),
+但不少第三方接口(如 a-stock-data)直接返回 3.66 表示 3.66%。未歸一會把
+行業/概念統計與前端 x100 展示整體放大 100 倍(使用者反饋)。
 """
 from __future__ import annotations
 
@@ -41,16 +41,16 @@ def test_fraction_unit_batch_untouched():
 
 
 def test_limit_up_fraction_30cm_not_divided():
-    # 北交所 30% 涨跌停的小数制极值不应被误判为百分制
+    # 北交所 30% 漲跌停的小數制極值不應被誤判為百分制
     out = _normalize_pct_units(_df([0.30, 0.29, 0.28, 0.27, 0.26]))
     assert out["change_pct"].to_list() == [0.30, 0.29, 0.28, 0.27, 0.26]
 
 
 def test_small_batch_uses_max():
-    # <5 样本退用最大值: 百分制小盘整批归一
+    # <5 樣本退用最大值: 百分制小盤整批歸一
     out = _normalize_pct_units(_df([0.5, 0.2]))
     assert out["change_pct"].to_list() == [pytest.approx(0.005), pytest.approx(0.002)]
-    # 小数制小样本不动
+    # 小數制小樣本不動
     out2 = _normalize_pct_units(_df([0.005, 0.002]))
     assert out2["change_pct"].to_list() == [0.005, 0.002]
 

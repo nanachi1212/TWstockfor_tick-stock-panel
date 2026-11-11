@@ -14,7 +14,7 @@ which market a row belongs to:
 
   - MA / volume MA: simple rolling mean (pipeline.py ``rolling_mean``).
   - Momentum:  ``close / close.shift(n) - 1`` — a fraction, e.g. 0.05 = 5%
-    (pipeline.py: "momentum_5d: 5日动量(涨跌幅小数)").
+    (pipeline.py: "momentum_5d: 5日動量(漲跌幅小數)").
   - RSI:  Wilder's smoothed RSI — EMA(gain)/EMA(loss) with alpha=1/14,
     adjust=False (pipeline.py ``rsi_14``). This is a *different* formula
     from the simple SMA-based RSI already used in
@@ -39,9 +39,9 @@ import polars as pl
 
 from app.taiwan.adjust import PROVENANCE_COLUMNS, validate_feature_window
 
-# 需要 14 次涨跌 diff => 至少 15 根收盘价才不算"纯 warm-up"。
+# 需要 14 次漲跌 diff => 至少 15 根收盤價才不算"純 warm-up"。
 MIN_BARS_RSI_14 = 15
-# 慢线 EMA(26) 的常规经验暖机长度 + 信号线 EMA(9) 再暖机一轮。
+# 慢線 EMA(26) 的常規經驗暖機長度 + 信號線 EMA(9) 再暖機一輪。
 MIN_BARS_MACD = 35
 
 def wilder_rsi_expr(period: int = 14, close: str = "close", by: str = "symbol") -> pl.Expr:
@@ -162,7 +162,7 @@ def compute_taiwan_indicator_panel(
         .alias("rsi_14")
     )
 
-    # MACD(12, 26, 9) — 与 pipeline.py / backtest/matrix.py 一致的参数。
+    # MACD(12, 26, 9) — 與 pipeline.py / backtest/matrix.py 一致的參數。
     ema12 = price.ewm_mean(alpha=_ema_alpha(12), adjust=False).over("symbol")
     ema26 = price.ewm_mean(alpha=_ema_alpha(26), adjust=False).over("symbol")
     df = df.with_columns((ema12 - ema26).alias("_macd_dif_raw"))
@@ -210,16 +210,16 @@ def _sanitize(frame: pl.DataFrame, cols: tuple[str, ...]) -> pl.DataFrame:
 
 
 def compute_taiwan_daily_indicators(history: pl.DataFrame) -> pl.DataFrame:
-    """算出每个 symbol 最新一天的技术指标快照。
+    """算出每個 symbol 最新一天的技術指標快照。
 
-    history: 至少含 symbol/date/close/volume 列的日线历史 (通常是
-    TaiwanDailyStore.read_range() 一次批量取回的多 symbol 数据, 由调用方
-    决定回看窗口 —— 本函数不读盘, 不打网络, 纯计算)。
+    history: 至少含 symbol/date/close/volume 列的日線歷史 (通常是
+    TaiwanDailyStore.read_range() 一次批量取回的多 symbol 資料, 由呼叫方
+    決定回看窗口 —— 本函式不讀盤, 不打網路, 純計算)。
 
-    返回: 每个 symbol 一行 (该 symbol 历史中日期最大的一天), 含
+    返回: 每個 symbol 一行 (該 symbol 歷史中日期最大的一天), 含
     ma5/ma10/ma20/ma60/vol_ma5/vol_ma10/rsi_14/macd_dif/macd_dea/macd_hist/
-    momentum_5d/momentum_20d。某 symbol 历史不足以支撑某项指标时, 该欄位为
-    None —— 不是 0, 不是 NaN, 不是提前暖机的假数字。
+    momentum_5d/momentum_20d。某 symbol 歷史不足以支撐某項指標時, 該欄位為
+    None —— 不是 0, 不是 NaN, 不是提前暖機的假數字。
 
     Thin wrapper over :func:`compute_taiwan_indicator_panel` — the latest row of
     the panel. Output columns and semantics are unchanged.

@@ -125,7 +125,7 @@ def classify_etf_provenance(
         elif "槓桿" in f_type or "反向" in f_type:
             cat = "inverse" if multiplier < 0 else "leveraged"
             # Authoritative underlying index examination
-            if any(kw in idx_name for kw in ["臺灣", "台湾", "加權", "櫃買", "TPEx", "TWSE", "台50", "藍籌30"]) and not any(kw in idx_name for kw in ["中國", "S&P", "美", "日", "海外"]):
+            if any(kw in idx_name for kw in ["臺灣", "台灣", "加權", "櫃買", "TPEx", "TWSE", "台50", "藍籌30"]) and not any(kw in idx_name for kw in ["中國", "S&P", "美", "日", "海外"]):
                 scope = "domestic"
             elif any(kw in idx_name for kw in ["上証", "滬深", "S&P", "道瓊", "NASDAQ", "日經", "東証", "美債", "公債", "印度", "黃金", "原油", "香港", "恒生", "中國", "富時"]):
                 scope = "foreign"

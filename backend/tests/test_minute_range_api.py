@@ -1,4 +1,4 @@
-"""多日分时 API 契约。"""
+"""多日分時 API 契約。"""
 
 import asyncio
 from datetime import date, datetime
@@ -26,7 +26,7 @@ def _request(repo=None, capset=None):
 def test_minute_range_returns_latest_sessions_with_previous_closes():
     repo = MagicMock()
     repo.resolve_asset_type.return_value = "stock"
-    # _get_stock_info 走 instruments 内存缓存 (不再走 execute_one DuckDB 查询)
+    # _get_stock_info 走 instruments 記憶體快取 (不再走 execute_one DuckDB 查詢)
     repo.get_instruments.return_value = pl.DataFrame({
         "symbol": ["2330.TWSE"],
         "name": ["台積電"],
@@ -106,7 +106,7 @@ def test_sync_minute_single_uses_requested_days(monkeypatch):
 
 
 def test_sync_minute_single_rejects_invalid_days():
-    with pytest.raises(HTTPException, match="days 必须在 1 到 30 之间"):
+    with pytest.raises(HTTPException, match="days 必須在 1 到 30 之間"):
         asyncio.run(kline_api.sync_minute_single(
             _request(),
             {"symbol": "2330.TWSE", "days": 0},

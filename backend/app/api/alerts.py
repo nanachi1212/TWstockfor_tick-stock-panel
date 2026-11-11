@@ -23,10 +23,10 @@ def list_alerts(
     type: str | None = None,
     ext_columns: str | None = None,
 ):
-    """查询触发记录 (时间倒序)。
+    """查詢觸發記錄 (時間倒序)。
 
-    ext_columns: 逗号分隔的 "configId.fieldName", 传入后按 symbol 富化行业/概念等 ext 字段,
-    每条记录附带 {configId}__{fieldName} 键 (与 watchlist/screener 一致)。
+    ext_columns: 逗號分隔的 "configId.fieldName", 傳入後按 symbol 富化行業/概念等 ext 字段,
+    每條記錄附帶 {configId}__{fieldName} 鍵 (與 watchlist/screener 一致)。
     """
     events = alert_store.list_recent(
         _data_dir(request), days=days, limit=limit, source=source, type=type,
@@ -37,7 +37,7 @@ def list_alerts(
 
 @router.delete("")
 def clear_alerts(request: Request):
-    """清空全部触发记录。"""
+    """清空全部觸發記錄。"""
     n = alert_store.clear(_data_dir(request))
     return {"ok": True, "cleared": n}
 
@@ -80,7 +80,7 @@ def delete_alert_by_id(alert_id: str, request: Request):
 
 @router.delete("/{ts}")
 def delete_alert(ts: int, request: Request):
-    """删除单条触发记录 (按 ts 毫秒时间戳)。"""
+    """刪除單條觸發記錄 (按 ts 毫秒時間戳)。"""
     deleted = alert_store.delete_one(_data_dir(request), ts)
     if not deleted:
         raise HTTPException(status_code=404, detail="紀錄不存在")

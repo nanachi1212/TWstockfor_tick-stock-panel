@@ -135,17 +135,17 @@ def test_normalize_openai_base_url_strips_chat_completions_path():
 
 
 def test_normalize_openai_base_url_preserves_glm_v4():
-    """智谱 GLM 用 /api/paas/v4, 不能强制补成 /v4/v1 (会 404)。"""
+    """智譜 GLM 用 /api/paas/v4, 不能強制補成 /v4/v1 (會 404)。"""
     assert normalize_openai_base_url("https://open.bigmodel.cn/api/paas/v4") == "https://open.bigmodel.cn/api/paas/v4"
 
 
 def test_normalize_openai_base_url_strips_chat_completions_from_glm_v4():
-    """用户填完整 /v4/chat/completions 时, 去掉后缀归一化为 /v4。"""
+    """使用者填完整 /v4/chat/completions 時, 去掉後綴歸一化為 /v4。"""
     assert normalize_openai_base_url("https://open.bigmodel.cn/api/paas/v4/chat/completions") == "https://open.bigmodel.cn/api/paas/v4"
 
 
 def test_normalize_openai_base_url_preserves_other_version_segments():
-    """其它非 v1 版本号 (/v2 等) 也应保持原样。"""
+    """其它非 v1 版本號 (/v2 等) 也應保持原樣。"""
     assert normalize_openai_base_url("https://example.com/api/v2") == "https://example.com/api/v2"
 
 
@@ -164,13 +164,13 @@ def test_format_openai_error_hides_html_gateway_body():
 
     message = _format_openai_error(exc)
 
-    assert message == "AI 服务请求失败(504): AI 上游服务超时, 请稍后重试或检查 AI Base URL / 网络"
+    assert message == "AI 服務請求失敗(504): AI 上游服務超時, 請稍後重試或檢查 AI Base URL / 網路"
     assert "html" not in message.lower()
     assert "Gateway Timeout" not in message
 
 
 def test_format_openai_error_prefers_upstream_detail_when_available():
-    """有可读的上游 detail 时优先透出, 而不是用 400 通用文案吞掉。"""
+    """有可讀的上游 detail 時優先透出, 而不是用 400 通用文案吞掉。"""
     response = httpx.Response(
         400,
         json={"error": {"message": "model context length exceeded"}},
@@ -184,11 +184,11 @@ def test_format_openai_error_prefers_upstream_detail_when_available():
 
     message = _format_openai_error(exc)
 
-    assert message == "AI 服务请求失败(400): model context length exceeded"
+    assert message == "AI 服務請求失敗(400): model context length exceeded"
 
 
 def test_format_openai_error_falls_back_to_status_message_without_detail():
-    """上游无可读 detail (如 HTML 网关页) 时, 才回落到 400 通用文案。"""
+    """上游無可讀 detail (如 HTML 網關頁) 時, 才回落到 400 通用文案。"""
     response = httpx.Response(
         400,
         headers={"content-type": "text/html; charset=utf-8"},
@@ -199,11 +199,11 @@ def test_format_openai_error_falls_back_to_status_message_without_detail():
 
     message = _format_openai_error(exc)
 
-    assert message == "AI 服务请求失败(400): 请求参数无效, 请检查模型名称和上下文长度"
+    assert message == "AI 服務請求失敗(400): 請求參數無效, 請檢查模型名稱和上下文長度"
 
 
 def test_is_temperature_rejected_matches_moonshot_message():
-    """Moonshot 对 reasoning 模型报 'only 1 is allowed for this model'。"""
+    """Moonshot 對 reasoning 模型報 'only 1 is allowed for this model'。"""
     response = httpx.Response(
         400,
         json={"error": {"message": "invalid temperature: only 1 is allowed for this model"}},
@@ -254,7 +254,7 @@ def test_optional_openai_params_use_targeted_400_fallbacks():
 
 
 def test_is_temperature_rejected_false_for_other_400():
-    """非 temperature 相关的 400 (如 model not found) 不应触发去 temperature 重试。"""
+    """非 temperature 相關的 400 (如 model not found) 不應觸發去 temperature 重試。"""
     response = httpx.Response(
         400,
         json={"error": {"message": "model not found"}},
@@ -304,12 +304,12 @@ def test_openai_kwargs_include_configured_reasoning_effort(monkeypatch):
 
 
 def test_openai_kwargs_none_max_tokens_omits_limit():
-    """max_tokens=None → 不传上限(推理模型思考 token 计入预算, 分析类调用放开)。"""
+    """max_tokens=None → 不傳上限(推理模型思考 token 計入預算, 分析類呼叫放開)。"""
     kwargs = ai_provider._openai_kwargs(temperature=0.5, max_tokens=None)
     assert "max_tokens" not in kwargs
     assert kwargs.get("temperature") == 0.5
 
-    # 显式数值仍正常下发(策略标题生成等小任务依赖)
+    # 顯式數值仍正常下發(策略標題生成等小任務依賴)
     assert ai_provider._openai_kwargs(temperature=None, max_tokens=8) == {"max_tokens": 8}
 
 
@@ -597,11 +597,11 @@ def test_ai_settings_keep_provider_models_separate(monkeypatch):
     assert stored["ai_model"] == "new-custom-model"
     assert stored["ai_reasoning_effort"] == "vendor-high"
     assert stored["ai_codex_model"] == "gpt-5.6-sol"
-# ── 输出上限 / 上下文窗口配置 ─────────────────────────────────
+# ── 輸出上限 / 上下文窗口配置 ─────────────────────────────────
 
 
 def test_resolve_max_tokens_none_stays_unlimited(monkeypatch):
-    """None = 不传上限(推理模型放开) — 不能被映射成配置上限, 见 main 语义。"""
+    """None = 不傳上限(推理模型放開) — 不能被映射成配置上限, 見 main 語義。"""
     monkeypatch.setattr(ai_provider, "current_ai_max_output_tokens", lambda: 8192)
     assert ai_provider._resolve_max_tokens(None) is None
 
@@ -627,7 +627,7 @@ def test_estimate_input_tokens_counts_cjk_and_ascii():
 
 def test_check_input_budget_raises_when_over_window(monkeypatch):
     monkeypatch.setattr(ai_provider, "current_ai_context_window", lambda: 100)
-    big = [{"role": "user", "content": "中" * 200}]  # 估算输入 ~200 tokens
+    big = [{"role": "user", "content": "中" * 200}]  # 估算輸入 ~200 tokens
     with pytest.raises(ValueError, match="上下文窗口"):
         ai_provider._check_input_budget(big, max_tokens=3000)
 
@@ -635,7 +635,7 @@ def test_check_input_budget_raises_when_over_window(monkeypatch):
 def test_check_input_budget_passes_within_window(monkeypatch):
     monkeypatch.setattr(ai_provider, "current_ai_context_window", lambda: 64000)
     small = [{"role": "user", "content": "中" * 100}]
-    # 不抛异常
+    # 不拋異常
     ai_provider._check_input_budget(small, max_tokens=2000)
 
 
@@ -660,7 +660,7 @@ async def test_generate_ai_text_clamps_max_tokens_to_config_cap(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_ai_text_default_cap_and_none_passthrough(monkeypatch):
-    """默认 3000 且被钳制; 显式 None 贯穿为不限制。"""
+    """預設 3000 且被鉗制; 顯式 None 貫穿為不限制。"""
     captured: dict = {}
     monkeypatch.setattr(ai_provider, "is_codex_cli_provider", lambda: False)
     monkeypatch.setattr(ai_provider, "current_ai_max_output_tokens", lambda: 4000)
@@ -672,11 +672,11 @@ async def test_generate_ai_text_default_cap_and_none_passthrough(monkeypatch):
 
     monkeypatch.setattr(ai_provider, "_run_openai_once", fake_run)
     await ai_provider.generate_ai_text([{"role": "user", "content": "hi"}])
-    assert captured["max_tokens"] == 3000  # 默认值, 未超 cap 原样下发
+    assert captured["max_tokens"] == 3000  # 預設值, 未超 cap 原樣下發
     await ai_provider.generate_ai_text(
         [{"role": "user", "content": "hi"}], max_tokens=None,
     )
-    assert captured["max_tokens"] is None  # None = 推理模型放开, 不钳制
+    assert captured["max_tokens"] is None  # None = 推理模型放開, 不鉗制
 
 
 def test_save_ai_settings_persists_token_sizes(monkeypatch):
@@ -807,7 +807,7 @@ def test_codex_config_preserves_remote_provider_without_docker_rewrite(monkeypat
     assert provider["requires_openai_auth"] is True
 
 
-# ---- Codex CLI 可用性检测 (实跑 --version, 不再仅 which) ----
+# ---- Codex CLI 可用性檢測 (實跑 --version, 不再僅 which) ----
 
 
 class _FakeCompleted:
@@ -818,7 +818,7 @@ class _FakeCompleted:
 
 
 def test_codex_cli_available_runs_version_check(monkeypatch):
-    """实跑 --version: 能发现 npm 壳存在但原生二进制跑不起来的情况。"""
+    """實跑 --version: 能發現 npm 殼存在但原生二進制跑不起來的情況。"""
     calls: list[list[str]] = []
 
     def fake_run(args, **kwargs):
@@ -839,7 +839,7 @@ def test_codex_cli_available_false_when_version_fails(monkeypatch):
         ai_provider.subprocess, "run", lambda a, **k: _FakeCompleted(1)
     )
     assert ai_provider.codex_cli_available() is False
-    # 壳报 "Codex CLI not available" 这类非零退出同样判定不可用
+    # 殼報 "Codex CLI not available" 這類非零退出同樣判定不可用
     monkeypatch.setattr(
         ai_provider.subprocess,
         "run",
@@ -858,7 +858,7 @@ def test_codex_cli_available_false_when_command_missing(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_codex_exec_args_exclude_ephemeral(monkeypatch):
-    """exec 参数不含 --ephemeral: 老版本 codex(如 0.58)无此参数, 传了直接报错。"""
+    """exec 參數不含 --ephemeral: 老版本 codex(如 0.58)無此參數, 傳了直接報錯。"""
     captured: dict = {}
 
     def fake_run_process(args, prompt, env, timeout):

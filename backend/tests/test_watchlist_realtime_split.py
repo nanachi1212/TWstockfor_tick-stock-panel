@@ -1,4 +1,4 @@
-"""Free 档自选实时资产分流测试。"""
+"""Free 檔自選即時資產分流測試。"""
 from app.services.quote_service import QuoteService
 
 
@@ -12,7 +12,7 @@ def test_split_records_by_asset():
     assert [r["symbol"] for r in index] == ["000001.SH"]
     assert [r["symbol"] for r in etf] == ["510300.SH"]
     assert [r["symbol"] for r in stock] == ["600000.SH"]
-    # etf 优先于 index (与 resolve_asset_type 判定顺序一致)
+    # etf 優先於 index (與 resolve_asset_type 判定順序一致)
     index2, etf2, stock2 = QuoteService._split_records_by_asset(
         [{"symbol": "X"}], {"X"}, {"X"},
     )

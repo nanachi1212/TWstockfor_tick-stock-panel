@@ -1,8 +1,8 @@
-"""换手率历史股本计算 + Data Manager 财务数据统计。
+"""週轉率歷史股本計算 + Data Manager 財務資料統計。
 
-注: 原 A 股「财务数据同步」产品 (services/financial_sync.py 的 FinancialScheduler
-及 sync_* 系列) 已在 Phase 8B-5.3 移除; 本文件保留的是仍被 turnover_rate 指标
-(app.indicators.pipeline) 与 Data Manager (app.api.data) 使用的通用/台股测试。
+注: 原 A 股「財務資料同步」產品 (services/financial_sync.py 的 FinancialScheduler
+及 sync_* 系列) 已在 Phase 8B-5.3 移除; 本文件保留的是仍被 turnover_rate 指標
+(app.indicators.pipeline) 與 Data Manager (app.api.data) 使用的通用/台股測試。
 """
 from __future__ import annotations
 

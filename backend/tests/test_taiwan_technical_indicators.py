@@ -24,7 +24,7 @@ N_DAYS = 70
 
 
 def _make_closes(n: int) -> list[float]:
-    """确定性但非单调的收盘价序列 (无随机种子, 结果可重现)。"""
+    """確定性但非單調的收盤價序列 (無隨機種子, 結果可重現)。"""
     return [round(100.0 + i * 0.5 + 3.0 * math.sin(i / 3.0), 4) for i in range(n)]
 
 
@@ -47,7 +47,7 @@ def _make_history(symbol: str, closes: list[float], volumes: list[float]) -> pl.
     })
 
 
-# ===== 独立参考实现 (与 technical_indicators.py 的公式文档一一对应) =====
+# ===== 獨立參考實現 (與 technical_indicators.py 的公式文件一一對應) =====
 
 def _ref_ema(values: list[float], alpha: float) -> list[float]:
     out: list[float] = []
@@ -123,7 +123,7 @@ def test_rsi14_matches_wilder_reference():
 
     expected_rsi = _ref_rsi14(closes)[-1]
     assert out["rsi_14"] == pytest.approx(expected_rsi, abs=1e-6)
-    # sanity: RSI 必须落在 [0, 100]
+    # sanity: RSI 必須落在 [0, 100]
     assert 0.0 <= out["rsi_14"] <= 100.0
 
 
@@ -139,7 +139,7 @@ def test_macd_dif_dea_hist_match_reference():
     assert out["macd_dif"] == pytest.approx(dif[-1], abs=1e-6)
     assert out["macd_dea"] == pytest.approx(dea[-1], abs=1e-6)
     assert out["macd_hist"] == pytest.approx(hist[-1], abs=1e-6)
-    # hist 定义恒等式: hist == (dif - dea) * 2
+    # hist 定義恆等式: hist == (dif - dea) * 2
     assert out["macd_hist"] == pytest.approx((out["macd_dif"] - out["macd_dea"]) * 2.0)
 
 
@@ -155,8 +155,8 @@ def test_momentum_5d_20d_are_fractions_not_percentages():
     expected_20d = closes[-1] / closes[-21] - 1.0
     assert out["momentum_5d"] == pytest.approx(expected_5d)
     assert out["momentum_20d"] == pytest.approx(expected_20d)
-    # 契约是小数 (0.0x), 不是百分比数值(x.x) —— 与 pipeline.py momentum_5d 一致,
-    # 用量级粗略断言防止再犯 Phase 8B-5.0.4 抓到的 change_pct 单位错误。
+    # 契約是小數 (0.0x), 不是百分比數值(x.x) —— 與 pipeline.py momentum_5d 一致,
+    # 用量級粗略斷言防止再犯 Phase 8B-5.0.4 抓到的 change_pct 單位錯誤。
     assert abs(out["momentum_5d"]) < 1.0
     assert abs(out["momentum_20d"]) < 1.0
 
@@ -164,7 +164,7 @@ def test_momentum_5d_20d_are_fractions_not_percentages():
 # ===== Insufficient history =====
 
 def test_insufficient_history_returns_null_not_zero_or_nan():
-    """只有 3 天数据: 所有指标都应是 None, 不是 0 / NaN / 假暖机值。"""
+    """只有 3 天資料: 所有指標都應是 None, 不是 0 / NaN / 假暖機值。"""
     closes = _make_closes(3)
     volumes = _make_volumes(3)
     history = _make_history("2330.TWSE", closes, volumes)
@@ -173,11 +173,11 @@ def test_insufficient_history_returns_null_not_zero_or_nan():
     for field in ("ma5", "ma10", "ma20", "ma60", "vol_ma5", "vol_ma10",
                   "rsi_14", "macd_dif", "macd_dea", "macd_hist",
                   "momentum_5d", "momentum_20d"):
-        assert out[field] is None, f"{field} 应为 None (仅 3 天历史), 实际: {out[field]}"
+        assert out[field] is None, f"{field} 應為 None (僅 3 天歷史), 實際: {out[field]}"
 
 
 def test_partial_history_only_fills_supported_indicators():
-    """12 天数据: ma5/ma10 应有值, ma20/ma60/rsi14/macd 仍应为 None。"""
+    """12 天資料: ma5/ma10 應有值, ma20/ma60/rsi14/macd 仍應為 None。"""
     closes = _make_closes(12)
     volumes = _make_volumes(12)
     history = _make_history("2330.TWSE", closes, volumes)
@@ -187,19 +187,19 @@ def test_partial_history_only_fills_supported_indicators():
     assert out["ma10"] is not None
     assert out["ma20"] is None
     assert out["ma60"] is None
-    assert out["rsi_14"] is None, "12 天 < MIN_BARS_RSI_14, 不该给 RSI"
-    assert out["macd_dif"] is None, "12 天 < MIN_BARS_MACD, 不该给 MACD"
+    assert out["rsi_14"] is None, "12 天 < MIN_BARS_RSI_14, 不該給 RSI"
+    assert out["macd_dif"] is None, "12 天 < MIN_BARS_MACD, 不該給 MACD"
     assert out["momentum_5d"] is not None
-    assert out["momentum_20d"] is None, "只有 12 天, close.shift(20) 必为 null"
+    assert out["momentum_20d"] is None, "只有 12 天, close.shift(20) 必為 null"
 
 
 def test_min_bars_thresholds_are_as_documented():
-    """RSI/MACD 的最小根数门槛应与模块常量一致(回归保护, 避免悄悄改动)。"""
+    """RSI/MACD 的最小根數門檻應與模組常量一致(迴歸保護, 避免悄悄改動)。"""
     assert MIN_BARS_RSI_14 == 15
     assert MIN_BARS_MACD == 35
 
 
-# ===== ETF / TPEx: 同一条 flow, 不因 instrument_type / exchange 分叉 =====
+# ===== ETF / TPEx: 同一條 flow, 不因 instrument_type / exchange 分叉 =====
 
 def test_etf_symbol_goes_through_same_indicator_flow():
     closes = _make_closes(N_DAYS)
@@ -221,7 +221,7 @@ def test_tpex_symbol_goes_through_same_indicator_flow():
     assert out["macd_dif"] == pytest.approx(dif[-1], abs=1e-6)
 
 
-# ===== 多 symbol 批次: 互不串号, 一次计算 =====
+# ===== 多 symbol 批次: 互不串號, 一次計算 =====
 
 def test_batch_multiple_symbols_do_not_cross_contaminate():
     closes_a = _make_closes(N_DAYS)
@@ -246,9 +246,9 @@ def test_empty_history_returns_empty_dataframe_not_error():
 
 
 def test_no_nan_or_infinite_values_in_output():
-    """公式的除 0 保护 (1e-12) 理论上不该产生 NaN/Inf, 这里做防御性回归。"""
+    """公式的除 0 保護 (1e-12) 理論上不該產生 NaN/Inf, 這裡做防禦性迴歸。"""
     closes = _make_closes(N_DAYS)
-    volumes = [0.0] * N_DAYS  # 零成交量边界情况
+    volumes = [0.0] * N_DAYS  # 零成交量邊界情況
     history = _make_history("2330.TWSE", closes, volumes)
     out = compute_taiwan_daily_indicators(history).to_dicts()[0]
     for key, value in out.items():

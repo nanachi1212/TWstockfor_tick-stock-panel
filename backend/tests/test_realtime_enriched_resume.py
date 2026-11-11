@@ -171,7 +171,7 @@ def test_realtime_enriched_keeps_rows_without_history_and_limits_technical_field
     })
     instruments = pl.DataFrame({
         "symbol": ["600001.SH", "000820.SZ", "001000.SZ", "600002.SH"],
-        "name": ["已有历史", "复牌股票", "上市新股", "停牌股票"],
+        "name": ["已有歷史", "復牌股票", "上市新股", "停牌股票"],
         "float_shares": [1_000_000.0] * 4,
         "limit_up": [11.0, 11.0, 100000.0, 11.0],
         "limit_down": [9.0, 9.0, 0.0, 9.0],
@@ -215,7 +215,7 @@ def test_repository_restores_active_rows_missing_from_latest_enriched(tmp_path):
     repo._live_agg_cache = _live_state()
     repo._instruments_cache = pl.DataFrame({
         "symbol": ["600001.SH", "000820.SZ", "600002.SH"],
-        "name": ["已有历史", "复牌股票", "停牌股票"],
+        "name": ["已有歷史", "復牌股票", "停牌股票"],
         "float_shares": [1_000_000.0] * 3,
         "limit_up": [11.0, 11.0, 11.0],
         "limit_down": [9.0, 9.0, 9.0],

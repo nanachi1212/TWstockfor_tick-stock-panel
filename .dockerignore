@@ -1,24 +1,24 @@
-# 构建 Docker 镜像时排除的文件 / 目录。
-# 与 .gitignore 思路一致: 只把 Dockerfile 真正需要的送进构建上下文,
-# 减小上下文体积、加速上传、避免缓存误伤。
-# 注意: .dockerignore 不识别 .gitignore 的取反(!)语法, 这里按白名单思路直接列举排除项。
+# 構建 Docker 鏡像時排除的文件 / 目錄。
+# 與 .gitignore 思路一致: 只把 Dockerfile 真正需要的送進構建上下文,
+# 減小上下文體積、加速上傳、避免快取誤傷。
+# 注意: .dockerignore 不識別 .gitignore 的取反(!)語法, 這裡按白名單思路直接列舉排除項。
 
 # ===== 版本控制 / CI =====
 .git
 .github
 .gitignore
 
-# ===== 用户运行时数据(绝不应进镜像) =====
+# ===== 使用者執行時資料(絕不應進鏡像) =====
 data
 backend/data
 
-# ===== 前端构建产物 / 依赖(镜像内会重新 build, 带进来反而污染) =====
+# ===== 前端構建產物 / 依賴(鏡像內會重新 build, 帶進來反而汙染) =====
 frontend/node_modules
 frontend/dist
 backend/static
 backend/app/static
 
-# ===== Python 缓存 / 虚拟环境 =====
+# ===== Python 快取 / 虛擬環境 =====
 **/__pycache__
 **/*.py[cod]
 **/.pytest_cache
@@ -27,31 +27,31 @@ backend/app/static
 **/.venv
 **/venv
 
-# ===== IDE / 系统 =====
+# ===== IDE / 系統 =====
 .idea
 .vscode
 .DS_Store
 **/*.swp
 
-# ===== 文档 / 截图(镜像不需要; README.md 除外, Dockerfile 显式 COPY 了它) =====
+# ===== 文件 / 截圖(鏡像不需要; README.md 除外, Dockerfile 顯式 COPY 了它) =====
 docs
 screenshots
 
-# ===== 桌面客户端打包(PyInstaller 专用, 与 Docker 部署无关) =====
+# ===== 桌面客戶端打包(PyInstaller 專用, 與 Docker 部署無關) =====
 packaging
 backend/dist
 backend/build
 
-# ===== 开发脚本(本地启服务用, 镜像不用) =====
+# ===== 開發腳本(本地啟服務用, 鏡像不用) =====
 dev.sh
 dev.ps1
 scripts
 
-# ===== 密钥(防止误打进公开镜像) =====
+# ===== 密鑰(防止誤打進公開鏡像) =====
 .env
 .env.*
 backend/.env
 
-# ===== 其他构建产物 =====
+# ===== 其他構建產物 =====
 **/node_modules
 *.log

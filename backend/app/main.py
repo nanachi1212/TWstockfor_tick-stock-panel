@@ -51,11 +51,11 @@ logger = logging.getLogger(__name__)
 for _handler in logging.getLogger().handlers:
     _handler.setFormatter(SanitizingFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 
-# 追加文件日志: uvicorn (含 --reload 开发模式) 默认只有 StreamHandler, 同步/管道等
-# 运行时日志仅出现在 dev 终端, 关掉或滚屏后即丢失, 排查「同步后日志没落」时无处可查。
-# 落盘到 data/backend.log 与桌面版 (desktop.py:_setup_logging → desktop.log) 行为对齐,
-# 事后可查。桌面版 (frozen) 已由 desktop.py 写 desktop.log, 此处跳过避免重复落盘。
-# RotatingFileHandler 防止长期运行/频繁 reload 导致文件无限增长。
+# 追加文件日誌: uvicorn (含 --reload 開發模式) 預設只有 StreamHandler, 同步/管道等
+# 執行時日誌僅出現在 dev 終端, 關掉或滾屏後即丟失, 排查「同步後日志沒落」時無處可查。
+# 落盤到 data/backend.log 與桌面版 (desktop.py:_setup_logging → desktop.log) 行為對齊,
+# 事後可查。桌面版 (frozen) 已由 desktop.py 寫 desktop.log, 此處跳過避免重複落盤。
+# RotatingFileHandler 防止長期執行/頻繁 reload 導致文件無限增長。
 if not getattr(sys, "frozen", False):
     try:
         from logging.handlers import RotatingFileHandler
@@ -71,7 +71,7 @@ if not getattr(sys, "frozen", False):
         )
         logging.getLogger().addHandler(_file_handler)
     except Exception as _e:
-        logger.warning("文件日志初始化失败, 仅输出到终端: %s", _e)
+        logger.warning("文件日誌初始化失敗, 僅輸出到終端: %s", _e)
 
 
 @asynccontextmanager
@@ -81,28 +81,28 @@ async def _application_lifespan(app: FastAPI):
         __version__, "official",
     )
 
-    # 首次启动: 若配置了 AUTH_PASSWORD 环境变量且未设过密码, 用它初始化。
-    # 公网部署免 SSH 端口转发; 已设过密码则不覆盖 (改密码走 UI)。
+    # 首次啟動: 若配置了 AUTH_PASSWORD 環境變數且未設過密碼, 用它初始化。
+    # 公網部署免 SSH 端口轉發; 已設過密碼則不覆蓋 (改密碼走 UI)。
     try:
         from app.services import auth as auth_service
         auth_service.bootstrap_from_env()
     except Exception as e:
         logger.warning("auth bootstrap failed: %s", e)
 
-    # 数据层
+    # 資料層
     store = DataStore()
     repo = KlineRepository(store)
     app.state.datastore = store
     app.state.repo = repo
-    # 指标异步预热标志: enriched 缓存在后台线程构建, 完成后置 True
+    # 指標非同步預熱標誌: enriched 快取在後台執行緒構建, 完成後置 True
     app.state.indicators_ready = False
     repo._on_warmup_done = lambda: setattr(app.state, "indicators_ready", True)
 
-    # Polars 缓存预热 — enriched 的重计算 (107万行 compute_indicators) 推后台,
-    # instruments/index/ETF 仍同步 (毫秒级)。应用立即 ready, 指标算完后自动替换。
+    # Polars 快取預熱 — enriched 的重計算 (107萬行 compute_indicators) 推後台,
+    # instruments/index/ETF 仍同步 (毫秒級)。應用立即 ready, 指標算完後自動替換。
     repo.refresh_cache(background=True)
 
-    # 自定义数据源配置(可选): 失败只记录错误, 不影響台股官方資料來源。
+    # 自定義資料來源配置(可選): 失敗只記錄錯誤, 不影響台股官方資料來源。
     try:
         from app.data_providers import custom as custom_sources
         custom_sources.load_all()
@@ -110,12 +110,12 @@ async def _application_lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("custom data sources init failed: %s", e)
 
-    # 能力探测
+    # 能力探測
     capset = detect_capabilities()
     app.state.capabilities = capset
     logger.info("ready; %d capabilities active", len(capset.all()))
 
-    # 全局行情服务
+    # 全域行情服務
     qs = QuoteService()
     app.state.quote_service = qs
     qs.set_repo(repo)
@@ -149,7 +149,7 @@ async def _application_lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("local AI autoload not started: %s", e)
 
-    # 源码内二次开发启动钩子: 仅暴露稳定只读上下文, 单个扩展失败不影响核心启动。
+    # 源碼內二次開發啟動鉤子: 僅暴露穩定只讀上下文, 單個擴展失敗不影響核心啟動。
     extension_registry = app.state.extension_registry
     start_backend_extensions(
         current_extension_context(data_dir=store.data_dir, repository=repo),
@@ -187,17 +187,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 不启用 CORS: 前端与 API 同源(生产由后端托管, 开发经 Vite 代理), 外站页面不应能读取 API 响应。
+# 不啟用 CORS: 前端與 API 同源(生產由後端託管, 開發經 Vite 代理), 外站頁面不應能讀取 API 回應。
 
 
 # ================================================================
-# 访问认证中间件
+# 訪問認證中間件
 # ================================================================
-# 拦截所有 /api/ 请求, 三种状态:
-#   1. 未设密码 + 本机/内网 → 放行(让本机用户访问面板 + 调 /api/auth/setup 设密码)
-#   2. 未设密码 + 公网       → 拒绝(403, 防裸奔也防抢占; 引导本机设密码)
-#   3. 已设密码              → 检查 session, 无效则 401(前端跳登录)
-# 白名单: /api/auth/* (设密码/登录本身)、/health 等探活。
+# 攔截所有 /api/ 請求, 三種狀態:
+#   1. 未設密碼 + 本機/內網 → 放行(讓本機使用者訪問面板 + 調 /api/auth/setup 設密碼)
+#   2. 未設密碼 + 公網       → 拒絕(403, 防裸奔也防搶佔; 引導本機設密碼)
+#   3. 已設密碼              → 檢查 session, 無效則 401(前端跳登入)
+# 白名單: /api/auth/* (設密碼/登入本身)、/health 等探活。
 _AUTH_WHITELIST_PREFIX = ("/api/auth/",)
 _AUTH_WHITELIST_EXACT = ("/health", "/api/health", "/openapi.json", "/docs", "/redoc")
 
@@ -210,10 +210,10 @@ async def auth_store_error_handler(request: Request, exc: auth_api.auth.AuthStor
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    # 仅 /api/ 走认证; 静态资源(前端页面/assets)放行, 由前端处理跳转
+    # 僅 /api/ 走認證; 靜態資源(前端頁面/assets)放行, 由前端處理跳轉
     if not path.startswith("/api/"):
         return await call_next(request)
-    # 白名单放行(设密码/登录/探活本身不拦)
+    # 白名單放行(設密碼/登入/探活本身不攔)
     if path.startswith(_AUTH_WHITELIST_PREFIX) or path in _AUTH_WHITELIST_EXACT:
         return await call_next(request)
 
@@ -224,25 +224,25 @@ async def auth_middleware(request: Request, call_next):
         authenticated = configured and bool(token) and auth_service.is_valid_session(token)
     except auth_service.AuthStoreError as exc:
         return await auth_store_error_handler(request, exc)
-    # 情况 1+2: 未设密码
+    # 情況 1+2: 未設密碼
     if not configured:
-        # 本机/内网 → 放行(服务器主人可访问, 并去 /login 设密码)
+        # 本機/內網 → 放行(伺服器主人可訪問, 並去 /login 設密碼)
         if auth_api._is_local_request(request):
             return await call_next(request)
-        # 公网 → 拒绝。不裸奔, 也不给公网设密码的机会(防抢占)
+        # 公網 → 拒絕。不裸奔, 也不給公網設密碼的機會(防搶佔)
         return JSONResponse(
             status_code=403,
             content={
-                "detail": "面板尚未初始化访问密码,请通过 SSH/本机浏览器访问以设置密码",
+                "detail": "面板尚未初始化訪問密碼,請通過 SSH/本機瀏覽器訪問以設定密碼",
                 "code": "NOT_INITIALIZED",
             },
         )
 
-    # 情况 3: 已设密码, 检查会话
+    # 情況 3: 已設密碼, 檢查會話
     if authenticated:
         return await call_next(request)
-    # 未登录: 401(前端跳登录页)
-    return JSONResponse(status_code=401, content={"detail": "未登录或会话已过期"})
+    # 未登入: 401(前端跳登入頁)
+    return JSONResponse(status_code=401, content={"detail": "未登入或會話已過期"})
 
 
 # 路由
@@ -264,15 +264,15 @@ app.include_router(taiwan.router)
 app.include_router(taiwan_live.router)
 app.include_router(taiwan_quant.router)
 
-# 二次开发路由与小粒度策略在所有核心路由后注册, 禁止覆盖核心路径。
+# 二次開發路由與小粒度策略在所有核心路由後註冊, 禁止覆蓋核心路徑。
 extension_registry, extension_load_errors = configure_backend_extensions(app)
 app.state.extension_registry = extension_registry
 app.state.extension_load_errors = extension_load_errors
 
 
-# 能力门控异常 → 403(而非默认 500)
-# 业务代码用 capset.require(Cap.X) 断言能力,缺失时抛 CapabilityDenied;
-# 若不注册 handler 会冒泡成 500 Internal Server Error,对前端不友好且语义错误。
+# 能力門控異常 → 403(而非預設 500)
+# 業務代碼用 capset.require(Cap.X) 斷言能力,缺失時拋 CapabilityDenied;
+# 若不註冊 handler 會冒泡成 500 Internal Server Error,對前端不友好且語義錯誤。
 @app.exception_handler(CapabilityDenied)
 async def capability_denied_handler(request: Request, exc: CapabilityDenied) -> JSONResponse:
     return JSONResponse(
@@ -322,7 +322,7 @@ def _mount_frontend(app: FastAPI, static_root: Path) -> None:
         )
 
 
-# 生产期静态文件(前端 dist)
+# 生產期靜態文件(前端 dist)
 _static = Path(settings.static_dir)
 if _static.exists():
     _mount_frontend(app, _static)

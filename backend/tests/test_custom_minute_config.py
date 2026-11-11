@@ -53,7 +53,7 @@ def test_minute_request_parameter_names_survive_config_round_trip():
 
 
 def test_timeout_survives_config_round_trip():
-    """timeout 必须在 UI 保存往返中保留 (核心修复), 且默认 30 不污染 YAML。"""
+    """timeout 必須在 UI 保存往返中保留 (核心修復), 且預設 30 不汙染 YAML。"""
     dataset = DatasetConfigIn(
         url="https://example.test/daily",
         method="POST",
@@ -75,7 +75,7 @@ def test_timeout_survives_config_round_trip():
     assert parsed.timeout == 120.0
     assert exposed["datasets"]["daily"]["timeout"] == 120.0
 
-    # 默认 30 不 emit, 保持 YAML 干净
+    # 預設 30 不 emit, 保持 YAML 乾淨
     default_dataset = DatasetConfigIn(url="https://example.test/realtime", method="GET").model_dump()
     cleaned2 = _sanitize_for_yaml({
         "name": "test_source",

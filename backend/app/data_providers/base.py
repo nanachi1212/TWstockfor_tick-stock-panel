@@ -61,9 +61,9 @@ class MarketDataProvider(Protocol):
     ) -> pl.DataFrame:
         """Return normalized minute K rows. Implementations may return empty.
 
-        on_chunk_done 契约: provider 实现内部以 2 参 (cur, total) 调用;
-        3 参 seg_label 适配由 kline_sync._try_custom_minute 包装层负责,
-        不应泄漏到 provider 契约层。
+        on_chunk_done 契約: provider 實現內部以 2 參 (cur, total) 呼叫;
+        3 參 seg_label 適配由 kline_sync._try_custom_minute 包裝層負責,
+        不應洩漏到 provider 契約層。
         """
 
     def get_realtime(

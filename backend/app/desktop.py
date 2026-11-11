@@ -1,17 +1,17 @@
-"""桌面客户端入口 — uvicorn 后台服务 + pywebview 桌面窗口。
+"""桌面客戶端入口 — uvicorn 後台服務 + pywebview 桌面窗口。
 
-运行方式:
-  开发模式: python -m app.desktop  (需 pip install pywebview)
-  打包后:   双击可执行文件即可
+執行方式:
+  開發模式: python -m app.desktop  (需 pip install pywebview)
+  打包後:   雙擊可執行文件即可
 
-职责:
-  1. 单实例锁 — 已运行则不建立重复窗口
-  2. 复用 3018 上通过身份检查的既有 backend, 不停止外部服务
-  3. 需要时在后台线程启动 owned uvicorn (仅监听 127.0.0.1)
-  4. 确认 production frontend ready 后用 pywebview 渲染 React UI
-  5. 窗口关闭 → 只优雅停止 owned uvicorn → 进程退出
+職責:
+  1. 單實例鎖 — 已執行則不建立重複窗口
+  2. 複用 3018 上通過身份檢查的既有 backend, 不停止外部服務
+  3. 需要時在後台執行緒啟動 owned uvicorn (僅監聽 127.0.0.1)
+  4. 確認 production frontend ready 後用 pywebview 渲染 React UI
+  5. 窗口關閉 → 只優雅停止 owned uvicorn → 進程退出
 
-不含: 业务逻辑、配置持久化、监控告警 (全在 app.main 里)。
+不含: 業務邏輯、配置持久化、監控告警 (全在 app.main 裡)。
 """
 from __future__ import annotations
 
@@ -37,10 +37,10 @@ _EXISTING_BACKEND_TIMEOUT = 30.0
 _SHUTDOWN_TIMEOUT = 15.0
 
 def _ensure_data_dir_writable() -> None:
-    """确保用户数据目录可写 (lifespan 会创建子目录, 这里只验证根目录)。
+    """確保使用者資料目錄可寫 (lifespan 會創建子目錄, 這裡只驗證根目錄)。
 
-    data_dir 在 frozen 模式下指向用户目录 (见 config.py), 非可写会导致
-    DuckDB 视图 / parquet 落盘全失败。提前失败胜过启动后乱报错。
+    data_dir 在 frozen 模式下指向使用者目錄 (見 config.py), 非可寫會導致
+    DuckDB 視圖 / parquet 落盤全失敗。提前失敗勝過啟動後亂報錯。
     """
     from app.config import settings
 
@@ -51,7 +51,7 @@ def _ensure_data_dir_writable() -> None:
         probe.write_text("ok", encoding="utf-8")
         probe.unlink(missing_ok=True)
     except Exception as e:
-        logger.error("数据目录不可写, 桌面版无法运行: %s (%s)", data_root, e)
+        logger.error("資料目錄不可寫, 桌面版無法執行: %s (%s)", data_root, e)
         raise
 
 
@@ -125,10 +125,10 @@ def _start_seed_incremental_refresh(seed_result) -> threading.Thread | None:
 
 
 def _acquire_single_instance() -> bool:
-    """单实例锁。已运行返回 False (本进程应退出), 否则 True。
+    """單實例鎖。已執行返回 False (本進程應退出), 否則 True。
 
-    用 data_dir/.desktop.lock 文件锁实现。跨进程, 文件存在即视为已运行
-    (简单可靠; 不引入 msvcrt/fcntl 平台差异)。
+    用 data_dir/.desktop.lock 文件鎖實現。跨進程, 文件存在即視為已執行
+    (簡單可靠; 不引入 msvcrt/fcntl 平台差異)。
     """
     from app.config import settings
 
@@ -143,9 +143,9 @@ def _acquire_single_instance() -> bool:
             except Exception:
                 pid = None
             if pid is not None and _pid_alive(pid):
-                logger.warning("检测到已有实例运行 (PID %d), 本进程退出", pid)
+                logger.warning("檢測到已有實例執行 (PID %d), 本進程退出", pid)
                 return False
-            logger.info("清理残留单实例锁 (PID %s 已不存在)", pid)
+            logger.info("清理殘留單實例鎖 (PID %s 已不存在)", pid)
             lock_path.unlink(missing_ok=True)
             continue
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -166,28 +166,28 @@ def _release_single_instance() -> None:
 
 
 def _guard_streams() -> None:
-    """windowed 模式 (console=False) 下守护 stdout/stderr。
+    """windowed 模式 (console=False) 下守護 stdout/stderr。
 
-    PyInstaller console=False 用 runw.exe 启动器, 不分配控制台, 此时 sys.stdout /
-    sys.stderr 可能为 None (或底层句柄无效)。后果:
-      - app/__init__.py 早期 reconfigure 遇 None 虽有 hasattr 保护, 但若是个「写入即崩」
-        的伪 stream 对象, reconfigure 会成功、后续写却崩;
-      - logging.basicConfig() 默认建 StreamHandler(sys.stderr), stderr 为 None 时
-        首次写日志调 None.write() 抛 AttributeError, 此时往往在导入早期,
-        Python 异常处理未就绪 → 进程直接闪退, try/except 都拦不住。
+    PyInstaller console=False 用 runw.exe 啟動器, 不分配控制檯, 此時 sys.stdout /
+    sys.stderr 可能為 None (或底層句柄無效)。後果:
+      - app/__init__.py 早期 reconfigure 遇 None 雖有 hasattr 保護, 但若是個「寫入即崩」
+        的偽 stream 對象, reconfigure 會成功、後續寫卻崩;
+      - logging.basicConfig() 預設建 StreamHandler(sys.stderr), stderr 為 None 時
+        首次寫日誌調 None.write() 拋 AttributeError, 此時往往在匯入早期,
+        Python 異常處理未就緒 → 進程直接閃退, try/except 都攔不住。
 
-    修法: console=False 下把 stdout/stderr 换成丢弃写入的空对象 (devnull),
-    让 logging / reconfigure / 任何 print 都安全落地。console=True 不动 (有真控制台)。
+    修法: console=False 下把 stdout/stderr 換成丟棄寫入的空對象 (devnull),
+    讓 logging / reconfigure / 任何 print 都安全落地。console=True 不動 (有真控制檯)。
     """
     class _NullStream:
-        """丢弃所有写入的空流 (替代 None 的 stdout/stderr)。"""
+        """丟棄所有寫入的空流 (替代 None 的 stdout/stderr)。"""
         def write(self, _s): return 0
         def flush(self): pass
         def reconfigure(self, *a, **kw): pass
         def isatty(self): return False
         def fileno(self): raise OSError("no fileno")
 
-    # 仅在 stdout/stderr 缺失或不可写时替换 (有真控制台时保持原样)
+    # 僅在 stdout/stderr 缺失或不可寫時替換 (有真控制檯時保持原樣)
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name, None)
         if stream is None:
@@ -195,15 +195,15 @@ def _guard_streams() -> None:
 
 
 def _setup_logging() -> None:
-    """配置日志落盘到 data/desktop.log。
+    """配置日誌落盤到 data/desktop.log。
 
-    背景: spec 里 console=False (桌面应用不弹黑窗), 导致 logging 默认输出的
-    stderr 被吞掉 —— 启动期任何异常用户都看不到, 表现为「双击一闪退出、查无日志」。
-    这里追加一个 FileHandler, 让日志同时落到 data_dir/desktop.log, 事后可查。
+    背景: spec 裡 console=False (桌面應用不彈黑窗), 導致 logging 預設輸出的
+    stderr 被吞掉 —— 啟動期任何異常使用者都看不到, 表現為「雙擊一閃退出、查無日誌」。
+    這裡追加一個 FileHandler, 讓日誌同時落到 data_dir/desktop.log, 事後可查。
 
-    时序注意: data_dir 在 import app.config 时路径已可用, 但目录此刻可能不存在
-    (frozen 首次运行), 必须先 mkdir, 否则 FileHandler 打开文件会抛 FileNotFoundError。
-    不用第二次 basicConfig (它「首次调用才生效」), 改用 addHandler 追加。
+    時序注意: data_dir 在 import app.config 時路徑已可用, 但目錄此刻可能不存在
+    (frozen 首次執行), 必須先 mkdir, 否則 FileHandler 打開文件會拋 FileNotFoundError。
+    不用第二次 basicConfig (它「首次呼叫才生效」), 改用 addHandler 追加。
     """
     try:
         from app.config import settings
@@ -212,27 +212,27 @@ def _setup_logging() -> None:
         log_dir.mkdir(parents=True, exist_ok=True)
         handler = logging.FileHandler(
             log_dir / "desktop.log",
-            mode="a",            # 追加, 保留历史 (排查时往往需要对比多次启动)
+            mode="a",            # 追加, 保留歷史 (排查時往往需要對比多次啟動)
             encoding="utf-8",
-            errors="replace",    # 容错: 对齐 __init__.py 的 stderr 重配, 避免中文/emoji 触发 UnicodeEncodeError
+            errors="replace",    # 容錯: 對齊 __init__.py 的 stderr 重配, 避免中文/emoji 觸發 UnicodeEncodeError
         )
         handler.setFormatter(
             _SanitizingFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         )
         logging.getLogger().addHandler(handler)
     except Exception as e:
-        # 日志落盘失败不阻断启动 (开发模式 data_dir 可能不可写)
-        logger.warning("日志文件初始化失败, 仅输出到 stderr: %s", e)
+        # 日誌落盤失敗不阻斷啟動 (開發模式 data_dir 可能不可寫)
+        logger.warning("記錄檔初始化失敗, 僅輸出到 stderr: %s", e)
 
 
 def _show_crash(title: str, text: str) -> None:
-    """崩溃时弹原生 MessageBox 提示用户 (仅 Windows)。
+    """崩潰時彈原生 MessageBox 提示使用者 (僅 Windows)。
 
-    console=False 下用户看不到任何输出, 崩溃时弹一个原生错误框, 让用户至少
-    知道「程序崩了 + 原因」, 并可截图反馈。非 Windows 用日志降级, 不调 ctypes。
+    console=False 下使用者看不到任何輸出, 崩潰時彈一個原生錯誤框, 讓使用者至少
+    知道「程序崩了 + 原因」, 並可截圖反饋。非 Windows 用日誌降級, 不調 ctypes。
 
-    ctypes 是 Python 标准库, 不引入新依赖; MessageBoxW 是 Unicode 版本 (W 后缀),
-    支持中文标题/正文。0x10 = MB_ICONERROR (红色错误图标)。
+    ctypes 是 Python 標準庫, 不引入新依賴; MessageBoxW 是 Unicode 版本 (W 後綴),
+    支持中文標題/正文。0x10 = MB_ICONERROR (紅色錯誤圖標)。
     """
     if sys.platform == "win32":
         try:
@@ -240,13 +240,13 @@ def _show_crash(title: str, text: str) -> None:
 
             ctypes.windll.user32.MessageBoxW(0, _sanitize_log(text), title, 0x10)
         except Exception as e:
-            logger.error("弹框失败 (已写日志文件): %s", e)
+            logger.error("彈框失敗 (已寫記錄檔): %s", e)
     else:
         logger.error("%s: %s", title, text)
 
 
 def _pid_alive(pid: int) -> bool:
-    """检查指定 PID 的进程是否存活。"""
+    """檢查指定 PID 的進程是否存活。"""
     import os
 
     if os.name == "nt":
@@ -258,7 +258,7 @@ def _pid_alive(pid: int) -> bool:
             return False
     else:
         try:
-            os.kill(pid, 0)  # signal 0 = 探测存活, 不实际发信号
+            os.kill(pid, 0)  # signal 0 = 探測存活, 不實際發信號
             return True
         except OSError:
             return False
@@ -284,10 +284,10 @@ def _create_server(port: int):
 
     config = uvicorn.Config(
         app,
-        host="127.0.0.1",  # 仅本机, 不暴露外网 (桌面版无需远程访问)
+        host="127.0.0.1",  # 僅本機, 不暴露外網 (桌面版無需遠程訪問)
         port=port,
         log_level="info",
-        access_log=False,    # 桌面版不需要访问日志
+        access_log=False,    # 桌面版不需要訪問日誌
         loop="auto",
     )
     return uvicorn.Server(config)
@@ -298,10 +298,10 @@ def _run_uvicorn(server, done_event: threading.Event) -> None:
     try:
         server.run()
     except Exception:
-        # server.run() 内部跑 lifespan 启动链, 任一步抛异常都会冒到这里。
-        # 不捕获则线程静默死亡, 主线程 _wait_for_server 傻等满 60s 后报「超时」,
-        # 真正的崩溃原因 (如某个原生库加载失败 / 缺 hidden import) 永远看不到。
-        logger.exception("uvicorn 后端启动/运行失败")
+        # server.run() 內部跑 lifespan 啟動鏈, 任一步拋異常都會冒到這裡。
+        # 不捕獲則執行緒靜默死亡, 主執行緒 _wait_for_server 傻等滿 60s 後報「超時」,
+        # 真正的崩潰原因 (如某個原生庫載入失敗 / 缺 hidden import) 永遠看不到。
+        logger.exception("uvicorn 後端啟動/執行失敗")
     finally:
         done_event.set()
 
@@ -337,9 +337,9 @@ def _project_backend_ready(port: int = _BASE_PORT) -> bool:
 
 
 def _wait_for_server(port: int, timeout: float = 60.0) -> bool:
-    """轮询 health 接口直到后端就绪或超时。
+    """輪詢 health 接口直到後端就緒或超時。
 
-    比 monkey-patch uvicorn 内部方法更健壮, 不依赖版本内部实现。
+    比 monkey-patch uvicorn 內部方法更健壯, 不依賴版本內部實現。
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -387,7 +387,7 @@ _SPLASH_HTML = (
 
 
 def _open_window(start_backend) -> None:
-    """主线程: 先用 pywebview 立刻顯示啟動畫面, 後端在背景就緒後再載入正式頁面。
+    """主執行緒: 先用 pywebview 立刻顯示啟動畫面, 後端在背景就緒後再載入正式頁面。
 
     start_backend() 回傳要載入的 URL; 它失敗時關窗並把例外交回呼叫端處理。
     """
@@ -401,13 +401,13 @@ def _open_window(start_backend) -> None:
         width=1440,
         height=900,
         min_size=(1024, 700),
-        # 桌面版固定单窗口, 禁用外部浏览器跳转
+        # 桌面版固定單窗口, 禁用外部瀏覽器跳轉
         confirm_close=False,
         # pywebview defaults text_select=False, which blocks selecting and copying any text.
         text_select=True,
     )
-    # pywebview 预设 private_mode=True: 关窗即清空 localStorage (持股纪录、字级、主题全丢)。
-    # 改用固定的本机储存位置, 让浏览器端资料跨重启保留。
+    # pywebview 預設 private_mode=True: 關窗即清空 localStorage (持股紀錄、字級、主題全丟)。
+    # 改用固定的本機儲存位置, 讓瀏覽器端資料跨重啟保留。
     from app.config import settings
 
     storage = Path(settings.data_dir) / "user_data" / "webview"
@@ -417,42 +417,42 @@ def _open_window(start_backend) -> None:
     def boot() -> None:
         try:
             url = start_backend()
-            logger.info("载入桌面窗口: %s", url)
+            logger.info("載入桌面窗口: %s", url)
             window.load_url(url)
         except Exception as exc:
             failure.append(exc)
             window.destroy()
 
-    # pywebview 会阻塞主线程直到窗口关闭
+    # pywebview 會阻塞主執行緒直到窗口關閉
     webview.start(boot, debug=False, private_mode=False, storage_path=str(storage))
     if failure:
         raise failure[0]
 
 
 def main() -> int:
-    """桌面客户端主入口。返回进程退出码。"""
-    # 必须最先执行: console=False 下 stdout/stderr 可能无效, 不守护会导致
-    # 后续 logging.basicConfig 创建的 StreamHandler 写日志时进程崩溃。
+    """桌面客戶端主入口。返回進程退出碼。"""
+    # 必須最先執行: console=False 下 stdout/stderr 可能無效, 不守護會導致
+    # 後續 logging.basicConfig 創建的 StreamHandler 寫日誌時進程崩潰。
     _guard_streams()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    # 追加文件日志: console=False 下 stderr 被吞, 必须落盘否则查无对证。
-    # 放在 basicConfig 之后 (它先建好 root logger 的格式), 这里只追加 handler。
+    # 追加文件日誌: console=False 下 stderr 被吞, 必須落盤否則查無對證。
+    # 放在 basicConfig 之後 (它先建好 root logger 的格式), 這裡只追加 handler。
     _setup_logging()
 
     try:
         _ensure_data_dir_writable()
     except Exception as exc:
-        # 数据目录不可写是致命错误, 无法继续
+        # 資料目錄不可寫是致命錯誤, 無法繼續
         _show_crash(f"{_APP_NAME} 啟動失敗", str(exc))
         return 1
 
     _migrate_legacy_data_before_seed()
     seed_result = _install_bundled_release_seed()
 
-    # 单实例: 已运行则退出
+    # 單實例: 已執行則退出
     if not _acquire_single_instance():
         return 0
 
@@ -494,15 +494,15 @@ def main() -> int:
 
         _open_window(start_backend)
 
-        logger.info("窗口已关闭, 桌面版退出")
+        logger.info("窗口已關閉, 桌面版退出")
         return 0
     except KeyboardInterrupt:
         return 0
     except Exception:
-        # 顶层兜底: console=False 下未捕获异常会「一闪退出」且无任何反馈。
-        # 写完整 traceback 到 data/desktop.log, 并弹原生 MessageBox 让用户截图反馈。
-        # 必须排在 KeyboardInterrupt 之后 —— Exception 是基类, 在前会遮蔽它。
-        logger.exception("桌面客户端启动失败")
+        # 頂層兜底: console=False 下未捕獲異常會「一閃退出」且無任何反饋。
+        # 寫完整 traceback 到 data/desktop.log, 並彈原生 MessageBox 讓使用者截圖反饋。
+        # 必須排在 KeyboardInterrupt 之後 —— Exception 是基類, 在前會遮蔽它。
+        logger.exception("桌面客戶端啟動失敗")
         _show_crash(f"{_APP_NAME} 啟動失敗", traceback.format_exc())
         return 1
     finally:

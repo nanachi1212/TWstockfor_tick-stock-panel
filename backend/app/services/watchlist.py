@@ -1,12 +1,12 @@
-"""自选股与分组服务。
+"""自選股與分組服務。
 
-自选存储于 ``data/user_data/watchlist.parquet``，分组定义存储于同目录的
+自選存儲於 ``data/user_data/watchlist.parquet``，分組定義存儲於同目錄的
 ``watchlist_groups.json``。
 
-成员关系为多值 (M:N): 每条自选带 ``group_ids: list[str]``, 同一标的可同时
-属于多个分组; 移出分组只摘标签(标的仍在自选), 移出自选才删除实体。
-旧 schema (单值 ``group_id`` 列) 读取时自动迁移为 ``[group_id]``, 首次写回
-新 schema 前留一份 ``watchlist.parquet.bak`` 备份。
+成員關係為多值 (M:N): 每條自選帶 ``group_ids: list[str]``, 同一標的可同時
+屬於多個分組; 移出分組只摘標籤(標的仍在自選), 移出自選才刪除實體。
+舊 schema (單值 ``group_id`` 列) 讀取時自動遷移為 ``[group_id]``, 首次寫回
+新 schema 前留一份 ``watchlist.parquet.bak`` 備份。
 """
 from __future__ import annotations
 
@@ -27,13 +27,13 @@ from app.tickflow.capabilities import CapabilitySet
 logger = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
-# 数据版本号: 每次写盘 +1 (在 _LOCK 内递增, 读取免锁)。供监控引擎等进程内
-# 消费方做缓存失效判断 —— 版本没变就不必重读文件, 版本一变立即拿到新成员。
+# 資料版本號: 每次寫盤 +1 (在 _LOCK 內遞增, 讀取免鎖)。供監控引擎等進程內
+# 消費方做快取失效判斷 —— 版本沒變就不必重讀文件, 版本一變立即拿到新成員。
 _REVISION = 0
 
 
 def revision() -> int:
-    """自选/分组数据版本号, 每次写操作递增。"""
+    """自選/分組資料版本號, 每次寫操作遞增。"""
     return _REVISION
 
 
@@ -89,7 +89,7 @@ def _read_entries() -> pl.DataFrame:
     if not p.exists():
         return _empty_entries()
     df = pl.read_parquet(p)
-    # 旧 schema 兼容: 单值 group_id → group_ids=[gid]; 两列都缺 → 空列表
+    # 舊 schema 相容: 單值 group_id → group_ids=[gid]; 兩列都缺 → 空列表
     if "group_ids" not in df.columns:
         old = df["group_id"].to_list() if "group_id" in df.columns else [None] * df.height
         df = df.with_columns(
@@ -107,7 +107,7 @@ def _read_entries() -> pl.DataFrame:
 def _write_entries(df: pl.DataFrame) -> None:
     global _REVISION
     p = _path()
-    # 首次从旧 schema 迁移到 group_ids 前, 备份原文件(一次性)
+    # 首次從舊 schema 遷移到 group_ids 前, 備份原文件(一次性)
     if p.exists():
         try:
             if "group_ids" not in pl.read_parquet_schema(p).names():
@@ -127,9 +127,9 @@ def _read_groups() -> list[dict]:
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError("自选分组配置损坏，请检查 watchlist_groups.json") from exc
+        raise ValueError("自選分組配置損壞，請檢查 watchlist_groups.json") from exc
     if not isinstance(raw, list):
-        raise ValueError("自选分组配置格式不正确")
+        raise ValueError("自選分組配置格式不正確")
     groups = []
     for item in raw:
         if not isinstance(item, dict) or not item.get("id") or not item.get("name"):
@@ -155,22 +155,22 @@ def _write_groups(groups: list[dict]) -> None:
 def _normalize_group_name(name: str) -> str:
     normalized = name.strip()
     if not normalized:
-        raise ValueError("分组名称不能为空")
+        raise ValueError("分組名稱不能為空")
     if len(normalized) > _MAX_GROUP_NAME_LENGTH:
-        raise ValueError(f"分组名称不能超过 {_MAX_GROUP_NAME_LENGTH} 个字符")
+        raise ValueError(f"分組名稱不能超過 {_MAX_GROUP_NAME_LENGTH} 個字元")
     return normalized
 
 
 def _normalize_group_color(color: str | None) -> str:
     normalized = (color or DEFAULT_GROUP_COLOR).strip().lower()
     if normalized not in GROUP_COLORS:
-        raise ValueError("不支持的分组颜色")
+        raise ValueError("不支持的分組顏色")
     return normalized
 
 
 def _validate_group_id(group_id: str | None, groups: list[dict]) -> None:
     if group_id is not None and not any(group["id"] == group_id for group in groups):
-        raise ValueError("自选分组不存在")
+        raise ValueError("自選分組不存在")
 
 
 def list_symbols() -> list[dict]:
@@ -189,10 +189,10 @@ def add_batch(
     note: str = "",
     group_id: str | None = None,
 ) -> tuple[list[dict], int]:
-    """批量添加并保持既有语义：每个新处理的标的移动到列表最前面。
+    """批量添加並保持既有語義：每個新處理的標的移動到列表最前面。
 
-    group_id 为可选的初始分组(如从某分组页添加时); 重复添加的标的保留
-    既有全部分组, 仅在显式传入 group_id 且尚未属于该组时并入。
+    group_id 為可選的初始分組(如從某分組頁添加時); 重複添加的標的保留
+    既有全部分組, 僅在顯式傳入 group_id 且尚未屬於該組時併入。
     """
     with _LOCK:
         groups = _read_groups()
@@ -238,7 +238,7 @@ def move_to_top(symbol: str) -> list[dict]:
 
 
 def clear() -> int:
-    """清空自选列表。返回移除的数量。"""
+    """清空自選列表。返回移除的數量。"""
     with _LOCK:
         df = _read_entries()
         count = df.height
@@ -258,7 +258,7 @@ def create_group(name: str, color: str | None = None) -> tuple[list[dict], dict]
         normalized_color = _normalize_group_color(color)
         groups = _read_groups()
         if any(group["name"].casefold() == normalized.casefold() for group in groups):
-            raise ValueError("分组名称已存在")
+            raise ValueError("分組名稱已存在")
         group = {
             "id": uuid.uuid4().hex,
             "name": normalized,
@@ -280,7 +280,7 @@ def rename_group(group_id: str, name: str, color: str | None = None) -> list[dic
             group["id"] != group_id and group["name"].casefold() == normalized.casefold()
             for group in groups
         ):
-            raise ValueError("分组名称已存在")
+            raise ValueError("分組名稱已存在")
         target["name"] = normalized
         if color is not None:
             target["color"] = _normalize_group_color(color)
@@ -289,19 +289,19 @@ def rename_group(group_id: str, name: str, color: str | None = None) -> list[dic
 
 
 def reorder_groups(ordered_ids: list[str]) -> list[dict]:
-    """按给定 id 顺序重排分组 (json 数组顺序即定义顺序)。"""
+    """按給定 id 順序重排分組 (json 陣列順序即定義順序)。"""
     with _LOCK:
         groups = _read_groups()
         by_id = {group["id"]: group for group in groups}
         if len(ordered_ids) != len(groups) or set(ordered_ids) != set(by_id):
-            raise ValueError("分组顺序与现有分组不一致")
+            raise ValueError("分組順序與現有分組不一致")
         reordered = [by_id[group_id] for group_id in ordered_ids]
         _write_groups(reordered)
         return reordered
 
 
 def delete_group(group_id: str) -> tuple[list[dict], list[dict]]:
-    """删除分组定义，原分组内的自选保留并转为未分组(仅摘掉该组标签)。"""
+    """刪除分組定義，原分組內的自選保留並轉為未分組(僅摘掉該組標籤)。"""
     with _LOCK:
         groups = _read_groups()
         if not any(group["id"] == group_id for group in groups):
@@ -314,10 +314,10 @@ def delete_group(group_id: str) -> tuple[list[dict], list[dict]]:
 
 
 def set_group(symbol: str, group_id: str | None) -> list[dict]:
-    """互斥设定: 该标的只保留这一个分组(group_id=None 即全部移出, 变未分组)。
+    """互斥設定: 該標的只保留這一個分組(group_id=None 即全部移出, 變未分組)。
 
-    多组模型的日常操作走 add_to_group / remove_from_group; 本函数服务于
-    「仅保留此组」的显式场景。
+    多組模型的日常操作走 add_to_group / remove_from_group; 本函式服務於
+    「僅保留此組」的顯式場景。
     """
     with _LOCK:
         groups = _read_groups()
@@ -334,7 +334,7 @@ def set_group(symbol: str, group_id: str | None) -> list[dict]:
 
 
 def add_to_group(symbol: str, group_id: str) -> list[dict]:
-    """把标的加入一个分组(多组成员关系: 不影响已属于的其他分组)。"""
+    """把標的加入一個分組(多組成員關係: 不影響已屬於的其他分組)。"""
     with _LOCK:
         groups = _read_groups()
         _validate_group_id(group_id, groups)
@@ -353,7 +353,7 @@ def add_to_group(symbol: str, group_id: str) -> list[dict]:
 
 
 def remove_from_group(symbol: str, group_id: str) -> list[dict]:
-    """把标的移出一个分组(仅摘本组标签; 标的仍在自选, 可能落入未分组)。"""
+    """把標的移出一個分組(僅摘本組標籤; 標的仍在自選, 可能落入未分組)。"""
     with _LOCK:
         groups = _read_groups()
         _validate_group_id(group_id, groups)
@@ -369,7 +369,7 @@ def remove_from_group(symbol: str, group_id: str) -> list[dict]:
 
 
 def _strip_group(df: pl.DataFrame, group_id: str) -> pl.DataFrame:
-    """从所有条目的 group_ids 中摘掉指定分组(删除分组/清空分组共用)。"""
+    """從所有條目的 group_ids 中摘掉指定分組(刪除分組/清空分組共用)。"""
     rows = df.to_dicts()
     for row in rows:
         gids = row.get("group_ids") or []
@@ -379,7 +379,7 @@ def _strip_group(df: pl.DataFrame, group_id: str) -> pl.DataFrame:
 
 
 def clear_group(group_id: str) -> list[dict]:
-    """清空分组成员:把该分组标签从所有条目摘掉(变未分组),保留分组定义。"""
+    """清空分組成員:把該分組標籤從所有條目摘掉(變未分組),保留分組定義。"""
     with _LOCK:
         groups = _read_groups()
         if not any(group["id"] == group_id for group in groups):

@@ -41,7 +41,7 @@ def test_bootstrap_recovers_compose_interpolated_password_from_raw_env(
         encoding="utf-8",
     )
     configured = Settings(_env_file=env_path)
-    configured.auth_password = "pw-secret"  # 模拟 Compose 将未定义的 ${special} 插值为空串
+    configured.auth_password = "pw-secret"  # 模擬 Compose 將未定義的 ${special} 插值為空串
     monkeypatch.setattr(app_config, "settings", configured)
 
     assert auth.bootstrap_from_env() is True

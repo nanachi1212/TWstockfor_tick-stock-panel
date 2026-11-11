@@ -1,7 +1,7 @@
-"""Taiwan Watchlist enrichment (Phase 8B-5.0.4) — 纯 unit test, 无即时网络。
+"""Taiwan Watchlist enrichment (Phase 8B-5.0.4) — 純 unit test, 無即時網路。
 
-覆盖 app.taiwan.watchlist_enrichment.enrich_taiwan_watchlist_rows 本身;
-market dispatch (legacy A 股 vs Taiwan 分流) 的整合测试见
+覆蓋 app.taiwan.watchlist_enrichment.enrich_taiwan_watchlist_rows 本身;
+market dispatch (legacy A 股 vs Taiwan 分流) 的整合測試見
 test_watchlist_market_dispatch.py。
 """
 from __future__ import annotations
@@ -33,8 +33,8 @@ class _FakeSecurityMaster:
 
 @dataclass
 class _FakeSourceMeta:
-    """镜像 app.taiwan.enrichment.models.SourceMeta 的最小 fake, 只为测试
-    watchlist_enrichment 对 source_meta 的透传, 不依赖真实 provider 模型。"""
+    """鏡像 app.taiwan.enrichment.models.SourceMeta 的最小 fake, 只為測試
+    watchlist_enrichment 對 source_meta 的透傳, 不依賴真實 provider 模型。"""
     source: str = "twse:mis"
     is_stale: bool = False
     freshness_class: str = "best_effort_near_realtime"
@@ -67,8 +67,8 @@ class _FakeQuote:
 
 
 class _FakeRealtimeService:
-    """模拟 TaiwanRealtimeService.get_quotes: 有 quote 直接给, 没有则尝试
-    daily_kline_fallback_fn(与真实 service 的 tier-5 daily fallback 语义一致)。
+    """模擬 TaiwanRealtimeService.get_quotes: 有 quote 直接給, 沒有則嘗試
+    daily_kline_fallback_fn(與真實 service 的 tier-5 daily fallback 語義一致)。
     """
 
     def __init__(self, quotes: dict[str, _FakeQuote] | None = None, raise_error: bool = False) -> None:
@@ -100,7 +100,7 @@ class _FakeRealtimeService:
 
 
 class _FakeDailyStore:
-    """模拟 TaiwanDailyStore: 固定 fixture, 不落盘不读盘。"""
+    """模擬 TaiwanDailyStore: 固定 fixture, 不落盤不讀盤。"""
 
     def __init__(self, df: pl.DataFrame | None = None, latest: date | None = None) -> None:
         self._df = df if df is not None else pl.DataFrame(schema={
@@ -125,7 +125,7 @@ class _FakeDailyStore:
 
 
 def test_twse_symbol_with_realtime_quote():
-    """2330.TWSE 有 realtime quote 时, 各字段正确落到 watchlist 行契约上。"""
+    """2330.TWSE 有 realtime quote 時, 各字段正確落到 watchlist 行契約上。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -152,14 +152,14 @@ def test_twse_symbol_with_realtime_quote():
     assert row["high"] == 1105.0
     assert row["low"] == 1082.0
     assert row["change_amount"] == 20.0
-    # TaiwanRealtimeQuote.change_pct 约定是「已乘 100」(1.85 代表 1.85%), watchlist
-    # 契约(与 fmtPct 对齐)要小数(0.0185) —— 见 watchlist_enrichment._to_fraction_pct。
+    # TaiwanRealtimeQuote.change_pct 約定是「已乘 100」(1.85 代表 1.85%), watchlist
+    # 契約(與 fmtPct 對齊)要小數(0.0185) —— 見 watchlist_enrichment._to_fraction_pct。
     assert row["change_pct"] == pytest.approx(0.0185)
     assert row["amount"] == 27500000000.0
 
 
 def test_tpex_symbol_with_realtime_quote():
-    """6488.TPEX(上柜)同样正常 enrichment, 不是只有 TWSE work。"""
+    """6488.TPEX(上櫃)同樣正常 enrichment, 不是只有 TWSE work。"""
     sec_master = _FakeSecurityMaster({
         "6488.TPEX": _FakeInstrument(name="環球晶", instrument_type="stock"),
     })
@@ -182,7 +182,7 @@ def test_tpex_symbol_with_realtime_quote():
 
 
 def test_taiwan_etf_goes_through_same_flow():
-    """Taiwan ETF(如 0050.TWSE)必须走同一条 enrichment flow, 不是只对 stock 生效。"""
+    """Taiwan ETF(如 0050.TWSE)必須走同一條 enrichment flow, 不是只對 stock 生效。"""
     sec_master = _FakeSecurityMaster({
         "0050.TWSE": _FakeInstrument(name="元大台灣50", instrument_type="etf"),
     })
@@ -204,11 +204,11 @@ def test_taiwan_etf_goes_through_same_flow():
 
 
 def test_closed_market_falls_back_to_latest_daily_close():
-    """无 realtime quote 但本地有日K 时, 应 fallback 到最新收盘价并算出涨跌。"""
+    """無 realtime quote 但本地有日K 時, 應 fallback 到最新收盤價並算出漲跌。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
-    rt_service = _FakeRealtimeService(quotes={})  # 全部 provider 都无法取得 -> 走 daily fallback
+    rt_service = _FakeRealtimeService(quotes={})  # 全部 provider 都無法取得 -> 走 daily fallback
     daily_df = pl.DataFrame({
         "symbol": ["2330.TWSE", "2330.TWSE"],
         "date": [date(2026, 8, 28), date(2026, 8, 31)],
@@ -225,19 +225,19 @@ def test_closed_market_falls_back_to_latest_daily_close():
     )
     assert len(rows) == 1
     row = rows[0]
-    # 最新一笔 (8/31) 收盘 1100, 前一笔 (8/28) 收盘 1080 作为 prev_close
+    # 最新一筆 (8/31) 收盤 1100, 前一筆 (8/28) 收盤 1080 作為 prev_close
     assert row["close"] == 1100.0
     assert row["prev_close"] == 1080.0
     assert row["change_amount"] == pytest.approx(20.0)
-    # _taiwan_daily_fallback_map 内部按 Taiwan 既有 provider 惯例算成「已乘 100」,
-    # 最终经 _to_fraction_pct 换回小数, 两次换算抵消后应等于最朴素的小数涨跌幅。
+    # _taiwan_daily_fallback_map 內部按 Taiwan 既有 provider 慣例算成「已乘 100」,
+    # 最終經 _to_fraction_pct 換回小數, 兩次換算抵消後應等於最樸素的小數漲跌幅。
     assert row["change_pct"] == pytest.approx(20.0 / 1080.0)
     assert row["open"] == 1085.0
 
 
 def test_missing_data_symbol_still_returns_row_with_nulls():
-    """完全没有 current/daily 数据的台股 symbol: 仍返回一行, 市场字段为 null, 不 500。"""
-    sec_master = _FakeSecurityMaster({})  # 连 security master 都查无此 symbol
+    """完全沒有 current/daily 資料的台股 symbol: 仍返回一行, 市場字段為 null, 不 500。"""
+    sec_master = _FakeSecurityMaster({})  # 連 security master 都查無此 symbol
     rt_service = _FakeRealtimeService(quotes={})
     rows = enrich_taiwan_watchlist_rows(
         ["9999.TWSE"], security_master=sec_master, realtime_service=rt_service,
@@ -247,7 +247,7 @@ def test_missing_data_symbol_still_returns_row_with_nulls():
     row = rows[0]
     assert row["symbol"] == "9999.TWSE"
     assert row["name"] is None
-    assert row["asset_type"] == "stock"  # 默认值, 不报错
+    assert row["asset_type"] == "stock"  # 預設值, 不報錯
     assert row["close"] is None
     assert row["change_pct"] is None
 
@@ -258,7 +258,7 @@ def test_empty_symbol_list_returns_empty():
 
 
 def test_batch_call_avoids_n_plus_one_provider_calls():
-    """多个 symbol 一次性传给 realtime_service.get_quotes, 不逐个调用 (N+1 防护)。"""
+    """多個 symbol 一次性傳給 realtime_service.get_quotes, 不逐個呼叫 (N+1 防護)。"""
     calls: list[list[str]] = []
 
     class _CountingRealtimeService(_FakeRealtimeService):
@@ -281,13 +281,13 @@ def test_batch_call_avoids_n_plus_one_provider_calls():
         security_master=sec_master, realtime_service=rt_service, daily_store=_FakeDailyStore(),
     )
     assert len(rows) == 3
-    assert len(calls) == 1, "应只调用一次 get_quotes (批次), 不逐 symbol 各打一次"
+    assert len(calls) == 1, "應只呼叫一次 get_quotes (批次), 不逐 symbol 各打一次"
     assert sorted(calls[0]) == ["0050.TWSE", "2330.TWSE", "6488.TPEX"]
 
 
 def test_realtime_provider_exception_does_not_raise():
-    """provider 层整体抛异常时, enrich_taiwan_watchlist_rows 本身不应向上抛 —— 由
-    调用方(api/watchlist.py)的 try/except 兜底; 这里只验证不是"半途崩溃丢数据"。"""
+    """provider 層整體拋異常時, enrich_taiwan_watchlist_rows 本身不應向上拋 —— 由
+    呼叫方(api/watchlist.py)的 try/except 兜底; 這裡只驗證不是"半途崩潰丟資料"。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -296,17 +296,17 @@ def test_realtime_provider_exception_does_not_raise():
         ["2330.TWSE"], security_master=sec_master, realtime_service=rt_service,
         daily_store=_FakeDailyStore(),
     )
-    # 内部已 catch 住 provider 异常, 仍返回一行(名称正常, 行情为 null)
+    # 內部已 catch 住 provider 異常, 仍返回一行(名稱正常, 行情為 null)
     assert len(rows) == 1
     assert rows[0]["name"] == "台積電"
     assert rows[0]["close"] is None
 
 
-# ===== Phase 8B-5.0.5: 技术指标透过 enrich_taiwan_watchlist_rows 落到 watchlist 行契约 =====
+# ===== Phase 8B-5.0.5: 技術指標透過 enrich_taiwan_watchlist_rows 落到 watchlist 行契約 =====
 
 def _make_indicator_history(symbol: str, n: int = 70) -> pl.DataFrame:
-    """足够 MA60/MACD 稳定暖机的确定性历史(与 test_taiwan_technical_indicators.py
-    的 fixture 生成方式一致, 各自独立以避免测试间耦合)。"""
+    """足夠 MA60/MACD 穩定暖機的確定性歷史(與 test_taiwan_technical_indicators.py
+    的 fixture 生成方式一致, 各自獨立以避免測試間耦合)。"""
     closes = [round(100.0 + i * 0.5 + 3.0 * math.sin(i / 3.0), 4) for i in range(n)]
     volumes = [round(1_000_000 + i * 5_000, 1) for i in range(n)]
     start = date(2026, 1, 1)
@@ -319,7 +319,7 @@ def _make_indicator_history(symbol: str, n: int = 70) -> pl.DataFrame:
 
 
 def test_twse_stock_gets_technical_indicators_populated():
-    """2330.TWSE 有足够日线历史时, ma5/10/20/60、rsi_14、macd_*、momentum_* 都应有值。"""
+    """2330.TWSE 有足夠日線歷史時, ma5/10/20/60、rsi_14、macd_*、momentum_* 都應有值。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -335,12 +335,12 @@ def test_twse_stock_gets_technical_indicators_populated():
     for field in ("ma5", "ma10", "ma20", "ma60", "vol_ma5", "vol_ma10",
                   "rsi_14", "macd_dif", "macd_dea", "macd_hist",
                   "momentum_5d", "momentum_20d"):
-        assert row[field] is not None, f"{field} 应有值(70 天历史足够)"
+        assert row[field] is not None, f"{field} 應有值(70 天歷史足夠)"
     assert 0.0 <= row["rsi_14"] <= 100.0
 
 
 def test_tpex_stock_gets_technical_indicators_populated():
-    """6488.TPEX 同样应正常算出技术指标, 不因交易所不同走错分支。"""
+    """6488.TPEX 同樣應正常算出技術指標, 不因交易所不同走錯分支。"""
     sec_master = _FakeSecurityMaster({
         "6488.TPEX": _FakeInstrument(name="環球晶", instrument_type="stock"),
     })
@@ -358,7 +358,7 @@ def test_tpex_stock_gets_technical_indicators_populated():
 
 
 def test_etf_gets_technical_indicators_populated():
-    """Taiwan ETF(0050.TWSE)必须走同一技术指标 flow, 不因 instrument_type==etf 被排除。"""
+    """Taiwan ETF(0050.TWSE)必須走同一技術指標 flow, 不因 instrument_type==etf 被排除。"""
     sec_master = _FakeSecurityMaster({
         "0050.TWSE": _FakeInstrument(name="元大台灣50", instrument_type="etf"),
     })
@@ -377,7 +377,7 @@ def test_etf_gets_technical_indicators_populated():
 
 
 def test_insufficient_history_leaves_technical_fields_null():
-    """只有 3 天历史: 技术指标应全为 None, 不影响价格/涨跌欄位。"""
+    """只有 3 天歷史: 技術指標應全為 None, 不影響價格/漲跌欄位。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -390,15 +390,15 @@ def test_insufficient_history_leaves_technical_fields_null():
         daily_store=_FakeDailyStore(df=history, latest=history["date"].max()),
     )
     row = rows[0]
-    # 价格/涨跌不受历史不足影响 (来自 realtime quote, 与技术指标是独立数据源)
+    # 價格/漲跌不受歷史不足影響 (來自 realtime quote, 與技術指標是獨立資料來源)
     assert row["close"] == 1100.0
     assert row["change_pct"] == pytest.approx(0.0185)
     for field in ("ma5", "ma20", "ma60", "rsi_14", "macd_dif", "momentum_20d"):
-        assert row[field] is None, f"{field} 应为 None(仅 3 天历史)"
+        assert row[field] is None, f"{field} 應為 None(僅 3 天歷史)"
 
 
 def test_indicator_computation_uses_single_batch_read(monkeypatch):
-    """技术指标计算应对整批 symbol 只调用一次 daily_store.read_range(), 不逐 symbol 各读一次。"""
+    """技術指標計算應對整批 symbol 只呼叫一次 daily_store.read_range(), 不逐 symbol 各讀一次。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
         "6488.TPEX": _FakeInstrument(name="環球晶", instrument_type="stock"),
@@ -425,25 +425,25 @@ def test_indicator_computation_uses_single_batch_read(monkeypatch):
     )
     assert len(rows) == 2
     assert all(r["ma20"] is not None for r in rows)
-    # 一次是价格 fallback 窗口的 read_range, 一次是技术指标窗口的 read_range ——
-    # 两者都是与 symbol 数量无关的常数次数(各恰好一次), 不随 watchlist 大小增长。
+    # 一次是價格 fallback 窗口的 read_range, 一次是技術指標窗口的 read_range ——
+    # 兩者都是與 symbol 數量無關的常數次數(各恰好一次), 不隨 watchlist 大小增長。
     assert len(read_range_calls) == 2, (
-        f"预期恰好 2 次 read_range 调用(fallback + indicators), 实际 {len(read_range_calls)}"
+        f"預期恰好 2 次 read_range 呼叫(fallback + indicators), 實際 {len(read_range_calls)}"
     )
     for call_symbols in read_range_calls:
-        assert sorted(call_symbols) == ["2330.TWSE", "6488.TPEX"], "每次调用都应是整批 symbol, 不是逐个"
+        assert sorted(call_symbols) == ["2330.TWSE", "6488.TPEX"], "每次呼叫都應是整批 symbol, 不是逐個"
 
 
 # ===== Data Freshness & Source Labels batch (Post-8C follow-up): =====
-# Monitor (/api/intraday/quotes) 与 StockDetail 一直都完整透传
+# Monitor (/api/intraday/quotes) 與 StockDetail 一直都完整透傳
 # TaiwanRealtimeQuote.source_meta / quote_time; enrich_taiwan_watchlist_rows
-# 之前组 row dict 时把这两个字段漏掉了, 导致 Watchlist 前端完全拿不到新鲜度/
-# 来源信息(见 Data Source Consistency & Freshness Audit report §D)。以下测试
-# 覆盖补上的透传逻辑本身, 不重新验证 realtime_service 的 fallback chain(那部分
-# 已由 test_taiwan_realtime_service.py 等既有测试覆盖)。
+# 之前組 row dict 時把這兩個字段漏掉了, 導致 Watchlist 前端完全拿不到新鮮度/
+# 來源資訊(見 Data Source Consistency & Freshness Audit report §D)。以下測試
+# 覆蓋補上的透傳邏輯本身, 不重新驗證 realtime_service 的 fallback chain(那部分
+# 已由 test_taiwan_realtime_service.py 等既有測試覆蓋)。
 
 def test_watchlist_row_preserves_source_meta():
-    """有 quote 时, row["source_meta"] 应是 q.source_meta.to_dict() 的原样结果。"""
+    """有 quote 時, row["source_meta"] 應是 q.source_meta.to_dict() 的原樣結果。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -465,8 +465,8 @@ def test_watchlist_row_preserves_source_meta():
 
 
 def test_watchlist_row_is_stale_survives_serialization():
-    """is_stale=True 的 quote, row["source_meta"]["is_stale"] 必须原样是 True
-    (不能因为序列化被静默丢掉或换成假的 False)。"""
+    """is_stale=True 的 quote, row["source_meta"]["is_stale"] 必須原樣是 True
+    (不能因為序列化被靜默丟掉或換成假的 False)。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -487,7 +487,7 @@ def test_watchlist_row_is_stale_survives_serialization():
 
 
 def test_watchlist_row_quote_time_survives_serialization():
-    """quote_time 应以 ISO 字串落到 row["quote_time"], 与 q.quote_time.isoformat() 一致。"""
+    """quote_time 應以 ISO 字串落到 row["quote_time"], 與 q.quote_time.isoformat() 一致。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -507,7 +507,7 @@ def test_watchlist_row_quote_time_survives_serialization():
 
 
 def test_watchlist_row_fallback_reason_survives_serialization():
-    """降级 fallback 时的 fallback_reason 应保留在 source_meta 内, 供前端 tooltip 使用。"""
+    """降級 fallback 時的 fallback_reason 應保留在 source_meta 內, 供前端 tooltip 使用。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -530,8 +530,8 @@ def test_watchlist_row_fallback_reason_survives_serialization():
 
 
 def test_watchlist_row_missing_metadata_does_not_crash():
-    """quote 存在但 quote_time/source_meta 都是 None (旧 fixture / mock 不完整) 时,
-    row 仍正常返回, 不因缺 metadata 而抛异常; 价格字段不受影响。"""
+    """quote 存在但 quote_time/source_meta 都是 None (舊 fixture / mock 不完整) 時,
+    row 仍正常返回, 不因缺 metadata 而拋異常; 價格字段不受影響。"""
     sec_master = _FakeSecurityMaster({
         "2330.TWSE": _FakeInstrument(name="台積電", instrument_type="stock"),
     })
@@ -548,12 +548,12 @@ def test_watchlist_row_missing_metadata_does_not_crash():
     row = rows[0]
     assert row["quote_time"] is None
     assert row["source_meta"] is None
-    assert row["close"] == 2480.0  # 价格字段不受 metadata 缺失影响
+    assert row["close"] == 2480.0  # 價格字段不受 metadata 缺失影響
 
 
 def test_watchlist_row_no_quote_at_all_has_no_fake_metadata():
-    """完全查无 quote 的 symbol (q is None): quote_time/source_meta 应是 None,
-    不得伪造出「即時」之类假新鲜度状态。"""
+    """完全查無 quote 的 symbol (q is None): quote_time/source_meta 應是 None,
+    不得偽造出「即時」之類假新鮮度狀態。"""
     sec_master = _FakeSecurityMaster({
         "9999.TWSE": _FakeInstrument(name="測試無資料股", instrument_type="stock"),
     })

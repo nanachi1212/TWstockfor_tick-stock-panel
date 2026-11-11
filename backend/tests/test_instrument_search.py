@@ -17,7 +17,7 @@ def _patch_security_master(monkeypatch: pytest.MonkeyPatch, rows: list[dict]) ->
 
 
 class _FakeSecurityMaster:
-    """最小台股证券主档桩: 直接按 symbol/code/name 子串匹配, 不依赖真实 adapter。"""
+    """最小台股證券主檔樁: 直接按 symbol/code/name 子串匹配, 不依賴真實 adapter。"""
 
     def __init__(self, rows: list[dict]) -> None:
         self._rows = rows
@@ -47,7 +47,7 @@ _TAIWAN_ROWS = [
         "exchange": "TWSE", "instrument_type": "etf", "is_supported": True,
     },
     {
-        # 未支援标的(如权证): 即使命中查询也不应出现在合并结果中。
+        # 未支援標的(如權證): 即使命中查詢也不應出現在合併結果中。
         "symbol": "7999.TWSE", "code": "7999", "name": "測試權證",
         "exchange": "TWSE", "instrument_type": "warrant", "is_supported": False,
     },

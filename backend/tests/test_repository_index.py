@@ -1,4 +1,4 @@
-"""指数资产路由 — repository 层测试。"""
+"""指數資產路由 — repository 層測試。"""
 import os
 
 import polars as pl
@@ -21,29 +21,29 @@ def _write_index_instruments(repo, rows):
 
 def test_name_map_includes_index(repo):
     _write_index_instruments(repo, {
-        "symbol": ["000001.SH"], "name": ["上证指数"],
+        "symbol": ["000001.SH"], "name": ["上證指數"],
         "code": ["000001"], "asset_type": ["index"],
     })
     names = repo.get_name_map(["000001.SH", "600000.SH"])
-    assert names.get("000001.SH") == "上证指数"
-    assert "600000.SH" not in names  # 未收录不造名
+    assert names.get("000001.SH") == "上證指數"
+    assert "600000.SH" not in names  # 未收錄不造名
 
 
 def test_name_map_stock_beats_index(repo):
-    """同名 symbol 同时出现在股票/指数维表时, 股票名称优先。"""
+    """同名 symbol 同時出現在股票/指數維表時, 股票名稱優先。"""
     _write_index_instruments(repo, {
-        "symbol": ["600000.SH"], "name": ["某指数"],
+        "symbol": ["600000.SH"], "name": ["某指數"],
         "code": ["600000"], "asset_type": ["index"],
     })
     pl.DataFrame({
-        "symbol": ["600000.SH"], "name": ["浦发银行"], "code": ["600000"],
+        "symbol": ["600000.SH"], "name": ["浦發銀行"], "code": ["600000"],
         "exchange": ["SH"], "region": ["CN"], "type": ["stock"],
         "listing_date": [None], "total_shares": [None], "float_shares": [None],
         "tick_size": [None], "limit_up": [None], "limit_down": [None],
         "as_of": ["2026-07-25"],
     }).write_parquet(repo.store.data_dir / "instruments" / "instruments.parquet")
     repo._refresh_instruments()
-    assert repo.get_name_map(["600000.SH"]).get("600000.SH") == "浦发银行"
+    assert repo.get_name_map(["600000.SH"]).get("600000.SH") == "浦發銀行"
 
 
 def _write_stock_instruments(repo, symbols, names):
@@ -60,26 +60,26 @@ def _write_stock_instruments(repo, symbols, names):
 
 
 def test_name_map_partial_query_does_not_poison_cache(repo):
-    """带 symbols 的部分查询不能把残缺映射写入缓存 (自选新加股票无名称的回归).
+    """帶 symbols 的部分查詢不能把殘缺映射寫入快取 (自選新加股票無名稱的迴歸).
 
-    旧 bug: 首次 get_name_map(["600000.SH"]) 把只含 600000 的映射缓存住,
-    之后自选加入 000001.SZ 再查名称命中残缺缓存 → name=None。
+    舊 bug: 首次 get_name_map(["600000.SH"]) 把只含 600000 的映射快取住,
+    之後自選加入 000001.SZ 再查名稱命中殘缺快取 → name=None。
     """
-    _write_stock_instruments(repo, ["600000.SH", "000001.SZ"], ["浦发银行", "平安银行"])
+    _write_stock_instruments(repo, ["600000.SH", "000001.SZ"], ["浦發銀行", "平安銀行"])
     first = repo.get_name_map(["600000.SH"])
-    assert first == {"600000.SH": "浦发银行"}
-    # 缓存必须是全量: 后续其他 symbols 查询仍能命中
+    assert first == {"600000.SH": "浦發銀行"}
+    # 快取必須是全量: 後續其他 symbols 查詢仍能命中
     second = repo.get_name_map(["000001.SZ"])
-    assert second == {"000001.SZ": "平安银行"}
+    assert second == {"000001.SZ": "平安銀行"}
     full = repo.get_name_map()
-    assert full == {"600000.SH": "浦发银行", "000001.SZ": "平安银行"}
+    assert full == {"600000.SH": "浦發銀行", "000001.SZ": "平安銀行"}
 
 
 def test_name_map_cache_invalidated_on_instruments_refresh(repo):
-    """维表刷新后缓存必须失效: 新收录的股票能立刻查到名称。"""
-    _write_stock_instruments(repo, ["600000.SH"], ["浦发银行"])
-    assert repo.get_name_map(["600000.SH"]) == {"600000.SH": "浦发银行"}
-    _write_stock_instruments(repo, ["600000.SH", "301999.SZ"], ["浦发银行", "新股股份"])
+    """維表刷新後快取必須失效: 新收錄的股票能立刻查到名稱。"""
+    _write_stock_instruments(repo, ["600000.SH"], ["浦發銀行"])
+    assert repo.get_name_map(["600000.SH"]) == {"600000.SH": "浦發銀行"}
+    _write_stock_instruments(repo, ["600000.SH", "301999.SZ"], ["浦發銀行", "新股股份"])
     assert repo.get_name_map(["301999.SZ"]) == {"301999.SZ": "新股股份"}
 
 
@@ -128,7 +128,7 @@ def test_get_enriched_latest_asset_index(repo):
     df, dt = repo.get_enriched_latest_asset("index")
     assert str(dt) == "2026-07-24"
     assert df["symbol"].to_list() == ["000001.SH"]
-    assert "ma5" in df.columns or "rsi_14" in df.columns  # 重算产出指标列
+    assert "ma5" in df.columns or "rsi_14" in df.columns  # 重算產出指標列
 
 
 def test_get_enriched_latest_asset_index_cold_no_refresh(repo):
@@ -158,7 +158,7 @@ def _merge_row(symbol, close):
 
 
 def test_merge_live_enriched_asset_index_merges_cache(repo):
-    """merge 路径: 两次合并缓存取并集 (不 NameError, 不丢已有缓存)。"""
+    """merge 路徑: 兩次合併快取取並集 (不 NameError, 不丟已有快取)。"""
     repo.merge_live_enriched_asset("index", pl.DataFrame([_merge_row("000001.SH", 3000.0)]))
     repo.merge_live_enriched_asset("index", pl.DataFrame([_merge_row("000300.SH", 4000.0)]))
     cached, dt = repo.get_enriched_latest_asset("index", refresh=False)

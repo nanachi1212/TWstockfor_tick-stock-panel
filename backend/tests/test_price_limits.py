@@ -41,7 +41,7 @@ def test_scalar_price_limit_rules(symbol, trade_date, is_st, expected):
 def test_polars_and_numpy_price_limit_rules_match():
     dates = [date(2026, 7, 3), date(2026, 7, 6)]
     symbols = ["600001.SH", "300001.SZ", "689001.SH", "830001.BJ"]
-    names = ["*st主板", "*ST创业", "科创ST", "北交ST"]
+    names = ["*st主板", "*ST創業", "科創ST", "北交ST"]
     panel = pl.DataFrame({
         "date": [value for value in dates for _ in symbols],
         "symbol": symbols * len(dates),
@@ -181,13 +181,13 @@ def test_realtime_limit_prices_ignore_stale_instrument_date():
 
 
 def test_limit_down_recovery_uses_raw_low_under_later_ex_div():
-    """除权事件之后重算历史时, 跌停翘板"曾触及跌停"必须用原始价 low 判断。
+    """除權事件之後重算歷史時, 跌停翹板"曾觸及跌停"必須用原始價 low 判斷。
 
-    day2 (历史日): 原始 low 9.30 未触及跌停价 9.00, 不应触发翘板;
-    但 day3 除权 (ex_factor=2) 使 day2 前复权 low 变为 4.65,
-    若误用复权 low 对比原始口径跌停价会误报翘板。
-    day3 (除权日, 最新日不复权): 涨跌停基准切换为前复权昨收 4.825 → 跌停价 4.34,
-    原始 low 4.34 触及且收阳未封死 → 真翘板。
+    day2 (歷史日): 原始 low 9.30 未觸及跌停價 9.00, 不應觸發翹板;
+    但 day3 除權 (ex_factor=2) 使 day2 前復權 low 變為 4.65,
+    若誤用復權 low 對比原始口徑跌停價會誤報翹板。
+    day3 (除權日, 最新日不復權): 漲跌停基準切換為前復權昨收 4.825 → 跌停價 4.34,
+    原始 low 4.34 觸及且收陽未封死 → 真翹板。
     """
     raw = pl.DataFrame({
         "symbol": ["600001.SH"] * 3,

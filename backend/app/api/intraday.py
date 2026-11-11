@@ -1,11 +1,11 @@
-"""行情状态 / SSE 推送 API。
+"""行情狀態 / SSE 推送 API。
 
-盘中选股相关端点已迁移至策略页面，此处仅保留全局行情基础设施。
-SSE 推送四种事件 (使用标准 SSE event 字段):
-  - quotes_updated: 行情数据刷新，前端 invalidate 对应 query
-  - strategy_results_updated: 策略监控已写入最新结果，前端刷新策略个股列表
-  - strategy_alert: 策略监控/告警触发，前端弹通知
-  - depth_updated: 五档盘口修正完成，前端刷新连板梯队/看板封单数据
+盤中選股相關端點已遷移至策略頁面，此處僅保留全域行情基礎設施。
+SSE 推送四種事件 (使用標準 SSE event 字段):
+  - quotes_updated: 行情資料刷新，前端 invalidate 對應 query
+  - strategy_results_updated: 策略監控已寫入最新結果，前端刷新策略個股列表
+  - strategy_alert: 策略監控/告警觸發，前端彈通知
+  - depth_updated: 五檔盤口修正完成，前端刷新連板梯隊/看板封單資料
 """
 from __future__ import annotations
 
@@ -23,13 +23,13 @@ router = APIRouter(prefix="/api/intraday", tags=["quotes"])
 
 
 def _get_quote_service(request: Request):
-    """获取全局 QuoteService。"""
+    """獲取全域 QuoteService。"""
     return getattr(request.app.state, "quote_service", None)
 
 
 @router.get("/status")
 def status(request: Request):
-    """行情状态 (整合全局 QuoteService 与 TaiwanRealtimeService)。"""
+    """行情狀態 (整合全域 QuoteService 與 TaiwanRealtimeService)。"""
     res: dict = {"enabled": False, "running": False, "symbol_count": 0, "index_symbol_count": 0,
                  "quote_age_ms": None, "is_trading_hours": False, "last_fetch_ms": None}
     qs = _get_quote_service(request)
@@ -51,10 +51,10 @@ def status(request: Request):
 
 @router.get("/quotes")
 def get_quotes(
-    symbols: str = Query(..., description="逗号分隔的台股或标准 symbol (例如 2330.TWSE,8069.TPEX,0050.TWSE)"),
-    force: bool = Query(False, description="是否强制穿透缓存向外部来源请求"),
+    symbols: str = Query(..., description="逗號分隔的台股或標準 symbol (例如 2330.TWSE,8069.TPEX,0050.TWSE)"),
+    force: bool = Query(False, description="是否強制穿透快取向外部來源請求"),
 ):
-    """批次获取台股盘中实时行情 (支援 4 级 Fallback 与五档盘口)。"""
+    """批次獲取台股盤中即時行情 (支援 4 級 Fallback 與五檔盤口)。"""
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     if not symbol_list:
         return {"quotes": [], "count": 0}
@@ -143,40 +143,40 @@ def index_quotes():
 
 @router.get("/stream")
 async def quote_stream(request: Request):
-    """SSE 端点: 行情更新 + 告警推送 + 五档修正 + 复盘进度。
+    """SSE 端點: 行情更新 + 告警推送 + 五檔修正 + 覆盤進度。
 
     使用 sse-starlette EventSourceResponse:
-    - 标准 SSE event 字段，前端按 event name 监听
-    - 内置断线检测，客户端断开立即终止 generator
-    - 内置 ping 心跳，保持连接活跃
+    - 標準 SSE event 字段，前端按 event name 監聽
+    - 內置斷線檢測，客戶端斷開立即終止 generator
+    - 內置 ping 心跳，保持連接活躍
 
-    每个连接注册一个独立订阅者 (QuoteSubscriber: 独立事件 + 独立队列),
-    事件由 QuoteService 广播 — 多客户端 (多标签页/设备) 各自收到全量事件。
-    此前四通道共用服务级 Event + pop 取走语义, 告警只会被先醒的连接消费。
+    每個連接註冊一個獨立訂閱者 (QuoteSubscriber: 獨立事件 + 獨立佇列),
+    事件由 QuoteService 廣播 — 多客戶端 (多標籤頁/設備) 各自收到全量事件。
+    此前四通道共用服務級 Event + pop 取走語義, 告警只會被先醒的連接消費。
     """
     qs = _get_quote_service(request)
 
     async def event_generator():
         if qs is None:
-            # 无行情服务: 保持连接 (EventSourceResponse 自带 ping), 不推事件
+            # 無行情服務: 保持連接 (EventSourceResponse 自帶 ping), 不推事件
             while True:
                 await asyncio.sleep(30)
 
         sub = qs.subscribe()
         try:
-            # 连接建立时立刻发送一条握手事件，确保 HTTP response headers 立即 flush 到客户端触发 onopen
+            # 連接建立時立刻發送一條握手事件，確保 HTTP response headers 立即 flush 到客戶端觸發 onopen
             yield {
                 "event": "connected",
                 "data": json.dumps({"ts": int(time.time() * 1000), "status": "ok"}),
             }
 
             while True:
-                # 等待任一通道有新信号 (5s 超时保持循环, 便于断线时尽快退出)
+                # 等待任一通道有新信號 (5s 超時保持循環, 便於斷線時儘快退出)
                 await asyncio.to_thread(sub.wait, 5.0)
                 data = sub.pop()
 
 
-                # 告警 (分片推送, 避免单条 SSE 过大)
+                # 告警 (分片推送, 避免單條 SSE 過大)
                 alerts = data["alerts"]
                 for chunk_start in range(0, len(alerts), 20):
                     chunk = alerts[chunk_start:chunk_start + 20]
@@ -188,8 +188,8 @@ async def quote_stream(request: Request):
                         }, ensure_ascii=False),
                     }
 
-                # 复盘进度 (定时复盘流式生成时) — 前端 reviewStore 直接消费
-                # 事件已是 recap_market_stream 产出的 JSON 字符串, 逐条转发
+                # 覆盤進度 (定時覆盤流式生成時) — 前端 reviewStore 直接消費
+                # 事件已是 recap_market_stream 產出的 JSON 字串, 逐條轉發
                 for evt_json in data["reviews"]:
                     yield {
                         "event": "review_progress",
@@ -206,14 +206,14 @@ async def quote_stream(request: Request):
                         }),
                     }
 
-                # 策略监控完成后, 结果已写入内存缓存; 独立通知只刷新策略个股列表。
+                # 策略監控完成後, 結果已寫入記憶體快取; 獨立通知只刷新策略個股列表。
                 if data["strategy_results_updated"]:
                     yield {
                         "event": "strategy_results_updated",
                         "data": json.dumps({"ts": int(time.time() * 1000)}),
                     }
 
-                # 五档修正完成 — 前端刷新连板梯队封单数据
+                # 五檔修正完成 — 前端刷新連板梯隊封單資料
                 if data["depth_updated"]:
                     yield {
                         "event": "depth_updated",
@@ -222,7 +222,7 @@ async def quote_stream(request: Request):
                         }),
                     }
 
-                # 盘后数据写入 (排程/启动补跑) — 前端刷新依赖日线的查询
+                # 盤後資料寫入 (排程/啟動補跑) — 前端刷新依賴日線的查詢
                 if data["daily_data_updated"]:
                     yield {
                         "event": "daily_data_updated",
@@ -236,7 +236,7 @@ async def quote_stream(request: Request):
 
 @router.post("/refresh")
 def refresh_quotes(request: Request):
-    """手动刷新一次行情数据。"""
+    """手動刷新一次行情資料。"""
     qs = _get_quote_service(request)
     if qs:
         return qs.refresh()

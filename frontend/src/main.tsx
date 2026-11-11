@@ -39,8 +39,8 @@ const _redirectToLogin = (() => {
     const msg = err.message || ''
     // 401 (未登錄/會話過期) → 跳登錄頁
     // 403 未初始化 (面板未設密碼, 公網訪問) → 也跳登錄頁(顯示設密碼提示)
-    const is401 = msg.includes('未登录') || msg.includes('会话已过期') || msg.includes('401')
-    const isNotInit = msg.includes('尚未初始化访问密码') || msg.includes('NOT_INITIALIZED')
+    const is401 = msg.includes('未登入') || msg.includes('會話已過期') || msg.includes('401')
+    const isNotInit = msg.includes('尚未初始化訪問密碼') || msg.includes('NOT_INITIALIZED')
     if (!is401 && !isNotInit) return
     // 已在登錄頁則不跳(避免死循環)
     if (window.location.pathname === '/login') return

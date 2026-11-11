@@ -50,9 +50,9 @@ class TaiwanDailyStore:
     """
 
     def __init__(self, data_dir: Path | None = None) -> None:
-        # Phase 8B-5.0.6: 省略 data_dir 时锚定到 settings.data_dir(与 app 其它数据
-        # 同一个 project-root/exe-adjacent 根), 不再是 cwd-dependent 的裸相对路径。
-        # 显式传入 data_dir(所有既有 deterministic test 都这样做)时行为不变。
+        # Phase 8B-5.0.6: 省略 data_dir 時錨定到 settings.data_dir(與 app 其它資料
+        # 同一個 project-root/exe-adjacent 根), 不再是 cwd-dependent 的裸相對路徑。
+        # 顯式傳入 data_dir(所有既有 deterministic test 都這樣做)時行為不變。
         if data_dir is None:
             from app.taiwan.data_root import taiwan_data_root
 

@@ -60,7 +60,7 @@ def _refresh_after_close_research() -> dict[str, object]:
 
 
 def _refresh_single_view(repo: KlineRepository, name: str) -> None:
-    """刷新单个 DuckDB 视图。"""
+    """刷新單個 DuckDB 視圖。"""
     d = repo.store.data_dir.as_posix()
     paths = {
         "kline_daily": f"{d}/kline_daily/**/*.parquet",
@@ -182,8 +182,8 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     """
     scheduler = AsyncIOScheduler(timezone="Asia/Taipei")
 
-    # 台股盘后增量更新 (Taiwan Full-Market Daily OHLCV + Institutional + Margin Update)
-    # 每天 16:30 Asia/Taipei 触发。
+    # 台股盤後增量更新 (Taiwan Full-Market Daily OHLCV + Institutional + Margin Update)
+    # 每天 16:30 Asia/Taipei 觸發。
     # 官方全市場快照端點極速更新: Daily (TWSE 1 + TPEx 1) + Inst (2) + Margin (2) = ~6 次 HTTP 請求 / 日
     _scheduled_taiwan_update = run_taiwan_update
 
@@ -363,7 +363,7 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     return scheduler
 
 
-# app_state 延迟引用(start_scheduler 在 lifespan 早期调用, app.state 可能还没就绪)
+# app_state 延遲引用(start_scheduler 在 lifespan 早期呼叫, app.state 可能還沒就緒)
 _app_state_ref = None
 
 

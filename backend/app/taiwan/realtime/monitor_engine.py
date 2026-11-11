@@ -95,11 +95,11 @@ class TaiwanMonitorEngine:
         storage_path: Path | None = None,
         alert_handler: Callable[[TaiwanAlertEvent], None] | None = None,
     ) -> None:
-        # Phase 8B-5.0.6: 省略 storage_path 时锚定到 settings.data_dir, 不再是
-        # cwd-dependent 的裸相对路径(见 app/taiwan/data_root.py)。显式传入
-        # storage_path(既有 deterministic test 都这样做)时行为不变。未发现
-        # repo 内任何既有 monitor_rules.json(见 8B-5.0.6 报告 Data Safety),
-        # 此改动不会让任何既有规则文件失联。
+        # Phase 8B-5.0.6: 省略 storage_path 時錨定到 settings.data_dir, 不再是
+        # cwd-dependent 的裸相對路徑(見 app/taiwan/data_root.py)。顯式傳入
+        # storage_path(既有 deterministic test 都這樣做)時行為不變。未發現
+        # repo 內任何既有 monitor_rules.json(見 8B-5.0.6 報告 Data Safety),
+        # 此改動不會讓任何既有規則文件失聯。
         if storage_path is None:
             from app.taiwan.data_root import taiwan_data_root
 
@@ -772,9 +772,9 @@ class TaiwanMonitorEngine:
 
         with self._state_lock:
             prev_triggered = self._trigger_states.get(dedup_key, False)
-            # 尚未触发过用 None 表示: time.monotonic() 的原点是任意的 (Linux 上是开机时间),
-            # 若用 0.0 当哨兵, 刚开机/容器刚启动时 cur_mono - 0.0 会小于 cooldown_seconds,
-            # 所有规则都会被误判成 cooldown 中而永不触发。
+            # 尚未觸發過用 None 表示: time.monotonic() 的原點是任意的 (Linux 上是開機時間),
+            # 若用 0.0 當哨兵, 剛開機/容器剛啟動時 cur_mono - 0.0 會小於 cooldown_seconds,
+            # 所有規則都會被誤判成 cooldown 中而永不觸發。
             last_fire = self._last_fire_time.get(dedup_key)
 
             # Re-arm state check with optional hysteresis

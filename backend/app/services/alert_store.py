@@ -1,14 +1,14 @@
-"""告警触发记录存储 — JSONL 追加写 + 滚动清理。
+"""告警觸發記錄存儲 — JSONL 追加寫 + 滾動清理。
 
-职责:
-  - 把每次触发的 AlertEvent 追加写入 data/user_data/alerts.jsonl
-  - 提供查询 (按来源/类型过滤、时间倒序、限量)
-  - 滚动清理: 保留近 N 天 + 上限 M 条 (取交集)
+職責:
+  - 把每次觸發的 AlertEvent 追加寫入 data/user_data/alerts.jsonl
+  - 提供查詢 (按來源/類型過濾、時間倒序、限量)
+  - 滾動清理: 保留近 N 天 + 上限 M 條 (取交集)
 
-设计:
-  - JSONL 每行一个 JSON 对象,便于增量追加和流式读取
-  - 清理策略: 追加后按需 prune (按 ts 删旧),避免文件无限膨胀
-  - 读时全量加载到内存过滤 (记录量受上限约束, 5000 条量级无压力)
+設計:
+  - JSONL 每行一個 JSON 對象,便於增量追加和流式讀取
+  - 清理策略: 追加後按需 prune (按 ts 刪舊),避免文件無限膨脹
+  - 讀時全量載入到記憶體過濾 (記錄量受上限約束, 5000 條量級無壓力)
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # 保留策略
 MAX_DAYS = 7
 MAX_RECORDS = 5000
-# 每隔多少次写入触发一次清理 (避免每次写都 prune)
+# 每隔多少次寫入觸發一次清理 (避免每次寫都 prune)
 PRUNE_EVERY = 20
 
 _lock = threading.Lock()
@@ -100,7 +100,7 @@ def _rewrite_locked(path: Path, events: list[dict]) -> None:
 
 
 def append(data_dir: Path, event: dict) -> None:
-    """追加一条触发记录。event 应含 ts(毫秒)、rule_id、source 等字段。"""
+    """追加一條觸發記錄。event 應含 ts(毫秒)、rule_id、source 等字段。"""
     line = json.dumps(_prepare_event(event), ensure_ascii=False)
     with _lock:
         p = _path(data_dir)
@@ -177,9 +177,9 @@ def list_recent(
     source: str | None = None,
     type: str | None = None,
 ) -> list[dict]:
-    """读取近 N 天记录,按时间倒序,支持按 source/type 过滤。
+    """讀取近 N 天記錄,按時間倒序,支持按 source/type 過濾。
 
-    持锁读: prune/delete/clear 会整文件重写, 无锁读可能读到截断内容。
+    持鎖讀: prune/delete/clear 會整文件重寫, 無鎖讀可能讀到截斷內容。
     """
     import time
     cutoff = (time.time() - days * 86400) * 1000  # 毫秒
@@ -210,13 +210,13 @@ def list_recent(
     except Exception as e:
         logger.warning("alert_store read failed: %s", e)
         return []
-    # 时间倒序 + 截断
+    # 時間倒序 + 截斷
     out.sort(key=lambda x: x.get("ts", 0), reverse=True)
     return out[:limit]
 
 
 def clear(data_dir: Path) -> int:
-    """清空全部记录,返回清除的条数。"""
+    """清空全部記錄,返回清除的條數。"""
     with _lock:
         p = _path(data_dir)
         if not p.exists():
@@ -232,10 +232,10 @@ def clear(data_dir: Path) -> int:
 
 
 def delete_one(data_dir: Path, ts: int) -> bool:
-    """删除指定 ts 的单条记录,返回是否删除成功。
+    """刪除指定 ts 的單條記錄,返回是否刪除成功。
 
-    JSONL 无主键, 用 ts(毫秒时间戳) 作为标识。
-    若存在多条同 ts, 只删第一条。
+    JSONL 無主鍵, 用 ts(毫秒時間戳) 作為標識。
+    若存在多條同 ts, 只刪第一條。
     """
     with _lock:
         p = _path(data_dir)
@@ -344,7 +344,7 @@ def delete_by_id(data_dir: Path, alert_id: str) -> bool:
 
 
 def count(data_dir: Path) -> int:
-    """返回当前记录总数。持锁读, 防与整文件重写并发。"""
+    """返回當前記錄總數。持鎖讀, 防與整文件重寫併發。"""
     p = _path(data_dir)
     if not p.exists():
         return 0
@@ -356,7 +356,7 @@ def count(data_dir: Path) -> int:
 
 
 def _prune_locked(p: Path) -> None:
-    """(调用方需持锁) 保留近 MAX_DAYS 天 + 上限 MAX_RECORDS 条。"""
+    """(呼叫方需持鎖) 保留近 MAX_DAYS 天 + 上限 MAX_RECORDS 條。"""
     import time
     cutoff = (time.time() - MAX_DAYS * 86400) * 1000
     kept: list[dict] = []
@@ -377,11 +377,11 @@ def _prune_locked(p: Path) -> None:
     except Exception as e:
         logger.warning("alert_store prune read failed: %s", e)
         return
-    # 上限截断 (保留最新的)
+    # 上限截斷 (保留最新的)
     if len(kept) > MAX_RECORDS:
         kept.sort(key=lambda x: x.get("ts", 0))
         kept = kept[-MAX_RECORDS:]
-    # 重写文件
+    # 重寫文件
     try:
         _rewrite_locked(p, kept)
     except Exception as e:
