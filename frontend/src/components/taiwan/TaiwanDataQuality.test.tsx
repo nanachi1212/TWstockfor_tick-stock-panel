@@ -113,7 +113,8 @@ describe('DataQualityBadge', () => {
   })
 
   it('提供 quoteTime 時，tooltip 帶入格式化後的報價時間而非原始 ISO 字串或 fetched_at', () => {
-    const qt = new Date(2026, 8, 9, 9, 53, 58).toISOString()
+    // A fixed instant: 09:53:58 in Taipei, whatever time zone the test runner uses.
+    const qt = '2026-09-09T09:53:58+08:00'
     render(
       <DataQualityBadge
         meta={{ is_stale: true, freshness_class: 'delayed_15m', source: 'yahoo:chart', fetched_at: '2026-09-09T10:14:52+08:00' }}
