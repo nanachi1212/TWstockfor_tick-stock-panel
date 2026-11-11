@@ -102,7 +102,6 @@ backend/_desktop_run.log
 backend/_check*.py
 backend/__tmp_dbg*/
 backend/__tmp_test*/
-reports/tickflow_pro_probe/
 exports/
 release-assets/
 installer-final-report.txt
@@ -118,14 +117,12 @@ backend/NanachiStockPanel-macos.zip
 backend/NanachiStockPanel-linux-x64.tar.gz
 packaging/Output/
 packaging/icon_preview.png
-packaging/designs/
 packaging/install.log
 packaging/installed_run.log
 # macOS 本地構建產物 (PyInstaller .app 與 create-dmg 產出的 .dmg,根目錄產出)
 NanachiStockPanel.app/
 NanachiStockPanel-macos*.dmg
 NanachiStockPanel-macos*.zip
-reports/cursor_tickflow_pro_rate_limit_p0.bundle
 
 # 本機啟動捷徑 (scripts/install-desktop-shortcut.ps1 產生)
 /*.lnk

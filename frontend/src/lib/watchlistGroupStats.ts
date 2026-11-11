@@ -1,9 +1,9 @@
 /**
  * 自選分組漲跌幅 — 等權平均口徑。
  *
- * 組內每隻成員取「實時優先、收盤兜底」的漲跌幅(與自選表格展示同源:
+ * 組內每隻成員取「即時優先、收盤備援」的漲跌幅(與自選表格展示同源:
  * rt_pct ?? change_pct, 小數單位), 算術平均即分組漲跌幅。等權最貼合
- * 自選的"個人組合"視角 — 透明且無需市值數據。
+ * 自選的"個人組合"視角 — 透明且無需市值資料。
  */
 
 import { fmtPct } from '@/lib/format'
@@ -29,8 +29,8 @@ export interface GroupPctInfo {
 export type GroupPctMap = Record<string, GroupPctInfo>
 
 /**
- * 單隻標的的展示漲跌幅: 實時優先、收盤兜底(與自選表格/卡片展示同源,
- * 小數單位), 無有效數據為 null。分組統計與分組卡片排序共用此口徑。
+ * 單隻標的的展示漲跌幅: 即時優先、收盤備援(與自選表格/卡片展示同源,
+ * 小數單位), 無有效資料為 null。分組統計與分組卡片排序共用此口徑。
  */
 export function rowPct(
   row: { rt_pct?: number | null; change_pct?: number | null } | undefined,
@@ -85,7 +85,7 @@ export function computeGroupPcts(
   return out
 }
 
-/** 漲跌色 (A 股慣例紅漲綠跌) */
+/** 漲跌色 (台股慣例紅漲綠跌) */
 export function groupPctColor(pct: number | null): string {
   if (pct == null || pct === 0) return 'text-muted'
   return pct > 0 ? 'text-bull' : 'text-bear'
@@ -121,11 +121,11 @@ export function isGroupSort(v: unknown): v is GroupSort {
   return v === 'default' || v === 'desc' || v === 'asc'
 }
 
-/** 分組指標+排序配置 (分組統計條 / 分組卡片兩個視圖共享同一份持久化) */
+/** 分組指標+排序設定 (分組統計條 / 分組卡片兩個視圖共享同一份持久化) */
 export interface GroupStatsConfig {
   metric: GroupMetric
   sort: GroupSort
-  /** 分組卡片默認展示的成員條數 (前 N, 可展開全部) */
+  /** 分組卡片預設展示的成員條數 (前 N, 可展開全部) */
   cardTopN: number
   /** 分組卡片頭部是否顯示分組顏色底條 */
   cardColorBar: boolean
@@ -133,11 +133,11 @@ export interface GroupStatsConfig {
   cardRank: boolean
 }
 
-/** 卡片默認條數與上下限 (超出範圍的持久化值會被夾回) */
+/** 卡片預設條數與上下限 (超出範圍的持久化值會被夾回) */
 export const GROUP_CARD_TOP_N_DEFAULT = 8
 export const GROUP_CARD_TOP_N_MIN = 1
 export const GROUP_CARD_TOP_N_MAX = 50
-/** 卡片頭部彩條 / 成員行序號默認開啟 (舊持久化缺失該字段時回退到默認) */
+/** 卡片頭部彩條 / 成員行序號預設開啟 (舊持久化缺失該欄位時回退到預設) */
 export const GROUP_CARD_COLOR_BAR_DEFAULT = true
 export const GROUP_CARD_RANK_DEFAULT = true
 
@@ -168,10 +168,10 @@ export function loadGroupStatsConfig(): GroupStatsConfig {
   }
 }
 
-/** 配置局部更新 (設置彈層 -> 持有方), 新增卡片顯示項時在此處擴展 */
+/** 設定局部更新 (設定彈層 -> 持有方), 新增卡片顯示項時在此處擴展 */
 export type GroupStatsConfigPatch = Partial<Pick<GroupStatsConfig, 'metric' | 'sort' | 'cardTopN' | 'cardColorBar' | 'cardRank'>>
 
-/** 按配置排序分組鍵列表 (null 排最後), sort='default' 時原序返回 */
+/** 按設定排序分組鍵列表 (null 排最後), sort='default' 時原序返回 */
 export function sortGroupKeys<T>(items: T[], keyOf: (item: T) => string, pcts: GroupPctMap, config: GroupStatsConfig): T[] {
   if (config.sort === 'default') return items
   return [...items].sort((a, b) => {
@@ -200,9 +200,9 @@ export function groupMetricValue(info: GroupPctInfo | undefined, metric: GroupMe
   }
 }
 
-/** 懸停明細: 按當前指標給出數值 + 全套統計, 任意指標下信息完整 */
+/** 懸停明細: 按當前指標給出數值 + 全套統計, 任意指標下資訊完整 */
 export function groupMetricTitle(info: GroupPctInfo | undefined, metric: GroupMetric): string {
-  if (!info || info.sampled === 0) return '暫無漲跌幅數據'
+  if (!info || info.sampled === 0) return '尚無漲跌幅資料'
   const value = groupMetricValue(info, metric)
   const metricLabel = GROUP_METRICS.find(m => m.id === metric)?.label ?? ''
   const valueText = value == null
@@ -215,6 +215,6 @@ export function groupMetricTitle(info: GroupPctInfo | undefined, metric: GroupMe
 
 /** 懸停明細: 等權平均 +1.23%，上漲12 下跌5 平1 (格式化複用全站 fmtPct) */
 export function groupPctTitle(info: GroupPctInfo | undefined): string {
-  if (!info || info.pct == null) return '暫無漲跌幅數據'
+  if (!info || info.pct == null) return '尚無漲跌幅資料'
   return `等權平均 ${fmtPct(info.pct)}，上漲${info.up} 下跌${info.down} 平${info.flat} (共${info.sampled}檔)`
 }

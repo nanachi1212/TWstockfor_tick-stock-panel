@@ -99,7 +99,7 @@ class TaiwanMonitorEngine:
         # cwd-dependent 的裸相對路徑(見 app/taiwan/data_root.py)。顯式傳入
         # storage_path(既有 deterministic test 都這樣做)時行為不變。未發現
         # repo 內任何既有 monitor_rules.json(見 8B-5.0.6 報告 Data Safety),
-        # 此改動不會讓任何既有規則文件失聯。
+        # 此改動不會讓任何既有規則檔案失聯。
         if storage_path is None:
             from app.taiwan.data_root import taiwan_data_root
 

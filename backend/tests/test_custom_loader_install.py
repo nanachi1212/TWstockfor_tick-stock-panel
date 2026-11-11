@@ -1,7 +1,7 @@
 """loader.install_plugin 單元測試 — uv 安裝必須顯式指定目標環境。
 
 迴歸場景: dev.ps1 直接跑 backend/.venv/Scripts/python.exe 而不 activate venv,
-後端進程的 VIRTUAL_ENV 為空; 此時 `uv pip install -r ...` 不傳 --python 會落到
+後端行程的 VIRTUAL_ENV 為空; 此時 `uv pip install -r ...` 不傳 --python 會落到
 PATH 上的基礎解釋器 (如 conda base, 常為只讀) → 裝錯環境 + exit 2 (訪問拒絕)。
 修復: uv 命令顯式傳 `--python sys.executable` 鎖定後端自身 venv, 與 pip 回退
 路徑 (sys.executable -m pip) 的目標一致。

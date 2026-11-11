@@ -1,8 +1,8 @@
-"""Telegram 反向查詢: 在手機輸入股票代號，回傳現價、今日計畫價位與已保存的 AI 一句話。
+"""Telegram 反向查詢: 在手機輸入股票代號，回傳現價、今日計畫價位與已儲存的 AI 一句話。
 
 - 背景執行緒用 Bot API getUpdates 長輪詢；只回應「設定 → 即時監控」填的 chat_id。
 - 指令: 代號 (如 2330)、/picks 今日候選、/watch 自選股、/help。
-- 只讀既有資料 (即時報價、BeginnerSelectionService、已保存 AI 研究)；不會因為訊息呼叫 LLM。
+- 只讀既有資料 (即時報價、BeginnerSelectionService、已儲存 AI 研究)；不會因為訊息呼叫 LLM。
 - 預設關閉；Token 或 chat_id 未設定時不啟動。
 """
 # ruff: noqa: RUF001, RUF002 -- user-facing Traditional Chinese text is intentional.
@@ -66,7 +66,7 @@ def _resolve_symbol(code: str) -> str | None:
 
 
 def answer_symbol(code: str) -> str:
-    """單一股票: 現價 + 新手計畫 + 已保存 AI 一句話。"""
+    """單一股票: 現價 + 新手計畫 + 已儲存 AI 一句話。"""
     from app.taiwan.auto_ai_explain import stored_explanation
     from app.taiwan.beginner_selection import BeginnerSelectionService
     from app.taiwan.realtime import get_realtime_service

@@ -13,7 +13,7 @@ from app.tickflow.pools import get_pool
 def test_ashare_daily_fetch_rejected_before_provider_lookup(monkeypatch, symbol):
     lookup = Mock()
     monkeypatch.setattr("app.data_providers.registry.get_provider", lookup)
-    with pytest.raises(ValueError, match="A 股"):
+    with pytest.raises(ValueError, match="僅提供台股"):
         kline_sync.sync_daily_batch([symbol])
     lookup.assert_not_called()
 

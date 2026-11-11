@@ -1,7 +1,7 @@
 """迴歸測試: 卡死判定從「總時長一刀切」改為「進度停滯」+ 協作式取消 + 執行槽所有權。
 
-背景(使用者反饋): 慢帶寬環境冷啟動全市場拉取超過 20 分鐘被誤標失敗,
-拉取執行緒(殭屍)仍在寫盤, UI 狀態與實際不對齊; 重複點擊還可能撞執行鎖。
+背景(使用者反饋): 慢帶寬環境冷啟動全市場取得超過 20 分鐘被誤標失敗,
+取得執行緒(殭屍)仍在寫盤, UI 狀態與實際不對齊; 重複點擊還可能撞執行鎖。
 均為純邏輯, 不觸網。
 """
 from __future__ import annotations
@@ -76,7 +76,7 @@ def test_progressing_job_is_not_reaped(monkeypatch, tmp_path):
 
 
 def test_hard_cap_terminates_endless_progress(tmp_path):
-    """進度回調持續但總時長超硬上限 → 兜底終止。"""
+    """進度回呼持續但總時長超硬上限 → 保底終止。"""
     store = JobStore(store_dir=tmp_path / "jobs")
     jid = _make_running_job(store, timeout_s=60)
     beyond = timedelta(seconds=pipeline_jobs.HARD_JOB_TIMEOUT_S + 3600)
@@ -90,7 +90,7 @@ def test_hard_cap_terminates_endless_progress(tmp_path):
 
 
 def test_progress_updates_heartbeat(tmp_path):
-    """progress() 刷新 last_progress_at(停滯計時的基準)。"""
+    """progress() 重新整理 last_progress_at(停滯計時的基準)。"""
     store = JobStore(store_dir=tmp_path / "jobs")
     jid = _make_running_job(store, timeout_s=60)
     store.progress(jid, "sync", 10, "chunk 1/10")
@@ -100,7 +100,7 @@ def test_progress_updates_heartbeat(tmp_path):
 # ── 協作式取消 ──────────────────────────────────────────────────────────
 
 def test_progress_raises_after_cancel(tmp_path):
-    """取消後, 殭屍執行緒下一次 progress() 回調拋 JobCancelledError 自行退出。"""
+    """取消後, 殭屍執行緒下一次 progress() 回呼拋 JobCancelledError 自行退出。"""
     store = JobStore(store_dir=tmp_path / "jobs")
     jid = _make_running_job(store, timeout_s=60)
 

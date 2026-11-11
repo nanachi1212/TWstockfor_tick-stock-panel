@@ -16,7 +16,7 @@ export interface Signal {
   type: SignalType
 }
 
-/** 信號字段定義：[行字段名, 展示標籤, 信號類型] */
+/** 信號欄位定義：[行欄位名, 展示標籤, 信號類型] */
 export const SIGNAL_FIELDS: [string, string, SignalType][] = [
   ['signal_limit_up', '漲停', 'bull'],
   ['signal_broken_board_recovery', '反包', 'bull'],
@@ -34,7 +34,7 @@ export const SIGNAL_FIELDS: [string, string, SignalType][] = [
   ['signal_boll_breakdown_lower', '布林下破', 'bear'],
 ]
 
-/** 從一行數據中提取已命中的信號列表 */
+/** 從一行資料中提取已命中的信號列表 */
 export function getSignals(r: Record<string, any>): Signal[] {
   return SIGNAL_FIELDS.filter(([key]) => r[key]).map(([, label, type]) => ({ label, type }))
 }
@@ -48,11 +48,11 @@ export function signalCls(type: SignalType): string {
 
 // ===== 排序 =====
 
-/** 不可參與數值/文本排序的內置列 key（渲染為標籤/圖表，無單一標量值） */
+/** 不可參與數值/文字排序的內建列 key（渲染為標籤/圖表，無單一標量值） */
 export const UNSORTABLE_KEYS = new Set(['signals', 'candle', 'intraday', 'strategies'])
 
 /**
- * 取一列在某行上的排序標量值。builtin 列按 key 映射到行字段；ext 列走
+ * 取一列在某行上的排序標量值。builtin 列按 key 映射到行欄位；ext 列走
  * `${configId}__${fieldName}`；不可排序列返回 null。
  */
 export function getSortValue(r: any, col: ColumnConfig): any {
@@ -103,7 +103,7 @@ export function getSortValue(r: any, col: ColumnConfig): any {
 
 /**
  * 分時列排序標量: 最新一根分鐘收盤相對昨收的漲跌幅 (小數), 與分時圖最後一點同口徑。
- * 無分鐘數據或昨收缺失時返回 null (排序時排在最後)。
+ * 無分鐘資料或昨收缺失時返回 null (排序時排在最後)。
  */
 export function getIntradaySortValue(r: any, minuteRows: MinuteKlineRow[] | undefined): number | null {
   if (!minuteRows?.length || !r.prev_close) return null

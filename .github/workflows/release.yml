@@ -1,22 +1,22 @@
-name: 桌面客戶端未簽章構建
+name: 桌面用戶端未簽章建置
 
 # 觸發方式: 手動 (workflow_dispatch)。
-# 在 GitHub Actions 頁面點 "Run workflow", 選擇要構建的平台,
-# 構建完成後只上傳 Actions artifact，不建立公開 GitHub Release。
+# 在 GitHub Actions 頁面點 "Run workflow", 選擇要建置的平台,
+# 建置完成後只上傳 Actions artifact，不建立公開 GitHub Release。
 #
 # 為什麼不用 tag 自動觸發:
-#   - 多平台並行構建, mac/linux 未就緒時不應建立不完整 Release
+#   - 多平台並行建置, mac/linux 未就緒時不應建立不完整 Release
 #   - 手動觸發可精確控制 "今天只發 Windows, 明天補 mac"
-#   - 版本號固定從倉庫根目錄 VERSION 讀取
+#   - 版本號固定從儲存庫根目錄 VERSION 讀取
 #
 # 使用:
 #   gh workflow run release.yml -f platforms=windows
-#   或 GitHub 網頁 Actions → 桌面客戶端發佈 → Run workflow
+#   或 GitHub 網頁 Actions → 桌面用戶端發佈 → Run workflow
 on:
   workflow_dispatch:
     inputs:
       platforms:
-        description: '要構建的平台 (逗號分隔: windows,macos,linux)'
+        description: '要建置的平台 (逗號分隔: windows,macos,linux)'
         required: true
         default: 'windows'
 
@@ -24,14 +24,14 @@ permissions:
   contents: read
 
 jobs:
-  # 第一步: 過濾出本次要構建的平台
+  # 第一步: 過濾出本次要建置的平台
   prepare:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.filter.outputs.matrix }}
       version: ${{ steps.version.outputs.version }}
     steps:
-      - name: 檢出代碼
+      - name: 檢出程式碼
         uses: actions/checkout@v4
 
       - name: 驗證版本
@@ -44,10 +44,10 @@ jobs:
       - id: filter
         run: |
           REQUESTED="${{ github.event.inputs.platforms }}"
-          # macOS 僅構建 ARM64 (Apple Silicon), 不構建 Intel:
+          # macOS 僅建置 ARM64 (Apple Silicon), 不建置 Intel:
           #   1) GitHub 最後一個原生 Intel runner (macos-13) 已於 2025-12-04 退役;
-          #   2) 項目依賴 polars, 而 polars 自 1.33 起移除了 macOS x86_64 原生 wheel
-          #      (改 py3-none-any), 在 arm64 runner 上經 Rosetta 無法產出可運行的 x64 包。
+          #   2) 專案依賴 polars, 而 polars 自 1.33 起移除了 macOS x86_64 原生 wheel
+          #      (改 py3-none-any), 在 arm64 runner 上經 Rosetta 無法產出可執行的 x64 包。
           #   runner 用 macos-26 (2026-02 GA, 免費, arm64 原生, SDK 更新)。
           ALL='[{"os":"windows-latest","artifact":"NanachiStockPanel-Setup-x64.exe","platform":"windows"},{"os":"macos-26","artifact":"NanachiStockPanel-macos-arm64.dmg","platform":"macos","arch":"arm64"},{"os":"ubuntu-latest","artifact":"NanachiStockPanel-linux-x64.tar.gz","platform":"linux"}]'
           # 按 input 過濾平台 (macos → arm64 單項)
@@ -62,7 +62,7 @@ jobs:
               f.write('matrix=' + json.dumps({'include': selected}) + '\n')
           "
 
-  # 第二步: 各平台並行構建
+  # 第二步: 各平台並行建置
   build:
     needs: prepare
     runs-on: ${{ matrix.os }}
@@ -70,7 +70,7 @@ jobs:
       fail-fast: false   # 單平台失敗不影響其他平台
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
     steps:
-      - name: 檢出代碼
+      - name: 檢出程式碼
         uses: actions/checkout@v4
 
       - name: 安裝 pnpm
@@ -78,14 +78,14 @@ jobs:
         with:
           version: 9
 
-      - name: 設置 Node 20
+      - name: 設定 Node 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      - name: 構建前端
+      - name: 建置前端
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
@@ -96,17 +96,16 @@ jobs:
         with:
           enable-cache: true
 
-      - name: 設置 Python
+      - name: 設定 Python
         run: uv python install 3.12
 
-      - name: 安裝後端依賴 (含 desktop + legacy-cpu, 不含 backtest)
+      - name: 安裝後端依賴 (含 desktop + legacy-cpu)
         working-directory: backend
         # --no-dev 排除 pytest/ruff/mypy; --extra desktop 裝 pywebview
-        # --extra legacy-cpu 裝 polars[rtcompat] 運行時兼容內核:
-        #   讓安裝包同時兼容 AVX2 新 CPU 和無 AVX2 的老 CPU (NAS/老服務器/國產 CPU)。
-        #   rtcompat 會在運行時自動探測 CPU 能力 —— 有 AVX2 用 AVX2, 沒有則回退,
-        #   對新 CPU 性能幾乎無損 (Polars 1.x 官方推薦方案)。
-        # 不加 --extra backtest, 主包不含 vectorbt/numba/llvmlite
+        # --extra legacy-cpu 裝 polars[rtcompat] 執行階段相容核心:
+        #   讓安裝包同時相容 AVX2 新 CPU 和無 AVX2 的舊 CPU (NAS/舊伺服器)。
+        #   rtcompat 會在執行階段自動探測 CPU 能力 —— 有 AVX2 用 AVX2, 沒有則回退,
+        #   對新 CPU 效能幾乎無損 (Polars 1.x 官方推薦方案)。
         run: uv sync --no-dev --extra desktop --extra legacy-cpu
 
       - name: 安裝 PyInstaller
@@ -122,12 +121,12 @@ jobs:
         working-directory: backend
         run: uv run python ../scripts/prepare_release_seed.py
 
-      - name: 生成 macOS 圖標 (僅 macOS)
+      - name: 生成 macOS 圖示 (僅 macOS)
         if: matrix.platform == 'macos'
         # icon.ico 已入庫 (Windows 直接用), 但 icon.icns 未入庫 (macOS 專用產物)。
-        # 用 generate_icon.py 現場生成, 否則 spec 第 37 行 BUNDLE 會因找不到圖標而崩。
-        # 注意: Pillow 不是 backend 的運行時依賴 (它屬於 backtest 的 matplotlib 鏈),
-        # --no-dev --extra desktop 不裝它, 故需在此顯式安裝 (僅圖標生成需要)。
+        # 用 generate_icon.py 現場生成, 否則 spec 第 37 行 BUNDLE 會因找不到圖示而崩。
+        # 注意: Pillow 不是 backend 的執行階段依賴 (僅用於產生圖示),
+        # --no-dev --extra desktop 不裝它, 故需在此顯式安裝 (僅圖示生成需要)。
         working-directory: backend
         run: |
           uv pip install pillow
@@ -135,14 +134,14 @@ jobs:
 
       - name: 打包 (PyInstaller)
         # 在 backend 目錄跑 (用該目錄的 venv: pywebview/polars 等依賴)。
-        # 產物輸出到 backend/dist/ (PyInstaller 默認路徑), 與 packaging/tickflow.iss
+        # 產物輸出到 backend/dist/ (PyInstaller 預設路徑), 與 packaging/tickflow.iss
         # 第 81 行的 Source 路徑 (..\backend\dist\NanachiStockPanel\*) 保持一致。
-        # SPECPATH 由 spec 文件位置決定 (packaging/tickflow.spec → 項目根),
+        # SPECPATH 由 spec 文件位置決定 (packaging/tickflow.spec → 專案根),
         # 與 cwd 無關, 故 frontend/dist、tiers.yaml 等相對路徑仍正確。
         working-directory: backend
         run: uv run pyinstaller ../packaging/tickflow.spec --noconfirm
 
-      - name: 檢查 Polars 兼容內核 (僅 Windows)
+      - name: 檢查 Polars 相容核心 (僅 Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
@@ -187,16 +186,16 @@ jobs:
       - name: 生成 DMG (macOS)
         if: matrix.platform == 'macos'
         # 用 create-dmg 生成標準 macOS DMG:
-        # 掛載後顯示一個帶背景的卷, 左側 app 圖標, 右側 Applications 替身,
-        # 用戶直接把圖標拖進 Applications 即完成安裝 (符合 mac 習慣)。
+        # 掛載後顯示一個帶背景的卷, 左側 app 圖示, 右側 Applications 替身,
+        # 使用者直接把圖示拖進 Applications 即完成安裝 (符合 mac 習慣)。
         # --app-drop-link 在指定座標生成 Applications 替身 (即"拖拽安裝"箭頭的目標);
-        # --skip-jenkins 跳過 Finder 排圖標動畫 (CI 無 GUI, 否則 AppleScript 卡住)。
-        # 工作目錄是項目根 (與 Windows/Linux 步驟一致), 產物輸出到根。
+        # --skip-jenkins 跳過 Finder 排圖示動畫 (CI 無 GUI, 否則 AppleScript 卡住)。
+        # 工作目錄是專案根 (與 Windows/Linux 步驟一致), 產物輸出到根。
         # create-dmg 語法: create-dmg [選項] <輸出.dmg> <源目錄或.app>
         run: |
           brew install create-dmg
           create-dmg \
-            --volname "Tick Stock Panel" \
+            --volname "Nanachi Stock Panel" \
             --window-pos 200 120 \
             --window-size 600 400 \
             --icon-size 100 \
@@ -214,7 +213,7 @@ jobs:
           cd backend/dist
           tar -czf ../../${{ matrix.artifact }} NanachiStockPanel
 
-      - name: 上傳未簽章構建產物 (Privacy Gate 通過後)
+      - name: 上傳未簽章建置產物 (Privacy Gate 通過後)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

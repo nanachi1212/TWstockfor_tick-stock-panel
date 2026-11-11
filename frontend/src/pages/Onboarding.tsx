@@ -36,7 +36,7 @@ const HIGHLIGHTS = [
   { icon: ScanSearch,  title: '台股選股',   desc: '以篩選策略掃描上市櫃標的', tint: 'text-bull' },
   { icon: TrendingUp,  title: '個股分析',   desc: '個股資料含三大法人買賣超、融資融券、ETF 資訊', tint: 'text-warning' },
   { icon: Scale,       title: '多股比較',   desc: '並列比較多檔台股的相對表現', tint: 'text-accent' },
-  { icon: Database,    title: '本機資料優先', desc: '資料保存在本機，離線仍可查閱', tint: 'text-bull' },
+  { icon: Database,    title: '本機資料優先', desc: '資料儲存在本機，離線仍可查閱', tint: 'text-bull' },
   { icon: Sparkles,    title: 'AI 研究（選配）', desc: '可在「設定 → AI」自行開啟', tint: 'text-bear' },
 ]
 

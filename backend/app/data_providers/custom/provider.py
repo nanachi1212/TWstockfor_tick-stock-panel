@@ -30,19 +30,19 @@ _REQUIRED = {
     "adj_factor": {"symbol", "trade_date", "ex_factor"},
     "realtime": {"symbol", "last_price", "prev_close", "open", "high", "low", "volume"},
     "minute": {"symbol", "datetime", "open", "high", "low", "close", "volume", "amount"},
-    # financial 字段由資料來源決定, 只要求能映射出 symbol
+    # financial 欄位由資料來源決定, 只要求能映射出 symbol
     "financial": {"symbol"},
 }
 
-# 小數制下 change_pct/amplitude/turnover_rate 的物理上限: A股最大漲跌停 30% (+容差)。
+# 小數制下 change_pct/amplitude/turnover_rate 的物理上限: 保守取 30% (+容差), 高於台股漲跌幅限制。
 # 中位數口徑下小數制批次不可能超過該值, 百分制批次(典型中位數 0.5~3)必然超過。
 _PCT_FRACTION_MAX = 0.31
 
 
 def _normalize_pct_units(df: pl.DataFrame) -> pl.DataFrame:
-    """百分制源自適應歸一為小數制 (契約: change_pct/amplitude/turnover_rate 為小數,
-    0.0366 = 3.66%)。不少第三方接口(如 a-stock-data)直接返回 3.66 表示 3.66%,
-    若不歸一, 下游(行業/概念統計、前端 x100 展示)會整體放大 100 倍。
+    """百分制源自適應正規化為小數制 (契約: change_pct/amplitude/turnover_rate 為小數,
+    0.0366 = 3.66%)。不少第三方介面(如 a-stock-data)直接回傳 3.66 表示 3.66%,
+    若不正規化, 下游(行業/概念統計、前端 x100 展示)會整體放大 100 倍。
 
     截面判定: 樣本 >= 5 用 |值| 中位數(對個別無漲跌幅限制新股免疫),
     小樣本退用最大值。整批同除 100, 避免逐值閾值在 0.3~1 區間的歧義。
@@ -146,7 +146,7 @@ class GenericHTTPProvider:
         cfg = self._dataset("realtime")
         rows = self._request_rows(cfg)
         df = self._mapped_frame(cfg, rows)
-        # 百分制源(返回 3.66 表示 3.66%)截面歸一為契約小數制
+        # 百分制源(回傳 3.66 表示 3.66%)截面正規化為契約小數制
         df = _normalize_pct_units(df)
         if df.is_empty():
             return []
@@ -161,11 +161,11 @@ class GenericHTTPProvider:
         freq: str = "1m",
         on_chunk_done: Callable[[int, int], None] | None = None,
     ) -> pl.DataFrame:
-        """拉取分鐘 K。
+        """取得分鐘 K。
 
-        asset_type / freq 預設不傳上游 (minute dataset URL 應返回 1m 資料)。
-        在 dataset 配置中設定 asset_type_param / freq_param 後, 這兩個參數會以
-        配置的參數名注入請求 (GET → params, POST → body), 用於上游需區分
+        asset_type / freq 預設不傳來源 (minute dataset URL 應回傳 1m 資料)。
+        在 dataset 設定中設定 asset_type_param / freq_param 後, 這兩個參數會以
+        設定的參數名注入請求 (GET → params, POST → body), 用於來源需區分
         stock/ETF/index 或固定頻率的場景。
         """
         cfg = self._dataset("minute")
@@ -196,17 +196,17 @@ class GenericHTTPProvider:
         symbols: list[str],
         latest_only: bool = True,
     ) -> pl.DataFrame:
-        """拉取財務資料。table 包含四張財務報表及 shares 股本表。
+        """取得財務資料。table 包含四張財務報表及 shares 股本表。
 
-        custom 源用一個 'financial' dataset 配置覆蓋全部財務表; 請求時把 table 作為參數傳給上游,
-        上游根據 table 返回對應資料。字段由資料來源決定, 這裡只確保有 symbol 列。
+        custom 源用一個 'financial' dataset 設定覆蓋全部財務表; 請求時把 table 作為參數傳給來源,
+        來源根據 table 回傳對應資料。欄位由資料來源決定, 這裡只確保有 symbol 欄。
         """
         cfg = self._dataset("financial")
         frames: list[pl.DataFrame] = []
         chunks = chunked(symbols, cfg.batch)
         for i, chunk in enumerate(chunks):
             sleep_between_batches(i, cfg.rpm)
-            # 把 table 注入到請求參數 (上游據此區分財務表)
+            # 把 table 注入到請求參數 (來源據此區分財務表)
             extra_params = {**cfg.params, "table": table}
             extra_body = {**cfg.body, "table": table}
             if table == "shares":
@@ -225,7 +225,7 @@ class GenericHTTPProvider:
 
     @staticmethod
     def _normalize_minute(df: pl.DataFrame) -> pl.DataFrame:
-        """把映射後的 df 規範成 minute canonical 列。"""
+        """把映射後的 df 規範成 minute canonical 欄。"""
         if df.is_empty():
             return df
         if "datetime" in df.columns and df.schema["datetime"] != pl.Datetime("us"):

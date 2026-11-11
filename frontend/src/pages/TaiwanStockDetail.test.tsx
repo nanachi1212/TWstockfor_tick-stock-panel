@@ -413,7 +413,7 @@ describe('TaiwanStockDetail — AI Research', () => {
       element?.tagName === 'P'
       && element.textContent?.replace(/\s+/g, ' ').includes('市場證據截至 2026-09-24；持倉、自選與提醒資料截至 2026-09-25 10:00:00+08:00') === true
     ))).toBeInTheDocument()
-    expect(screen.getByText('我的部位（占已登錄持股市值）')).toBeInTheDocument()
+    expect(screen.getByText('我的部位（占已登入持股市值）')).toBeInTheDocument()
     expect(screen.getByText('提醒解讀')).toBeInTheDocument()
     expect(vi.mocked(api.taiwanStockAIResearch)).toHaveBeenCalledWith('2330.TWSE', undefined, expect.objectContaining({
       portfolio: expect.objectContaining({ shares: 10, average_cost: 900 }),

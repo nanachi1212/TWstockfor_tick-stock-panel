@@ -495,7 +495,7 @@ class TestDeduplicationCooldownAndHysteresis:
         self, engine, monkeypatch,
     ):
         rule = TaiwanMonitorRule(
-            rule_id="durable_state_retry", name="已落盤狀態重試",
+            rule_id="durable_state_retry", name="已寫入磁碟狀態重試",
             symbol="2330.TWSE", rule_type=TaiwanRuleType.PRICE_ABOVE,
             threshold=2500.0, cooldown_seconds=0,
         )

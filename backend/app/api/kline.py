@@ -70,9 +70,9 @@ def _default_minute_date(repo, symbol: str | None = None, asset_type: str = "sto
 
 
 def _search_taiwan_instruments(q: str, limit: int) -> list[dict]:
-    """僅查 TaiwanSecurityMaster, 不觸碰 repo.get_instruments*() 的 legacy A 股快取。
+    """僅查 TaiwanSecurityMaster, 不觸碰 repo.get_instruments*() 的舊版非台股快取。
 
-    canonical symbol 形如 2330.TWSE / 6488.TPEX; 支持代碼/canonical symbol/
+    canonical symbol 形如 2330.TWSE / 6488.TPEX; 支援代碼/canonical symbol/
     繁體中文名稱查詢, 排序/評分邏輯在 TaiwanSecurityMaster.search() 內完成。
     只保留 is_supported 的 stock/etf(權證等未支援標的不該出現在自選搜尋裡)。
     """
@@ -113,7 +113,7 @@ def search_instruments(
 
 @router.post("/instruments/names")
 def instruments_names(request: Request, symbols: list[str]):
-    """批量查標的名稱 (股票 + ETF + 指數)。傳入 symbol 列表, 返回 {symbol: name}。"""
+    """批次查標的名稱 (股票 + ETF + 指數)。傳入 symbol 欄表, 回傳 {symbol: name}。"""
     if not symbols:
         return {"names": {}}
     symbols = _require_taiwan_symbols(symbols)
@@ -129,9 +129,9 @@ def instruments_names(request: Request, symbols: list[str]):
 def _get_stock_info(repo, symbol: str) -> dict:
     """從 instruments 記憶體快取查標的名稱 + 股本。
 
-    該接口在個股彈窗打開時每秒被呼叫 (SSE invalidate 觸發重拉), 走
+    該介面在個股彈窗打開時每秒被呼叫 (SSE invalidate 觸發重拉), 走
     repo.get_instruments() 的 Polars 記憶體快取按 symbol 過濾, 不再每請求
-    DuckDB 掃 instruments parquet。列缺失時返回空 dict, 與舊 SQL 報錯路徑一致。
+    DuckDB 掃 instruments parquet。欄缺失時回傳空 dict, 與舊 SQL 出錯路徑一致。
     """
     import polars as pl
     try:
@@ -313,7 +313,7 @@ def get_daily(
 
     start = requested_start or end - timedelta(days=days)
 
-    # 從 enriched 表讀取 (已含前復權 OHLCV + 技術指標 + 信號); ETF/指數走獨立存儲
+    # 從 enriched 表讀取 (已含前復權 OHLCV + 技術指標 + 信號); ETF/指數走獨立儲存
     df = repo.get_daily_asset(asset_type, symbol, start, end)
 
     if df.is_empty():
@@ -335,7 +335,7 @@ def get_daily(
             if capset and capset.has(Cap.ADJ_FACTOR):
                 factors = kline_sync.fetch_adj_factor_single(symbol)
         except Exception as e:  # noqa: BLE001
-            logger.debug("單股除權因子拉取失敗 %s: %s", symbol, e)
+            logger.debug("單股除權因子取得失敗 %s: %s", symbol, e)
         enriched = compute_enriched(raw, factors=factors)
         enriched = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end))
         rows = enriched.to_dicts() if start_date else enriched.tail(days).to_dicts()
@@ -355,7 +355,7 @@ def get_daily(
 
 
 def _attach_ext(resp: dict, repo, symbol: str, ext_columns: Optional[str]) -> dict:  # noqa: ARG001
-    """ext 擴充欄位為已移除的 A 股功能; 保留簽名, 直接回傳原回應。"""
+    """ext 擴充欄位屬於已移除的非台股功能; 保留簽名, 直接回傳原回應。"""
     return resp
 
 
@@ -363,7 +363,7 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
     """如果有當日即時 enriched 資料, 用即時資料生成今日蠟燭並追加/覆蓋。
 
     stock 走 QuoteService 的股票即時快取; etf 走 ETF enriched 快取 (開啟即時 ETF
-    拉取時為盤中資料, 否則為磁盤最新日, 由下方"非今日不注入"守衛自然跳過)。
+    取得時為盤中資料, 否則為磁碟最新日, 由下方"非今日不注入"守衛自然跳過)。
     """
     if asset_type == "stock":
         qs = getattr(request.app.state, "quote_service", None)
@@ -398,7 +398,7 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
     today_str = str(enriched_date)
 
     # enriched 行已包含 OHLCV + 全套指標, 直接用它
-    # 修復: API 在非交易時段可能返回 open/high/low=0, 用 close 填充避免異常蠟燭
+    # 修復: API 在非交易時段可能回傳 open/high/low=0, 用 close 填充避免異常蠟燭
     raw_open = q.get("open")
     raw_high = q.get("high")
     raw_low = q.get("low")
@@ -414,7 +414,7 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
         "change_pct": q.get("change_pct"),
         "is_live": True,
     }
-    # 補上 enriched 的技術指標字段
+    # 補上 enriched 的技術指標欄位
     for key in ("ma5", "ma10", "ma20", "ma30", "ma60",
                 "macd_dif", "macd_dea", "macd_hist",
                 "kdj_k", "kdj_d", "kdj_j",
@@ -439,16 +439,16 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
 
 
 class DailyBatchRequest(BaseModel):
-    """批量日K請求。"""
+    """批次日K請求。"""
     symbols: list[str] = []
     days: int = 12
 
 
 @router.post("/daily-batch")
 def get_daily_batch(request: Request, body: DailyBatchRequest):
-    """批量獲取多隻股票最近 N 天日K (OHLCV)。
+    """批次取得多隻股票最近 N 天日K (OHLCV)。
 
-    用於自選列表迷你蠟燭圖等場景，只返回基礎列，不返回全部 enriched 指標。
+    用於自選列表迷你蠟燭圖等場景，只回傳基礎欄，不回傳全部 enriched 指標。
     """
     days = body.days
     symbols = _require_taiwan_symbols(body.symbols)
@@ -469,7 +469,7 @@ def get_daily_batch(request: Request, body: DailyBatchRequest):
 
     cols = ["symbol", "date", "open", "high", "low", "close", "volume"]
 
-    # 按資產類型分組: stock 走批量快取; etf/index 逐只查獨立存儲 (數量少, 成本可忽略)
+    # 按資產類型分組: stock 走批次快取; etf/index 逐只查獨立儲存 (數量少, 成本可忽略)
     stock_symbols: list[str] = []
     etf_symbols: list[str] = []
     index_symbols: list[str] = []
@@ -513,11 +513,11 @@ def get_daily_batch(request: Request, body: DailyBatchRequest):
 
 @router.post("/minute-batch")
 def get_minute_batch(request: Request, body: dict):
-    """批量獲取多隻股票某天的分鐘K (分時圖用)。
+    """批次取得多隻股票某天的分鐘K (分時圖用)。
 
     - 本地優先: 先從 kline_minute parquet 讀, 完整的直接用
-    - 缺失補拉: 本地不完整的 symbol 用 sync_minute_batch 批量即時拉 (不落庫)
-    - 需要已配置的自訂分鐘資料來源
+    - 缺失補拉: 本地不完整的 symbol 用 sync_minute_batch 批次即時拉 (不寫入資料庫)
+    - 需要已設定的自訂分鐘資料來源
     """
     from datetime import datetime
 
@@ -535,14 +535,14 @@ def get_minute_batch(request: Request, body: dict):
     capset = request.app.state.capabilities
 
     if not _minute_allowed(capset):
-        raise HTTPException(403, "尚未配置可用的台股分鐘資料來源")
+        raise HTTPException(403, "尚未設定可用的台股分鐘資料來源")
 
     try:
         trade_date = date.fromisoformat(trade_date_str) if trade_date_str else _default_minute_date(repo)
     except (TypeError, ValueError) as exc:
         raise HTTPException(422, "date 必須為 YYYY-MM-DD") from exc
 
-    # Step 1: 本地優先 — 一次 scan 讀全部 symbol 當日分鐘K (股票 / ETF 分鐘資料分開存儲)
+    # Step 1: 本地優先 — 一次 scan 讀全部 symbol 當日分鐘K (股票 / ETF 分鐘資料分開儲存)
     etf_set = repo.get_etf_symbol_set()
     stock_syms = [s for s in symbols if s not in etf_set]
     etf_syms = [s for s in symbols if s in etf_set]
@@ -570,15 +570,15 @@ def get_minute_batch(request: Request, body: dict):
         elif not sub.is_empty():
             result[sym] = sub.to_dicts()
 
-    # Step 2: 缺失的 symbol 批量即時拉取 (不落庫)
+    # Step 2: 缺失的 symbol 批次即時取得 (不寫入資料庫)
     if incomplete:
         start_time = datetime(trade_date.year, trade_date.month, trade_date.day, 9, 0, tzinfo=TAIPEI_TZ)
         end_time = datetime(trade_date.year, trade_date.month, trade_date.day, 13, 30, tzinfo=TAIPEI_TZ)
         lim = capset.limits(Cap.KLINE_MINUTE_BATCH)
-        # etf_set 已在上方獲取, 直接複用 — 按 asset_type 拆分呼叫 sync_minute_batch
+        # etf_set 已在上方取得, 直接重用 — 按 asset_type 拆分呼叫 sync_minute_batch
         # (自訂資料來源依賴 asset_type 正確傳遞)
         # 契約: 本端點只接受 stock/ETF (指數分鐘K已隨 Phase 8B-5.1 一併移除),
-        # 故兩分支已覆蓋全部 incomplete。若未來重新支持指數, 需額外加 index 分支
+        # 故兩分支已覆蓋全部 incomplete。若未來重新支援指數, 需額外加 index 分支
         # 以避免被誤路由為 stock。
         stock_incomplete = [s for s in incomplete if s not in etf_set]
         etf_incomplete = [s for s in incomplete if s in etf_set]
@@ -625,7 +625,7 @@ def get_minute_range(
     symbol: str = Query(..., description="標的代碼"),
     days: int = Query(10, ge=1, le=20, description="最近交易日數量"),
 ):
-    """讀取單隻標的最近 N 個已落庫交易日的分鐘 K。"""
+    """讀取單隻標的最近 N 個已寫入資料庫交易日的分鐘 K。"""
     import polars as pl
 
     symbol = _require_taiwan_symbol(symbol)
@@ -693,10 +693,10 @@ def get_minute(
     symbol: str = Query(..., description="標的代碼"),
     trade_date: date | None = Query(None, alias="date", description="交易日期, 預設最新"),
 ):
-    """讀取台股分鐘 K; 本地完整資料優先, 缺漏交由配置的自訂來源。"""
+    """讀取台股分鐘 K; 本地完整資料優先, 缺漏交由設定的自訂來源。"""
     symbol = _require_taiwan_symbol(symbol)
     if not _minute_allowed(request.app.state.capabilities):
-        raise HTTPException(403, "尚未配置可用的台股分鐘資料來源")
+        raise HTTPException(403, "尚未設定可用的台股分鐘資料來源")
     repo = request.app.state.repo
     asset_type = repo.resolve_asset_type(symbol)
     stock_info = _get_stock_info(repo, symbol) if asset_type == "stock" else _get_asset_info(repo, symbol, asset_type)
@@ -726,7 +726,7 @@ def get_minute(
             "prev_close": prev_close,
         }
 
-    # 本地不完整或無資料, 使用配置的自訂分鐘來源
+    # 本地不完整或無資料, 使用設定的自訂分鐘來源
     live_df = kline_sync.fetch_minute_single(symbol, trade_date, asset_type=asset_type)
     return {
         "symbol": symbol, "name": stock_name, "stock_info": stock_info,
@@ -740,10 +740,10 @@ def get_minute(
 
 @router.post("/sync_minute_single")
 async def sync_minute_single(request: Request, body: dict):
-    """手動拉取單隻股票的分鐘K並落庫 (前復權)。
+    """手動取得單隻股票的分鐘K並寫入資料庫 (前復權)。
 
     body: { "symbol": "2330.TWSE" }
-    用於個股分時圖"獲取資料"按鈕: 本地無資料時單獨拉取並持久化。
+    用於個股分時圖"取得資料"按鈕: 本地無資料時單獨取得並持久化。
     """
     import asyncio
 
@@ -765,14 +765,14 @@ async def sync_minute_single(request: Request, body: dict):
     repo = request.app.state.repo
     capset = request.app.state.capabilities
 
-    # 指數分鐘K無本地存儲, 落庫會汙染股票分鐘表 kline_minute, 此端點顯式拒絕。
+    # 指數分鐘K無本地儲存, 寫入資料庫會汙染股票分鐘表 kline_minute, 此端點顯式拒絕。
     # (Phase 8B-5.1: 指數分鐘K只讀端點 /api/index/minute 已隨 Indices.tsx 一併刪除,
     # 無即時讀取替代路徑。)
     if repo.resolve_asset_type(symbol) == "index":
-        raise HTTPException(status_code=400, detail="指數分鐘K不支持落庫同步")
+        raise HTTPException(status_code=400, detail="指數分鐘K不支援寫入資料庫同步")
 
     if not _minute_allowed(capset):
-        raise HTTPException(status_code=403, detail="尚未配置可用的台股分鐘資料來源")
+        raise HTTPException(status_code=403, detail="尚未設定可用的台股分鐘資料來源")
 
     days = requested_days if requested_days is not None else get_minute_sync_days()
     loop = asyncio.get_event_loop()
@@ -782,7 +782,7 @@ async def sync_minute_single(request: Request, body: dict):
 
     written = await loop.run_in_executor(_long_task_executor, _run)
 
-    # 刷新視圖
+    # 重新整理檢視表
     from app.jobs.daily_pipeline import _refresh_single_view
     _refresh_single_view(repo, "kline_minute")
 

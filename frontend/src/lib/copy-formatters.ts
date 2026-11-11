@@ -522,7 +522,7 @@ export interface DailyBriefCopyData {
 export function formatDailyBriefCopy(d: DailyBriefCopyData): string {
   const lines: string[] = []
   lines.push(`# 台股每日市場晨報 / 晚報`)
-  lines.push(`- 晨報日期：${sanitize(d.brief_date)} | 數據基礎日 (evidence_date)：${sanitize(d.evidence_date || d.brief_date)}`)
+  lines.push(`- 晨報日期：${sanitize(d.brief_date)} | 資料基礎日 (evidence_date)：${sanitize(d.evidence_date || d.brief_date)}`)
   lines.push(`- 資料狀態：${sanitize(d.freshness ?? 'fresh')}`)
   lines.push('')
 

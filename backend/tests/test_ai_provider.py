@@ -140,7 +140,7 @@ def test_normalize_openai_base_url_preserves_glm_v4():
 
 
 def test_normalize_openai_base_url_strips_chat_completions_from_glm_v4():
-    """使用者填完整 /v4/chat/completions 時, 去掉後綴歸一化為 /v4。"""
+    """使用者填完整 /v4/chat/completions 時, 去掉後綴正規化化為 /v4。"""
     assert normalize_openai_base_url("https://open.bigmodel.cn/api/paas/v4/chat/completions") == "https://open.bigmodel.cn/api/paas/v4"
 
 
@@ -164,13 +164,13 @@ def test_format_openai_error_hides_html_gateway_body():
 
     message = _format_openai_error(exc)
 
-    assert message == "AI 服務請求失敗(504): AI 上游服務超時, 請稍後重試或檢查 AI Base URL / 網路"
+    assert message == "AI 服務請求失敗(504): AI 服務端超時, 請稍後重試或檢查 AI Base URL / 網路"
     assert "html" not in message.lower()
     assert "Gateway Timeout" not in message
 
 
 def test_format_openai_error_prefers_upstream_detail_when_available():
-    """有可讀的上游 detail 時優先透出, 而不是用 400 通用文案吞掉。"""
+    """有可讀的來源 detail 時優先回傳, 而不是用 400 通用文案吞掉。"""
     response = httpx.Response(
         400,
         json={"error": {"message": "model context length exceeded"}},
@@ -188,7 +188,7 @@ def test_format_openai_error_prefers_upstream_detail_when_available():
 
 
 def test_format_openai_error_falls_back_to_status_message_without_detail():
-    """上游無可讀 detail (如 HTML 網關頁) 時, 才回落到 400 通用文案。"""
+    """來源無可讀 detail (如 HTML 閘道頁) 時, 才回落到 400 通用文案。"""
     response = httpx.Response(
         400,
         headers={"content-type": "text/html; charset=utf-8"},
@@ -597,11 +597,11 @@ def test_ai_settings_keep_provider_models_separate(monkeypatch):
     assert stored["ai_model"] == "new-custom-model"
     assert stored["ai_reasoning_effort"] == "vendor-high"
     assert stored["ai_codex_model"] == "gpt-5.6-sol"
-# ── 輸出上限 / 上下文窗口配置 ─────────────────────────────────
+# ── 輸出上限 / 上下文視窗設定 ─────────────────────────────────
 
 
 def test_resolve_max_tokens_none_stays_unlimited(monkeypatch):
-    """None = 不傳上限(推理模型放開) — 不能被映射成配置上限, 見 main 語義。"""
+    """None = 不傳上限(推理模型放開) — 不能被映射成設定上限, 見 main 語意。"""
     monkeypatch.setattr(ai_provider, "current_ai_max_output_tokens", lambda: 8192)
     assert ai_provider._resolve_max_tokens(None) is None
 
@@ -620,7 +620,7 @@ def test_estimate_input_tokens_counts_cjk_and_ascii():
     # 中文按 1 字 1 token
     cjk = [{"role": "user", "content": "中文" * 100}]  # 200 字
     assert ai_provider._estimate_input_tokens(cjk) >= 200
-    # 英文按 ~4 字符 1 token
+    # 英文按 ~4 字元 1 token
     ascii_msg = [{"role": "user", "content": "a" * 400}]
     assert ai_provider._estimate_input_tokens(ascii_msg) <= 200
 
@@ -628,7 +628,7 @@ def test_estimate_input_tokens_counts_cjk_and_ascii():
 def test_check_input_budget_raises_when_over_window(monkeypatch):
     monkeypatch.setattr(ai_provider, "current_ai_context_window", lambda: 100)
     big = [{"role": "user", "content": "中" * 200}]  # 估算輸入 ~200 tokens
-    with pytest.raises(ValueError, match="上下文窗口"):
+    with pytest.raises(ValueError, match="上下文視窗"):
         ai_provider._check_input_budget(big, max_tokens=3000)
 
 
@@ -660,7 +660,7 @@ async def test_generate_ai_text_clamps_max_tokens_to_config_cap(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_ai_text_default_cap_and_none_passthrough(monkeypatch):
-    """預設 3000 且被鉗制; 顯式 None 貫穿為不限制。"""
+    """預設 3000 且被限制; 顯式 None 貫穿為不限制。"""
     captured: dict = {}
     monkeypatch.setattr(ai_provider, "is_codex_cli_provider", lambda: False)
     monkeypatch.setattr(ai_provider, "current_ai_max_output_tokens", lambda: 4000)
@@ -676,7 +676,7 @@ async def test_generate_ai_text_default_cap_and_none_passthrough(monkeypatch):
     await ai_provider.generate_ai_text(
         [{"role": "user", "content": "hi"}], max_tokens=None,
     )
-    assert captured["max_tokens"] is None  # None = 推理模型放開, 不鉗制
+    assert captured["max_tokens"] is None  # None = 推理模型放開, 不限制
 
 
 def test_save_ai_settings_persists_token_sizes(monkeypatch):
@@ -858,7 +858,7 @@ def test_codex_cli_available_false_when_command_missing(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_codex_exec_args_exclude_ephemeral(monkeypatch):
-    """exec 參數不含 --ephemeral: 老版本 codex(如 0.58)無此參數, 傳了直接報錯。"""
+    """exec 參數不含 --ephemeral: 老版本 codex(如 0.58)無此參數, 傳了直接出錯。"""
     captured: dict = {}
 
     def fake_run_process(args, prompt, env, timeout):

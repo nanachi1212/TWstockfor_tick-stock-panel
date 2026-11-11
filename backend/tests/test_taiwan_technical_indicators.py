@@ -47,7 +47,7 @@ def _make_history(symbol: str, closes: list[float], volumes: list[float]) -> pl.
     })
 
 
-# ===== 獨立參考實現 (與 technical_indicators.py 的公式文件一一對應) =====
+# ===== 獨立參考實現 (與 technical_indicators.py 的公式檔案一一對應) =====
 
 def _ref_ema(values: list[float], alpha: float) -> list[float]:
     out: list[float] = []

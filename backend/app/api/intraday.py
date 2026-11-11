@@ -1,11 +1,11 @@
 """行情狀態 / SSE 推送 API。
 
 盤中選股相關端點已遷移至策略頁面，此處僅保留全域行情基礎設施。
-SSE 推送四種事件 (使用標準 SSE event 字段):
-  - quotes_updated: 行情資料刷新，前端 invalidate 對應 query
-  - strategy_results_updated: 策略監控已寫入最新結果，前端刷新策略個股列表
+SSE 推送四種事件 (使用標準 SSE event 欄位):
+  - quotes_updated: 行情資料重新整理，前端 invalidate 對應 query
+  - strategy_results_updated: 策略監控已寫入最新結果，前端重新整理策略個股列表
   - strategy_alert: 策略監控/告警觸發，前端彈通知
-  - depth_updated: 五檔盤口修正完成，前端刷新連板梯隊/看板封單資料
+  - depth_updated: 五檔盤口修正完成，前端重新整理連板梯隊/看板封單資料
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/intraday", tags=["quotes"])
 
 
 def _get_quote_service(request: Request):
-    """獲取全域 QuoteService。"""
+    """取得全域 QuoteService。"""
     return getattr(request.app.state, "quote_service", None)
 
 
@@ -54,7 +54,7 @@ def get_quotes(
     symbols: str = Query(..., description="逗號分隔的台股或標準 symbol (例如 2330.TWSE,8069.TPEX,0050.TWSE)"),
     force: bool = Query(False, description="是否強制穿透快取向外部來源請求"),
 ):
-    """批次獲取台股盤中即時行情 (支援 4 級 Fallback 與五檔盤口)。"""
+    """批次取得台股盤中即時行情 (支援 4 級 Fallback 與五檔盤口)。"""
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     if not symbol_list:
         return {"quotes": [], "count": 0}
@@ -146,13 +146,13 @@ async def quote_stream(request: Request):
     """SSE 端點: 行情更新 + 告警推送 + 五檔修正 + 覆盤進度。
 
     使用 sse-starlette EventSourceResponse:
-    - 標準 SSE event 字段，前端按 event name 監聽
-    - 內置斷線檢測，客戶端斷開立即終止 generator
-    - 內置 ping 心跳，保持連接活躍
+    - 標準 SSE event 欄位，前端按 event name 監聽
+    - 內建斷線檢測，客戶端斷開立即終止 generator
+    - 內建 ping 心跳，保持連接活躍
 
     每個連接註冊一個獨立訂閱者 (QuoteSubscriber: 獨立事件 + 獨立佇列),
-    事件由 QuoteService 廣播 — 多客戶端 (多標籤頁/設備) 各自收到全量事件。
-    此前四通道共用服務級 Event + pop 取走語義, 告警只會被先醒的連接消費。
+    事件由 QuoteService 廣播 — 多客戶端 (多標籤頁/裝置) 各自收到全量事件。
+    此前四通道共用服務級 Event + pop 取走語意, 告警只會被先醒的連接消費。
     """
     qs = _get_quote_service(request)
 
@@ -206,14 +206,14 @@ async def quote_stream(request: Request):
                         }),
                     }
 
-                # 策略監控完成後, 結果已寫入記憶體快取; 獨立通知只刷新策略個股列表。
+                # 策略監控完成後, 結果已寫入記憶體快取; 獨立通知只重新整理策略個股列表。
                 if data["strategy_results_updated"]:
                     yield {
                         "event": "strategy_results_updated",
                         "data": json.dumps({"ts": int(time.time() * 1000)}),
                     }
 
-                # 五檔修正完成 — 前端刷新連板梯隊封單資料
+                # 五檔修正完成 — 前端重新整理連板梯隊封單資料
                 if data["depth_updated"]:
                     yield {
                         "event": "depth_updated",
@@ -222,7 +222,7 @@ async def quote_stream(request: Request):
                         }),
                     }
 
-                # 盤後資料寫入 (排程/啟動補跑) — 前端刷新依賴日線的查詢
+                # 盤後資料寫入 (排程/啟動補跑) — 前端重新整理依賴日線的查詢
                 if data["daily_data_updated"]:
                     yield {
                         "event": "daily_data_updated",
@@ -236,7 +236,7 @@ async def quote_stream(request: Request):
 
 @router.post("/refresh")
 def refresh_quotes(request: Request):
-    """手動刷新一次行情資料。"""
+    """手動重新整理一次行情資料。"""
     qs = _get_quote_service(request)
     if qs:
         return qs.refresh()

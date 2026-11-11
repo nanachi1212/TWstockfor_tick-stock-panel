@@ -65,7 +65,7 @@ def test_catchup_writes_when_latest_week_is_missing_empty_store():
 
 
 def test_catchup_writes_when_latest_week_is_missing_stale_store():
-    """Case b (舊庫): 已入庫週別已逾 7 天，抓到新週別後斷言 write 被呼叫一次並帶入抓到的資料。"""
+    """Case b (舊庫): 已寫入週別已逾 7 天，抓到新週別後斷言 write 被呼叫一次並帶入抓到的資料。"""
     mock_store = MagicMock()
     mock_store.latest_week.return_value = date(2026, 10, 2)
     mock_store.write.return_value = 1

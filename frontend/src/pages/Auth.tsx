@@ -1,13 +1,13 @@
 /**
- * 訪問認證頁 — 複用同一組件處理「首次設密碼」和「登錄」兩種狀態。
+ * 存取認證頁 — 複用同一元件處理「首次設密碼」和「登入」兩種狀態。
  *
- * 根據後端 /api/auth/status 的 configured 字段決定顯示:
- *   - configured=false → 顯示「設置訪問密碼」(首次)
- *   - configured=true  → 顯示「登錄」
+ * 根據後端 /api/auth/status 的 configured 欄位決定顯示:
+ *   - configured=false → 顯示「設定存取密碼」(首次)
+ *   - configured=true  → 顯示「登入」
  *
  * 安全:
- *   - 設密碼接口後端限本機/內網; 公網用戶設密碼會被 403 拒絕, 頁面據此提示。
- *   - 登錄失敗由後端限流(5次鎖5分鐘), 429 時前端顯示等待提示。
+ *   - 設密碼介面後端限本機/內網; 公網使用者設密碼會被 403 拒絕, 頁面據此提示。
+ *   - 登入失敗由後端限流(5次鎖5分鐘), 429 時前端顯示等待提示。
  */
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -30,14 +30,14 @@ export function Auth() {
   useEffect(() => {
     api.authStatus().then(s => {
       setStatus(s)
-      // 已登錄的話直接進面板(避免登錄頁死循環)
+      // 已登入的話直接進面板(避免登入頁死循環)
       if (s.authenticated) navigate('/', { replace: true })
     }).catch(() => setStatusError(true))
   }, [navigate])
 
   const isSetup = !status?.configured  // configured=false → 設密碼模式
 
-  // 登錄 / 設密碼 共用一個 mutation(按 isSetup 調不同接口)
+  // 登入 / 設密碼 共用一個 mutation(按 isSetup 調不同介面)
   const submitMut = useMutation({
     mutationFn: async () => {
       if (isSetup) {
@@ -51,8 +51,8 @@ export function Auth() {
       navigate(redirect, { replace: true })
     },
     onError: (err: any) => {
-      const msg = err?.message || (isSetup ? '設置失敗' : '登錄失敗')
-      // 設密碼/登錄失敗必須顯示: 401(密碼錯)/403(公網設密碼被拒)/429(限流) 都要提示
+      const msg = err?.message || (isSetup ? '設定失敗' : '登入失敗')
+      // 設密碼/登入失敗必須顯示: 401(密碼錯)/403(公網設密碼被拒)/429(限流) 都要提示
       setLocalError(msg)
     },
   })
@@ -94,7 +94,7 @@ export function Auth() {
         </div>
 
         <div className="rounded-card border border-border bg-surface p-6">
-          {/* 標題區: 圖標 + 文案隨模式切換 */}
+          {/* 標題區: 圖示 + 文案隨模式切換 */}
           <div className="mb-5 flex items-center gap-2.5">
             <div className={cn(
               'grid h-9 w-9 place-items-center rounded-lg',
@@ -104,7 +104,7 @@ export function Auth() {
             </div>
             <div>
               <div className="text-sm font-medium text-foreground">
-                {isSetup ? '設置訪問密碼' : '登錄訪問'}
+                {isSetup ? '設定存取密碼' : '登入'}
               </div>
               <div className="text-xs text-muted">
                 {isSetup ? '首次使用，請設定存取密碼' : '請輸入存取密碼'}
@@ -119,7 +119,7 @@ export function Auth() {
                 type={showPwd ? 'text' : 'password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                placeholder="訪問密碼"
+                placeholder="存取密碼"
                 autoFocus
                 className="h-10 w-full rounded-btn border border-border bg-base px-3 pr-9 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
               />
@@ -160,7 +160,7 @@ export function Auth() {
               {submitMut.isPending ? (
                 <><Loader2 className="h-4 w-4 animate-spin" />處理中…</>
               ) : (
-                <>{isSetup ? '設置並進入' : '登錄'}</>
+                <>{isSetup ? '設定並進入' : '登入'}</>
               )}
             </button>
           </form>
@@ -172,7 +172,7 @@ export function Auth() {
                 首次設定密碼須在伺服器本機或內網操作；公開網路僅能登入。
               </p>
               <p>
-                詳細配置說明見{' '}
+                詳細設定說明見{' '}
                 <a
                   href="https://github.com/nanachi1212/TWstockfor_tick-stock-panel/blob/main/docs/deploy-password.md"
                   target="_blank"

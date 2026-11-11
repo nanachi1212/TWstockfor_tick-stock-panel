@@ -2,7 +2,7 @@
 
 歷史 bug: other_dirs 循環被複制了兩遍, 且 financials 既在 other_dirs 裡又有專屬
 統計塊 —— financials 被計入 3 次、pools/backtest_results/screener_results/ai_cache
-各計入 2 次, total_size_mb 虛高。此測試用精確整 MB 文件鎖定總和不變數。
+各計入 2 次, total_size_mb 虛高。此測試用精確整 MB 檔案鎖定總和不變數。
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def _build_tree(data_dir: Path) -> None:
     _write_mb(data_dir / "backtest_results" / "r.json", 1.0)
     _write_mb(data_dir / "screener_results" / "s.json", 1.0)
     _write_mb(data_dir / "ai_cache" / "c.json", 1.0)
-    _write_mb(data_dir / "capabilities.json", 0.5)  # 根目錄散文件
+    _write_mb(data_dir / "capabilities.json", 0.5)  # 根目錄散檔案
 
 
 def test_total_equals_sum_of_parts(tmp_path):
@@ -36,7 +36,7 @@ def test_total_equals_sum_of_parts(tmp_path):
         stats["daily_size_mb"]            # 1.0  (subdirs 表)
         + stats["financials_size_mb"]     # 2.0  (專屬統計塊)
         + 1.0 + 1.0 + 1.0 + 1.0           # pools/backtest/screener/ai_cache (單次循環)
-        + 0.5                             # 根目錄散文件
+        + 0.5                             # 根目錄散檔案
     )
     assert stats["total_size_mb"] == parts_mb == 7.5
 

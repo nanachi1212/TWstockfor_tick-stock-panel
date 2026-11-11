@@ -2,14 +2,14 @@
 
 端點:
   GET  /api/auth/status        — 是否已設密碼、當前會話是否有效
-  POST /api/auth/setup         — 首次設定密碼(僅限本機/內網, 防公網搶佔)
+  POST /api/auth/setup         — 首次設定密碼(僅限本機/內網, 防公開網路搶佔)
   POST /api/auth/login         — 登入(密碼 → 會話 token, 含限流)
   POST /api/auth/logout        — 註銷當前會話
   POST /api/auth/change-password — 改密碼(需已登入)
 
 安全:
-  - setup 端點只接受本機/內網請求(request.client.host), 公網請求 403。
-    否則黑客可比使用者更早掃到域名, 搶先設密碼, 反客為主。
+  - setup 端點只接受本機/內網請求(request.client.host), 公開網路請求 403。
+    否則黑客可比使用者更早掃到網域, 搶先設密碼, 反客為主。
   - login 限流: 同一來源 IP 連續失敗 5 次, 鎖 5 分鐘(記憶體計數)。
   - 會話 token 通過 HttpOnly cookie 下發, 前端無需手動管理。
 """
@@ -62,7 +62,7 @@ def _is_local_network(host: str | None) -> bool:
 
 
 def _xff_hops(request: Request) -> list[str]:
-    """X-Forwarded-For 各跳(左=最遠, 右=相鄰反代追加)。
+    """X-Forwarded-For 各跳(左=最遠, 右=相鄰反向代理追加)。
 
     多行頭按出現順序合併: HAProxy 等會另起一行追加, 只讀第一行會讀到客戶端自填的值。
     """
@@ -73,9 +73,9 @@ def _xff_hops(request: Request) -> list[str]:
 def _client_ip(request: Request) -> str:
     """取客戶端 IP(登入限流鍵 / 日誌)。
 
-    僅當直連 peer 是本機/內網(可信反代)時採信 X-Forwarded-For: 從右往左跳過本機/內網
-    反代追加的跳, 取第一個公網跳(其左側可能是客戶端自填, 不採信); 全是內網則取最左。
-    多層反代時不會把所有人歸到同一個反代 IP 上(否則一人失敗即鎖死全部登入)。
+    僅當直連 peer 是本機/內網(可信反向代理)時採信 X-Forwarded-For: 從右往左跳過本機/內網
+    反向代理追加的跳, 取第一個公開網路跳(其左側可能是客戶端自填, 不採信); 全是內網則取最左。
+    多層反向代理時不會把所有人歸到同一個反向代理 IP 上(否則一人失敗即鎖死全部登入)。
     """
     direct = request.client.host if request.client else ""
     hops = _xff_hops(request) if direct and _is_local_network(direct) else []
@@ -85,9 +85,9 @@ def _client_ip(request: Request) -> str:
     return hops[0] if hops else (direct or "unknown")
 
 
-# 不可公網註冊的本地域名後綴(RFC 6761 / RFC 6762 附錄 G / RFC 8375)。
-# ponytail: 內網自有公網域名(如 nas.example.com)與 DNS rebinding 無法區分, 未設密碼時會被拒;
-# 設密碼後走會話認證不受影響, 真有需求再加主機名白名單配置。
+# 不可公開網路註冊的本地網域後綴(RFC 6761 / RFC 6762 附錄 G / RFC 8375)。
+# ponytail: 內網自有公開網路網域(如 nas.example.com)與 DNS rebinding 無法區分, 未設密碼時會被拒;
+# 設密碼後走會話認證不受影響, 真有需求再加主機名白名單設定。
 _LOCAL_NAME_SUFFIXES = (
     ".localhost", ".local", ".localdomain", ".home.arpa",
     ".lan", ".home", ".internal", ".intranet", ".private", ".corp",
@@ -118,8 +118,8 @@ def _is_same_site_browser(request: Request) -> bool:
     """拒絕外站頁面借使用者瀏覽器發來的請求(CSRF)與 DNS rebinding。
 
     - Sec-Fetch-Site 為 cross-site/same-site: 瀏覽器明確標記的外站請求;
-    - Host 須是 IP / 單標籤 / 本地後綴: rebinding 時 Host 是攻擊者的公網域名;
-    - Origin 須與 Host 同源, 或(反代改寫 Host 時)本身是內網 IP / 本地主機名。
+    - Host 須是 IP / 單標籤 / 本地後綴: rebinding 時 Host 是攻擊者的公開網路網域;
+    - Origin 須與 Host 同源, 或(反向代理改寫 Host 時)本身是內網 IP / 本地主機名。
     非瀏覽器客戶端不帶 Origin/Sec-Fetch-*, 仍由來源 IP 閘門把關。
     Host 與 Origin 都從原始頭解析, 不用 request.url(Host 不合法時會回落到伺服器地址)。
     """
@@ -146,8 +146,8 @@ def _is_same_site_browser(request: Request) -> bool:
 def _is_local_request(request: Request) -> bool:
     """未設密碼時的放行條件: 來源確為本機/內網, 且不是外站頁面經瀏覽器發起。
 
-    直連 peer 與可信反代轉發的每一跳都須是本機/內網: 多層本機反代時最右一跳是
-    上一層反代, 不能只看最右; 任一跳為公網即視為公網(自填公網 IP 只會拒掉自己)。
+    直連 peer 與可信反向代理轉發的每一跳都須是本機/內網: 多層本機反向代理時最右一跳是
+    上一層反向代理, 不能只看最右; 任一跳為公開網路即視為公開網路(自填公開網路 IP 只會拒掉自己)。
     """
     direct = request.client.host if request.client else ""
     return (
@@ -158,7 +158,7 @@ def _is_local_request(request: Request) -> bool:
 
 
 def _is_loopback_request(request: Request) -> bool:
-    """驗證專用密碼的放行條件: 直連來自本機回環、沒有任何反代轉發 (tailscale serve 會帶 X-Forwarded-For), 且非外站。"""
+    """驗證專用密碼的放行條件: 直連來自本機回環、沒有任何反向代理轉發 (tailscale serve 會帶 X-Forwarded-For), 且非外站。"""
     direct = request.client.host if request.client else ""
     try:
         loopback = ipaddress.ip_address(direct).is_loopback
@@ -234,9 +234,9 @@ def auth_status(request: Request) -> dict:
 
 @router.post("/setup")
 def setup_password(req: PasswordIn, request: Request) -> dict:
-    """首次設定訪問密碼。僅限本機/內網請求(防公網搶佔)。
+    """首次設定訪問密碼。僅限本機/內網請求(防公開網路搶佔)。
 
-    若已設定過密碼, 返回 409(改密碼走 /change-password)。
+    若已設定過密碼, 回傳 409(改密碼走 /change-password)。
     """
     # 關鍵: 限制只有伺服器主人(本機/內網)能設密碼
     client_ip = _client_ip(request)
@@ -282,7 +282,7 @@ def login(req: LoginIn, request: Request, response: Response) -> dict:
         httponly=True,
         samesite="lax",
         path="/",
-        secure=False,  # 自託管可能無 HTTPS, 不強制 secure(建議反代加 HTTPS)
+        secure=False,  # 自託管可能無 HTTPS, 不強制 secure(建議反向代理加 HTTPS)
     )
     return {"ok": True, "authenticated": True}
 

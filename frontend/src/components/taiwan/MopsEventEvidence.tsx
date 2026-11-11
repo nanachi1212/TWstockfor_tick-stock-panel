@@ -71,7 +71,7 @@ export function MopsEventEvidence({ event }: { event: MarketEvent }) {
       )}
       <p>公告時間：{event.published_at ? `${taipeiTime(event.published_at)}（台北）` : '官方未提供'}；可得時間：{event.available_at ? `${taipeiTime(event.available_at)}（台北）` : '官方未提供'}</p>
       {!event.available_at && <p className="text-muted">官方沒有提供公告時間，所以不推測公開時間；事件內容仍可參考。</p>}
-      <p>檢索時間：{taipeiTime(event.retrieved_at)}（台北）；{event.freshness === 'stale' ? '來源失敗，保留舊資料' : event.freshness === 'cached' ? '已保存的歷史觀察' : '本次來源資料'}</p>
+      <p>檢索時間：{taipeiTime(event.retrieved_at)}（台北）；{event.freshness === 'stale' ? '來源失敗，保留舊資料' : event.freshness === 'cached' ? '已儲存的歷史觀察' : '本次來源資料'}</p>
       <p className="text-muted">事件日或之後的價格變化僅供描述，不能據此判定因果。</p>
     </div>
   )

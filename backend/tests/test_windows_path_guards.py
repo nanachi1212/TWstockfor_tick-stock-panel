@@ -1,4 +1,4 @@
-"""Windows 路徑防護: 快取鍵、外掛名、持股同步路徑在碰文件系統前就拒絕穿越與 UNC 路徑。"""
+"""Windows 路徑防護: 快取鍵、外掛名、持股同步路徑在碰檔案系統前就拒絕穿越與 UNC 路徑。"""
 from __future__ import annotations
 
 import json

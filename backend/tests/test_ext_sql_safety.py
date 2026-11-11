@@ -2,9 +2,9 @@
 
 覆蓋:
 - quote_ident 對各注入 payload 的轉義正確性 (含 RCE 向量 COPY TO)
-- 端到端: 用真實 DuckDB 驗證惡意 field_name 不會產生文件 / 不洩漏資料
+- 端到端: 用真實 DuckDB 驗證惡意 field_name 不會產生檔案 / 不洩漏資料
 - is_valid_ext_ident 白名單 (config_id 防禦)
-- 迴歸: 合法特殊字元字段名 (中文/點) 仍能透傳到 sink (證明未誤傷資料)
+- 迴歸: 合法特殊字元欄位名 (中文/點) 仍能透傳到 sink (證明未誤傷資料)
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def test_quote_ident_wraps_in_double_quotes():
 
 
 def test_quote_ident_escapes_embedded_double_quote():
-    # 雙引號雙寫: 字段名含 " 時必須轉義, 否則可逃逸標識符
+    # 雙引號雙寫: 欄位名含 " 時必須轉義, 否則可逃逸識別字
     assert quote_ident('a"b') == '"a""b"'
 
 
@@ -36,7 +36,7 @@ def test_quote_ident_escapes_embedded_double_quote():
     'x" COPY (SELECT 1) TO \'/tmp/evil\' --',
 ])
 def test_quote_ident_neutralizes_injection_payloads(payload):
-    """轉義後的串必須是一個整體帶引號標識符, 內部雙引號被雙寫。"""
+    """轉義後的串必須是一個整體帶引號識別字, 內部雙引號被雙寫。"""
     escaped = quote_ident(payload)
     # 整體仍是 "...." 包裹, 內部每個原始 " 都變成 ""
     assert escaped.startswith('"') and escaped.endswith('"')
@@ -48,39 +48,39 @@ def test_quote_ident_neutralizes_injection_payloads(payload):
 # ===== 端到端注入測試 (真實 DuckDB) =====
 
 def _build_ext_view(con: duckdb.DuckDBPyConnection, field_name: str) -> None:
-    """建一個含指定 field_name 列的 ext_x 視圖, 模擬項目擴展資料。"""
-    # 列名含特殊字元時, 建表也必須用雙引號轉義
+    """建一個含指定 field_name 列的 ext_x 檢視表, 模擬項目擴展資料。"""
+    # 欄名含特殊字元時, 建表也必須用雙引號轉義
     con.execute(f'CREATE OR REPLACE TABLE _t_{id(field_name) % 10000} (symbol VARCHAR, {quote_ident(field_name)} DOUBLE)')
     con.execute(f"INSERT INTO _t_{id(field_name) % 10000} VALUES ('000001.SZ', 12.3)")
     con.execute(f'CREATE OR REPLACE VIEW ext_x AS SELECT symbol, {quote_ident(field_name)} FROM _t_{id(field_name) % 10000}')
 
 
 def test_sink_with_malicious_field_name_does_not_write_file():
-    """惡意 field_name 經 quote_ident 後, COPY TO payload 不產生文件。
+    """惡意 field_name 經 quote_ident 後, COPY TO payload 不產生檔案。
 
-    復現 Issue #150 的 RCE 向量: 若 field_name 裸拼, 攻擊者可構造 COPY TO 寫任意文件。
-    轉義後, 整個 payload 變成字面列名, DuckDB 查詢報「列不存在」, 不會執行 COPY。
+    復現 Issue #150 的 RCE 向量: 若 field_name 裸拼, 攻擊者可構造 COPY TO 寫任意檔案。
+    轉義後, 整個 payload 變成字面欄名, DuckDB 查詢報「列不存在」, 不會執行 COPY。
     """
     tmp = os.path.join(tempfile.gettempdir(), "tf_sec_inject_sink.out")
     if os.path.exists(tmp):
         os.remove(tmp)
 
     con = duckdb.connect(":memory:")
-    _build_ext_view(con, "close")  # 合法列名
+    _build_ext_view(con, "close")  # 合法欄名
 
-    # 攻擊 payload: 企圖在查詢裡塞 COPY TO 寫文件
+    # 攻擊 payload: 企圖在查詢裡塞 COPY TO 寫檔案
     evil = 'close" UNION SELECT * FROM (COPY (SELECT 1) TO \'' + tmp + '\') --'
     sql = f'SELECT symbol, {quote_ident(evil)} FROM ext_x'
     # 轉義後查詢合法列失敗 → 報 Binder Error, 絕不會執行 COPY
     with pytest.raises(Exception):
         con.execute(sql).fetchall()
 
-    # 關鍵斷言: 文件未被創建 (COPY 未執行)
-    assert not os.path.exists(tmp), "RCE: COPY TO 寫文件成功, 注入未堵死!"
+    # 關鍵斷言: 檔案未被建立 (COPY 未執行)
+    assert not os.path.exists(tmp), "RCE: COPY TO 寫檔案成功, 注入未堵死!"
 
 
 def test_sink_with_malicious_field_name_does_not_leak_data():
-    """惡意 field_name 企圖用 UNION 讀其它表資料 → 轉義後僅作字面列名, 查詢失敗。"""
+    """惡意 field_name 企圖用 UNION 讀其它表資料 → 轉義後僅作字面欄名, 查詢失敗。"""
     con = duckdb.connect(":memory:")
     _build_ext_view(con, "close")
     con.execute("CREATE TABLE secret (pw VARCHAR)")
@@ -88,7 +88,7 @@ def test_sink_with_malicious_field_name_does_not_leak_data():
 
     evil = 'close" UNION SELECT pw FROM secret --'
     sql = f'SELECT symbol, {quote_ident(evil)} FROM ext_x'
-    # 不會返回 secret 表內容, 而是報錯 (列 close"... UNION... 不存在)
+    # 不會回傳 secret 表內容, 而是出錯 (列 close"... UNION... 不存在)
     with pytest.raises(Exception):
         con.execute(sql).fetchall()
 
@@ -140,15 +140,15 @@ def test_kline_retired_ext_parameter_never_runs_sql():
     assert result["rows"] == [{"close": 100.0}]
 
 
-# ===== 迴歸: 合法特殊字元字段名未被誤傷 =====
+# ===== 迴歸: 合法特殊字元欄位名未被誤傷 =====
 
 def test_legal_special_field_name_still_queryable():
-    """field_name 可合法含中文/點 (FieldDef.name 無校驗), quote_ident 必須支持。"""
+    """field_name 可合法含中文/點 (FieldDef.name 無校驗), quote_ident 必須支援。"""
     con = duckdb.connect(":memory:")
     for name in ["漲幅", "本益比.靜態", "field.name"]:
         _build_ext_view(con, name)
-        # 用 quote_ident 轉義後, 特殊列名仍能正確查詢
+        # 用 quote_ident 轉義後, 特殊欄名仍能正確查詢
         sql = f'SELECT symbol, {quote_ident(name)} FROM ext_x'
         rows = con.execute(sql).fetchall()
-        assert rows and rows[0][0] == "000001.SZ", f"合法字段名 {name} 查詢失敗 (被誤傷)"
+        assert rows and rows[0][0] == "000001.SZ", f"合法欄位名 {name} 查詢失敗 (被誤傷)"
     con.close()

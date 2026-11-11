@@ -8,7 +8,7 @@ import polars as pl
 
 
 def load_share_history(data_dir: Path) -> pl.DataFrame:
-    """讀取本地財務股本表; 未同步或損壞時返回空表。"""
+    """讀取本地財務股本表; 未同步或損壞時回傳空表。"""
     path = data_dir / "financials" / "shares" / "part.parquet"
     if not path.exists():
         return pl.DataFrame()
@@ -27,7 +27,7 @@ def apply_historical_float_shares(
     *,
     today: date,
 ) -> pl.DataFrame:
-    """為行情行解析有效流通股本。
+    """為行情行解析有效流通在外股數本。
 
     當日保留 rows.float_shares; 歷史日期使用公告日不晚於交易日的最新股本。
     既有非 Taiwan 市場保留 current fallback; Taiwan 不允許 current backward-fill。

@@ -1,6 +1,6 @@
 """使用者偏好設定持久化。
 
-存儲位置: data/user_data/preferences.json
+儲存位置: data/user_data/preferences.json
 沿用 secrets_store 的 merge-write 模式,但不做 chmod 0600 (非敏感資料)。
 """
 from __future__ import annotations
@@ -15,8 +15,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 進程內快取: 行情輪詢執行緒一輪會呼叫 8~12 次 getter, 每次讀盤+parse 是純重複;
-# 文件僅在使用者改設定時變化, 以 (mtime_ns, size) 簽名判斷是否重讀。
+# 行程內快取: 行情輪詢執行緒一輪會呼叫 8~12 次 getter, 每次讀盤+parse 是純重複;
+# 檔案僅在使用者改設定時變化, 以 (mtime_ns, size) 簽名判斷是否重讀。
 _cache: dict | None = None
 _cache_sig: tuple[int, int] | None = None
 _SAVE_LOCK = threading.RLock()
@@ -26,7 +26,7 @@ _SAVE_LOCK = threading.RLock()
 # 監控規則可選的外部推播渠道。多選: 不推播 = 空陣列, 而非 'none'。
 REVIEW_PUSH_CHANNELS = {"line", "telegram"}
 
-# 頁面 SSE 刷新配置: { "watchlist": true, "monitor": true, ... }
+# 頁面 SSE 重新整理設定: { "watchlist": true, "monitor": true, ... }
 SSE_REFRESH_PAGES_DEFAULT = {
     "overview-market": True,
     "watchlist": True,
@@ -50,7 +50,7 @@ def _invalidate_cache() -> None:
 
 
 def load() -> dict:
-    """讀取 preferences.json (帶 mtime 簽名快取)。返回深拷貝, 呼叫方可自由修改。"""
+    """讀取 preferences.json (帶 mtime 簽名快取)。回傳深拷貝, 呼叫方可自由修改。"""
     with _SAVE_LOCK:
         return _load_unlocked()
 
@@ -77,7 +77,7 @@ def _load_unlocked() -> dict:
 
 
 def save(updates: dict) -> dict:
-    """合併寫入。返回新內容。"""
+    """合併寫入。回傳新內容。"""
     with _SAVE_LOCK:
         p = _path()
         current = load()
@@ -135,12 +135,12 @@ def get_realtime_watchlist_symbols() -> list[str]:
 
 
 def set_realtime_watchlist_symbols(symbols: list[str]) -> list[str]:  # noqa: ARG001
-    """相容舊接口: Free 即時標的現在由自選頁前 5 個決定。"""
+    """相容舊介面: Free 即時標的現在由自選頁前 5 個決定。"""
     return get_realtime_watchlist_symbols()
 
 
 def set_realtime_quote_interval(interval: float) -> float:
-    """保存行情輪詢間隔（不在此做 min/max 校驗，由呼叫方按檔位限制）。"""
+    """儲存行情輪詢間隔（不在此做 min/max 校驗，由呼叫方按檔位限制）。"""
     save({"realtime_quote_interval": interval})
     return interval
 
@@ -150,7 +150,7 @@ def get_minute_sync_enabled() -> bool:
 
 
 def get_minute_intraday_refresh() -> bool:
-    """自選列表分時圖是否跟隨即時行情刷新。
+    """自選列表分時圖是否跟隨即時行情重新整理。
 
     預設值隨權限: 有即時行情權限 (Pro+) 的使用者預設開啟, 否則關閉。
     使用者主動設定過的 (key 存在) 以使用者選擇為準, 即使是 False 也尊重。
@@ -166,19 +166,19 @@ def get_minute_intraday_refresh() -> bool:
         return False
 
 
-# 分時圖即時刷新間隔允許範圍 (秒)。下限 3s, 上限 60s。
+# 分時圖即時重新整理間隔允許範圍 (秒)。下限 3s, 上限 60s。
 _INTRADAY_REFRESH_INTERVAL_MIN = 3
 _INTRADAY_REFRESH_INTERVAL_MAX = 60
 
 
 def get_minute_intraday_refresh_interval() -> int:
-    """分時圖即時刷新輪詢間隔 (秒)。預設 6s, 範圍 [3, 60]。"""
+    """分時圖即時重新整理輪詢間隔 (秒)。預設 6s, 範圍 [3, 60]。"""
     return max(_INTRADAY_REFRESH_INTERVAL_MIN,
                min(_INTRADAY_REFRESH_INTERVAL_MAX,
                    int(load().get("minute_intraday_refresh_interval", 6))))
 
 
-# 監控中心個股通知 ext 字段預設配置 (與 ext_presets 內置預設對齊)
+# 監控中心個股通知 ext 欄位預設設定 (與 ext_presets 內建預設對齊)
 _MONITOR_EXT_FIELDS_DEFAULT = {
     "concept": "ext_gn_ths.所屬概念",
     "industry": "ext_hy_ths.所屬同話順行業",
@@ -191,23 +191,23 @@ def get_minute_sync_days() -> int:
 
 
 def get_minute_sync_segment_days() -> int:
-    """分鐘 K 拉取的單段大小(交易日)。預設 20,範圍 [5, 30]。
+    """分鐘 K 取得的單段大小(交易日)。預設 20,範圍 [5, 30]。
 
-    每段拉完後立即落盤(流式),避免全量攢記憶體導致 OOM。
+    每段拉完後立即寫入磁碟(流式),避免全量攢記憶體導致 OOM。
     段越小記憶體峰值越低但總耗時越長(限速 sleep 隨段數線性增加);
-    最大 30 個交易日; 實際拉取範圍仍受當前資料來源能力限制。
+    最大 30 個交易日; 實際取得範圍仍受當前資料來源能力限制。
     """
     return max(5, min(30, load().get("minute_sync_segment_days", 20)))
 
 
-# ===== 資料來源選擇 (台灣官方或已配置的自訂來源) =====
+# ===== 資料來源選擇 (台灣官方或已設定的自訂來源) =====
 
 _ALLOWED_DATA_PROVIDERS = {"taiwan"}
 DATA_SOURCE_JOB_TIMEOUT_MIN_S = 60
 
 
 def get_data_source_job_timeout_s() -> int:
-    """返回普通資料後台任務的卡死判定時間(秒)。"""
+    """回傳普通資料背景任務的卡死判定時間(秒)。"""
     from app.services.pipeline_jobs import DEFAULT_JOB_TIMEOUT_S
     raw = load().get("data_source_job_timeout_s", DEFAULT_JOB_TIMEOUT_S)
     try:
@@ -218,7 +218,7 @@ def get_data_source_job_timeout_s() -> int:
 
 
 def get_data_source_long_job_timeout_s() -> int:
-    """返回分鐘 K 全市場等長任務的卡死判定時間(秒)。"""
+    """回傳分鐘 K 全市場等長任務的卡死判定時間(秒)。"""
     from app.services.pipeline_jobs import LONG_JOB_TIMEOUT_S
     raw = load().get(
         "data_source_long_job_timeout_s",
@@ -266,7 +266,7 @@ def get_financial_provider() -> str:
     return provider if provider in _allowed_data_providers() else "taiwan"
 
 
-# ===== 盤後管道拉取內容開關 =====
+# ===== 盤後管道取得內容開關 =====
 
 
 
@@ -290,30 +290,30 @@ def get_financial_provider() -> str:
 
 
 def get_enriched_batch_size() -> int:
-    """返回 enriched 全量計算每批 symbol 數量。"""
+    """回傳 enriched 全量計算每批 symbol 數量。"""
     return max(1, min(10000, load().get("enriched_batch_size", 1000)))
 
 
 def set_enriched_batch_size(size: int) -> int:
-    """保存 enriched 全量計算批次大小。"""
+    """儲存 enriched 全量計算批次大小。"""
     size = max(10, min(6000, size))
     save({"enriched_batch_size": size})
     return size
 
 
 def get_index_daily_batch_size() -> int:
-    """返回指數日 K 同步每批 symbol 數量。"""
+    """回傳指數日 K 同步每批 symbol 數量。"""
     return max(1, min(10000, load().get("index_daily_batch_size", 100)))
 
 
 def set_index_daily_batch_size(size: int) -> int:
-    """保存指數日 K 同步批次大小。"""
+    """儲存指數日 K 同步批次大小。"""
     size = max(1, min(10000, size))
     save({"index_daily_batch_size": size})
     return size
 
 
-# ── 五檔盤口 sealed(真假漲停) 配置 ──────────────────────
+# ── 五檔盤口 sealed(真假漲停) 設定 ──────────────────────
 
 
 
@@ -366,7 +366,7 @@ def get_realtime_quote_scope() -> dict:
 
 
 def get_sse_refresh_pages() -> dict[str, bool]:
-    """返回每個頁面的 SSE 刷新開關。"""
+    """回傳每個頁面的 SSE 重新整理開關。"""
     stored = load().get("sse_refresh_pages", {})
     # 合併預設值 (新增頁面自動出現)
     result = dict(SSE_REFRESH_PAGES_DEFAULT)
@@ -375,7 +375,7 @@ def get_sse_refresh_pages() -> dict[str, bool]:
 
 
 def set_sse_refresh_pages(pages: dict[str, bool]) -> dict[str, bool]:
-    """保存頁面 SSE 刷新配置。"""
+    """儲存頁面 SSE 重新整理設定。"""
     save({"sse_refresh_pages": pages})
     return get_sse_refresh_pages()
 
@@ -391,7 +391,7 @@ def get_system_notify_enabled() -> bool:
 
 
 def set_system_notify_enabled(enabled: bool) -> bool:
-    """保存系統通知開關。"""
+    """儲存系統通知開關。"""
     save({"system_notify_enabled": bool(enabled)})
     return bool(enabled)
 
@@ -474,15 +474,15 @@ def set_finmind_enabled(enabled: bool) -> bool:
 
 
 def get_webhook_enabled_default() -> bool:
-    """新建監控規則時是否預設勾選推送 (老布爾, 已由 webhook_default_channels 取代)。
+    """新建監控規則時是否預設勾選推送 (老布林, 已由 webhook_default_channels 取代)。
 
-    保留向後相容: 讀取 webhook_default_channels 非空時返回 True。
+    保留向後相容: 讀取 webhook_default_channels 非空時回傳 True。
     """
     return bool(get_webhook_default_channels())
 
 
 def set_webhook_enabled_default(enabled: bool) -> bool:
-    """保存推送預設勾選態 (老布爾相容入口)。
+    """儲存推送預設勾選態 (老布林相容入口)。
 
     舊布林值無法安全推斷新的 LINE/Telegram 收件者; True/False 都不自動啟用新渠道。
     """
@@ -507,7 +507,7 @@ def get_webhook_default_channels() -> list[str]:
 
 
 def set_webhook_default_channels(channels: list[str]) -> list[str]:
-    """保存新建規則預設推送渠道 (多選)。過濾白名單外、去重、保序。空列表 = 不推送。"""
+    """儲存新建規則預設推送渠道 (多選)。過濾白名單外、去重、保序。空列表 = 不推送。"""
     seen: set[str] = set()
     cleaned: list[str] = []
     for c in channels or []:
@@ -539,7 +539,7 @@ def set_external_notification_channels(channels: list[str]) -> list[str]:
 
 
 def set_realtime_monitor_config(cfg: dict) -> dict:
-    """批量更新即時監控配置。"""
+    """批次更新即時監控設定。"""
     updates = {}
     if "sse_refresh_pages" in cfg:
         updates["sse_refresh_pages"] = cfg["sse_refresh_pages"]
@@ -556,7 +556,7 @@ def set_realtime_monitor_config(cfg: dict) -> dict:
 
 
 def get_realtime_monitor_config() -> dict:
-    """返回完整的即時監控配置。"""
+    """回傳完整的即時監控設定。"""
     return {
         "sse_refresh_pages": get_sse_refresh_pages(),
         "sidebar_index_symbols": get_sidebar_index_symbols(),
@@ -566,34 +566,34 @@ def get_realtime_monitor_config() -> dict:
 
 
 def get_nav_order() -> list[str]:
-    """返回左側選單的自定義排序（內置頁面 path + 擴展分析選單 id）。"""
+    """回傳左側選單的自訂排序（內建頁面 path + 擴展分析選單 id）。"""
     return load().get("nav_order", [])
 
 
 def set_nav_order(order: list[str]) -> list[str]:
-    """保存左側選單排序。"""
+    """儲存左側選單排序。"""
     save({"nav_order": order})
     return get_nav_order()
 
 
 def get_nav_hidden() -> list[str]:
-    """返回左側選單中隱藏的項 id 列表。"""
+    """回傳左側選單中隱藏的項 id 列表。"""
     return load().get("nav_hidden", [])
 
 
 def set_nav_hidden(hidden: list[str]) -> list[str]:
-    """保存左側選單隱藏項。"""
+    """儲存左側選單隱藏項。"""
     save({"nav_hidden": hidden})
     return get_nav_hidden()
 
 
 def get_watchlist_columns() -> list[dict] | None:
-    """返回自選列表列配置。"""
+    """回傳自選列表列設定。"""
     return load().get("watchlist_columns")
 
 
 def set_watchlist_columns(columns: list[dict]) -> list[dict]:
-    """保存自選列表列配置。"""
+    """儲存自選列表列設定。"""
     save({"watchlist_columns": columns})
     return columns
 
@@ -615,7 +615,7 @@ def set_onboarding_completed(done: bool = True) -> bool:
 # 結構: { "metrics": "2026-06-25T10:00:00+08:00", "income": ..., ... }
 
 def get_financial_sync_times() -> dict[str, str]:
-    """返回各財務表的最後同步時間(ISO 字串)。未同步過的表不在返回值中。"""
+    """回傳各財務表的最後同步時間(ISO 字串)。未同步過的表不在回傳值中。"""
     return load().get("financial_sync_times", {}) or {}
 
 

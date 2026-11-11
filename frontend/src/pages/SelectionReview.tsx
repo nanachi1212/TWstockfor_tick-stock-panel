@@ -459,9 +459,9 @@ export function SelectionReview() {
               ) : !snapshotsQuery.data || snapshotsQuery.data.length === 0 ? (
                 <div className="text-center py-16 border border-dashed rounded-xl p-8 bg-card/40">
                   <History className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-                  <h3 className="font-medium text-base">目前尚無已保存的選股快照</h3>
+                  <h3 className="font-medium text-base">目前尚無已儲存的選股快照</h3>
                   <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                    您可以在「台股選股」或「自訂策略」執行篩選後，點擊「保存本次選股」，即可在此追蹤後續真實交易日表現。
+                    您可以在「台股選股」或「自訂策略」執行篩選後，點擊「儲存本次選股」，即可在此追蹤後續真實交易日表現。
                   </p>
                   <Link
                     to="/taiwan-screener"
@@ -514,9 +514,9 @@ export function SelectionReview() {
           ) : !strategyStatsQuery.data || strategyStatsQuery.data.length === 0 ? (
             <div className="text-center py-16 border border-dashed rounded-xl p-8 bg-card/40">
               <TrendingUp className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-              <h3 className="font-medium text-base">暫無策略評估數據</h3>
+              <h3 className="font-medium text-base">尚無策略評估資料</h3>
               <p className="text-xs text-muted-foreground mt-1">
-                保存快照並累積至 5 個以上交易日後，系統將自動計算策略報酬與勝率統計。
+                儲存快照並累積至 5 個以上交易日後，系統將自動計算策略報酬與勝率統計。
               </p>
             </div>
           ) : (
@@ -588,7 +588,7 @@ export function SelectionReview() {
           ) : !conditionStatsQuery.data || conditionStatsQuery.data.length === 0 ? (
             <div className="text-center py-16 border border-dashed rounded-xl p-8 bg-card/40">
               <BarChart3 className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-              <h3 className="font-medium text-base">暫無條件成效統計</h3>
+              <h3 className="font-medium text-base">尚無條件成效統計</h3>
               <p className="text-xs text-muted-foreground mt-1">
                 建立快照時將自動解析入選原因與條件標籤，累積成熟交易日後即行彙整。
               </p>

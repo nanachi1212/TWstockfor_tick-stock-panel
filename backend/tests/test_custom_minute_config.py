@@ -53,7 +53,7 @@ def test_minute_request_parameter_names_survive_config_round_trip():
 
 
 def test_timeout_survives_config_round_trip():
-    """timeout 必須在 UI 保存往返中保留 (核心修復), 且預設 30 不汙染 YAML。"""
+    """timeout 必須在 UI 儲存往返中保留 (核心修復), 且預設 30 不汙染 YAML。"""
     dataset = DatasetConfigIn(
         url="https://example.test/daily",
         method="POST",

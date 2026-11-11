@@ -10,7 +10,7 @@ import { RADIX } from './radix'
 const BASE = ''
 
 type RequestOptions = RequestInit & {
-  /** 為 true 時不彈錯誤 toast（由調用方自行彙總提示，如多圖串行隊列） */
+  /** 為 true 時不彈錯誤 toast（由呼叫方自行彙總提示，如多圖串行佇列） */
   quiet?: boolean
 }
 
@@ -52,18 +52,38 @@ export interface TaiwanPortfolioAnalytics {
   }
 }
 
+/** HTTP 錯誤：保留狀態碼與後端 code，供呼叫端判斷而不依賴錯誤文案 */
+export class ApiError extends Error {
+  status: number
+  code?: string
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
+/** 401 (未登入/會話過期) 或 403 NOT_INITIALIZED (未設存取密碼) → 需要跳登入頁 */
+export function isAuthRedirectError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false
+  return err.status === 401 || (err.status === 403 && err.code === 'NOT_INITIALIZED')
+}
+
 async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   const { quiet, ...fetchInit } = init ?? {}
   const isFormData = fetchInit.body instanceof FormData
   const headers: Record<string, string> = {}
   if (!isFormData) headers['Content-Type'] = 'application/json'
-  // 合併調用方傳入的 headers (此前會被整體覆蓋丟棄)
+  // 合併呼叫方傳入的 headers (此前會被整體覆蓋丟棄)
   Object.assign(headers, fetchInit.headers as Record<string, string> | undefined)
   const res = await fetch(`${BASE}${path}`, { ...fetchInit, headers })
   if (!res.ok) {
     let detail = ''
+    let code: string | undefined
     try {
       const j = JSON.parse(await res.text())
+      if (typeof j.code === 'string') code = j.code
       const raw = j.detail ?? j.message ?? ''
       if (Array.isArray(raw)) {
         // FastAPI 422 校驗錯誤: [{type, loc, msg, input}, ...] → 取 msg 拼接
@@ -75,9 +95,9 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
       }
     } catch { /* ignore */ }
     const msg = detail || `${res.status} ${res.statusText}`
-    // 401 (未登錄/會話過期) 不彈 toast — 由全局認證攔截器統一跳登錄頁, 避免刷屏
+    // 401 (未登入/會話過期) 不彈 toast — 由全局認證攔截器統一跳登入頁, 避免刷屏
     if (res.status !== 401 && !quiet) toast(msg, 'error')
-    throw new Error(msg)
+    throw new ApiError(msg, res.status, code)
   }
   return res.json() as Promise<T>
 }
@@ -97,7 +117,7 @@ export interface CapabilitiesResponse {
 // ===== Financials =====
 // Phase 8B-5.3: A 股財務分析產品(狀態/利潤表/資產負債表/現金流量表/歷史股本/
 // AI 財務分析/報告)已整體下線。僅保留 FinancialMetricRecord —— 它被
-// StockPanel/StockInfoBar 的信息條「財務」字段組 (EPS/BPS/ROE/PE/PB 等) 複用。
+// StockPanel/StockInfoBar 的資訊條「財務」欄位組 (EPS/BPS/ROE/PE/PB 等) 複用。
 export interface FinancialMetricRecord {
   symbol?: string
   period_end: string
@@ -214,7 +234,7 @@ export interface WatchlistEntry {
   added_at: string
   note?: string
   name?: string | null
-  /** 所屬分組 id 列表 (同一標的可屬於多個分組; 空數組=未分組) */
+  /** 所屬分組 id 列表 (同一標的可屬於多個分組; 空陣列=未分組) */
   group_ids?: string[]
 }
 
@@ -424,7 +444,7 @@ export interface RegimeRow {
   above_ma20_pct: number
   total_amount: number
   avg_turnover: number
-  // 4 個子維度分(0-100, 重算後才有; 舊數據可能缺) — 綜合分的加權來源
+  // 4 個子維度分(0-100, 重算後才有; 舊資料可能缺) — 綜合分的加權來源
   avg_pct?: number
   median_pct?: number
   strong_up_pct?: number
@@ -433,7 +453,7 @@ export interface RegimeRow {
   speculation_score?: number
   resilience_score?: number
   trend_score?: number
-  // 情緒週期階段與梯隊指標(重算後才有; 舊數據可能缺)
+  // 情緒週期階段與梯隊指標(重算後才有; 舊資料可能缺)
   phase?: MarketPhase | null
   first_board?: number | null
   ge2_count?: number | null
@@ -541,11 +561,11 @@ export interface StrategyCodeSaveResult {
 
 // ===== Custom Signals (自定義信號) =====
 export interface CustomSignalCondition {
-  left: string     // 字段名
+  left: string     // 欄位名
   op: string       // > >= < <= == !=
   right: string    // "field:xxx" 或數字字符串
-  leftDays?: number   // 左字段取幾日前 (0=當日, 默認)
-  rightDays?: number  // 右字段取幾日前 (僅 right 為字段時有意義)
+  leftDays?: number   // 左欄位取幾日前 (0=當日, 預設)
+  rightDays?: number  // 右欄位取幾日前 (僅 right 為欄位時有意義)
 }
 
 export interface CustomSignal {
@@ -627,7 +647,7 @@ export interface MonitorRule {
   severity: 'info' | 'warn' | 'critical'
   message: string
   webhook_url?: string
-  webhook_enabled?: boolean  // 兼容老規則, 已由 webhook_channels 取代
+  webhook_enabled?: boolean  // 相容老規則, 已由 webhook_channels 取代
   webhook_channels?: string[]  // 命中時推送的外部渠道 (合法值 'feishu' | 'wecom')
   created_at?: string
   runtime_warning?: string
@@ -690,7 +710,7 @@ export interface AlertEvent {
   up_count?: number
   down_count?: number
   leader?: { symbol?: string; name?: string; change_pct?: number } | null
-  /** ext 富化字段 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
+  /** ext 富化欄位 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
   [key: string]: unknown
 }
 
@@ -2550,7 +2570,7 @@ export interface TaiwanComparisonAIResearchResponse {
   evidence_registry_keys: string[]
 }
 
-/** 生成監控規則 id (時間戳 + 隨機後綴), 用戶無需手動填寫。 */
+/** 生成監控規則 id (時間戳 + 隨機後綴), 使用者無需手動填寫。 */
 export function genRuleId(): string {
   const ts = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 6)
@@ -2941,7 +2961,7 @@ export interface SettingsState {
   mode: 'official'
   // 首次使用引導
   onboarding_completed: boolean
-  // AI 配置
+  // AI 設定
   ai_provider: string
   ai_base_url: string
   ai_api_key_masked: string
@@ -3008,7 +3028,7 @@ export interface DataSourceItem {
   path?: string | null
 }
 
-/** 內置可選插件數據源 (plugins/ 目錄, 需手動裝依賴) */
+/** 內建可選插件資料來源 (plugins/ 目錄, 需手動裝依賴) */
 export interface PluginDataSourceItem {
   name: string
   display_name: string
@@ -3018,7 +3038,7 @@ export interface PluginDataSourceItem {
   status: string           // 可用性原因 (供 UI 顯示)
   description: string
   install_hint: string     // 未裝依賴時顯示的安裝命令
-  api_key_env?: string     // 聲明後設置頁提供 Key 輸入框 (先探後存)
+  api_key_env?: string     // 聲明後設定頁提供 Key 輸入框 (先探後存)
 }
 
 export interface DataSourceLoadError {
@@ -3043,7 +3063,7 @@ export interface DataSourceTestResult {
   preview: Record<string, unknown>[]
 }
 
-/** 插件 Key 保存結果 (先探後存: 無效 Key 返回 ok=false 且不落盤) */
+/** 插件 Key 儲存結果 (先探後存: 無效 Key 返回 ok=false 且不落盤) */
 export interface PluginKeyResult {
   ok: boolean
   reason?: string
@@ -3149,7 +3169,7 @@ export interface Preferences {
   monitor_ext_fields: { concept: MonitorExtFieldItem | null; industry: MonitorExtFieldItem | null }
 }
 
-/** 監控中心 ext 字段單項配置 (行業/概念標籤的來源 + 顯示裁剪) */
+/** 監控中心 ext 欄位單項設定 (行業/概念標籤的來源 + 顯示裁剪) */
 export interface MonitorExtFieldItem {
   /** "configId.fieldName" */
   field: string
@@ -3168,7 +3188,7 @@ export interface StrategyAlertEvent {
   price?: number | null
   change_pct?: number | null
   signals?: string[]
-  /** ext 富化字段 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
+  /** ext 富化欄位 (行業/概念等), 鍵為 "{configId}__{fieldName}" */
   [key: string]: unknown
 }
 
@@ -3792,7 +3812,7 @@ export const api = {
     }),
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
 
-  // ===== Auth (訪問認證) =====
+  // ===== Auth (存取認證) =====
   authStatus: () =>
     request<{ configured: boolean; authenticated: boolean }>('/api/auth/status'),
   authSetup: (password: string) =>
@@ -3832,14 +3852,14 @@ export const api = {
       '/api/settings/onboarding/complete', { method: 'POST' },
     ),
 
-  /** 保存 AI 配置 */
+  /** 儲存 AI 設定 */
   saveAiSettings: (ai: { provider?: string; base_url?: string; api_key?: string; model?: string; reasoning_effort?: string; codex_command?: string; codex_reasoning_effort?: string; user_agent?: string; max_output_tokens?: number; context_window?: number }) =>
     request<{ ok: boolean; ai_provider?: string; ai_model?: string; ai_openai_model?: string; ai_reasoning_effort?: string; ai_codex_model?: string; ai_codex_command?: string; ai_codex_reasoning_effort?: string; ai_configured?: boolean; ai_max_output_tokens?: number; ai_context_window?: number }>('/api/settings/ai', {
       method: 'POST',
       body: JSON.stringify(ai),
     }),
 
-  /** 一鍵清空 AI 配置(保留自定義 UA) */
+  /** 一鍵清空 AI 設定(保留自定義 UA) */
   clearAiSettings: () =>
     request<{ ok: boolean }>('/api/settings/ai', { method: 'DELETE' }),
 
@@ -4083,7 +4103,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ nav_hidden }),
     }),
-  // 自選列表列配置
+  // 自選列表列設定
   watchlistColumns: () =>
     request<{ columns: any[] | null }>('/api/settings/preferences/watchlist-columns'),
   updateWatchlistColumns: (columns: any[]) =>
@@ -4663,14 +4683,14 @@ export const api = {
 
 
 
-  /** 檢查 AI 配置狀態 */
+  /** 檢查 AI 設定狀態 */
   strategyAiTest: () =>
     request<{ ok: boolean; error?: string; model?: string; response?: string; usage?: { prompt: number; completion: number } }>(
       '/api/settings/ai/test',
       { method: 'POST' },
     ),
 
-  /** 獲取策略源文件內容 */
+  /** 取得策略源文件內容 */
   taiwanHistoryStatus: () =>
     request<TaiwanHistoryStatus>('/api/taiwan/history-status'),
 
@@ -4899,7 +4919,7 @@ export interface EnrichedField {
   desc: string
 }
 
-// ===== 擴展數據 =====
+// ===== 擴展資料 =====
 // Phase 8B-5.16: ExtDataConfig/ExtDataField/PullConfig/ExtDataRowsResult 隨
 // extDataList/extDataRows/CRUD/pull-config 一併移除的端點失去唯一消費者, 一併
 // 清理。DimensionMembersResult 仍被 dimensionMembers() 使用, 保留。

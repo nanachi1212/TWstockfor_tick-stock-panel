@@ -39,7 +39,7 @@ def _ai_active_profile_name() -> str | None:
 
 @router.get("")
 def get_settings() -> dict:
-    """返回當前配置概況(Key 脫敏)。"""
+    """回傳當前設定概況(Key 脫敏)。"""
     from app.config import settings
     from app.services import preferences
     from app.taiwan import (
@@ -67,7 +67,7 @@ def get_settings() -> dict:
         "mode": "official",
         # 首次使用引導
         "onboarding_completed": preferences.get_onboarding_completed(),
-        # AI 配置
+        # AI 設定
         "ai_provider": ai_provider,
         "ai_base_url": secrets_store.get_ai_config("ai_base_url", settings.ai_base_url),
         "ai_api_key_masked": secrets_store.mask(secrets_store.get_ai_key()),
@@ -108,7 +108,7 @@ def complete_onboarding() -> dict:
     """標記首次使用嚮導完成。
 
     寫入 preferences.json,前端守衛據此判斷是否需要再次展示嚮導。
-    跨設備/清快取安全 —— 狀態落在後端文件,不依賴瀏覽器本地存儲。
+    跨裝置/清快取安全 —— 狀態落在後端檔案,不依賴瀏覽器本地儲存。
     """
     from app.services import preferences
     done = preferences.set_onboarding_completed(True)
@@ -124,13 +124,13 @@ class AiSettingsIn(BaseModel):
     codex_command: str = ""
     codex_reasoning_effort: str = ""
     user_agent: str = ""
-    max_output_tokens: int | None = None   # 輸出上限, 鉗制所有任務的 max_tokens
-    context_window: int | None = None      # 輸入上下文窗口上限 (約 token)
+    max_output_tokens: int | None = None   # 輸出上限, 限制所有任務的 max_tokens
+    context_window: int | None = None      # 輸入上下文視窗上限 (約 token)
 
 
 @router.post("/ai")
 def save_ai_settings(req: AiSettingsIn) -> dict:
-    """保存 AI 配置（全部持久化到 secrets.json）"""
+    """儲存 AI 設定（全部持久化到 secrets.json）"""
     from app.config import settings
     from app.services.ai_provider import (
         OPENAI_PROVIDER,
@@ -184,7 +184,7 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
     updates["ai_user_agent"] = req.user_agent
     settings.ai_user_agent = req.user_agent
 
-    # 輸出上限 / 輸入上下文窗口 (數值配置, 缺省保持原值)
+    # 輸出上限 / 輸入上下文視窗 (數值設定, 缺省保持原值)
     if req.max_output_tokens is not None:
         if req.max_output_tokens <= 0:
             raise HTTPException(status_code=400, detail="輸出上限必須為正整數")
@@ -192,7 +192,7 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
         settings.ai_max_output_tokens = req.max_output_tokens
     if req.context_window is not None:
         if req.context_window <= 0:
-            raise HTTPException(status_code=400, detail="上下文窗口必須為正整數")
+            raise HTTPException(status_code=400, detail="上下文視窗必須為正整數")
         updates["ai_context_window"] = req.context_window
         settings.ai_context_window = req.context_window
 
@@ -218,9 +218,9 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
 
 @router.delete("/ai")
 def clear_ai_settings() -> dict:
-    """一鍵清空 AI 配置(provider / base_url / api_key / model)。
+    """一鍵清空 AI 設定(provider / base_url / api_key / model)。
 
-    保留 ai_user_agent —— 自定義請求頭與憑證解耦,清空憑證不影響繞過 CDN 攔截的設定。
+    保留 ai_user_agent —— 自訂請求頭與憑證解耦,清空憑證不影響繞過 CDN 攔截的設定。
     """
     from app.config import settings
 
@@ -512,7 +512,7 @@ class CustomSourceTestIn(BaseModel):
 
 @router.get("/preferences")
 def get_preferences() -> dict:
-    """返回使用者偏好設定。"""
+    """回傳使用者偏好設定。"""
     from app.services import preferences, webhook_adapter
     return {
         "realtime_quotes_enabled": preferences.get_realtime_quotes_enabled(),
@@ -564,7 +564,7 @@ def get_notification_status() -> dict:
 
 @router.get("/data-sources")
 def list_data_sources() -> dict:
-    """列出已載入的資料來源 (內置 / 外掛 / 使用者自定義)。"""
+    """列出已載入的資料來源 (內建 / 外掛 / 使用者自訂)。"""
     from app.data_providers import custom as custom_sources
     return {
         "builtin": [{"name": "taiwan", "display_name": "台灣官方資料源 (TWSE/TPEx)", "datasets": ["daily", "realtime", "financial"]}],
@@ -577,7 +577,7 @@ def list_data_sources() -> dict:
 
 @router.post("/plugin-key")
 def save_plugin_key(req: PluginKeyIn) -> dict:
-    """保存插件 API Key(先探後存)。
+    """儲存外掛 API Key(先探後存)。
 
     流程: probe_plugin_key 用候選 Key 實探 → 有效才寫 secrets.json
     ({plugin}_api_key, 優先級高於 .env) → load_all 重掃, 外掛即刻變為可切換。
@@ -604,14 +604,14 @@ def save_plugin_key(req: PluginKeyIn) -> dict:
 
 @router.delete("/plugin-key/{name}")
 def clear_plugin_key(name: str) -> dict:
-    """清除外掛的界面配置 Key(secrets.json);.env 裡的同名變數仍然生效。"""
+    """清除外掛的界面設定 Key(secrets.json);.env 裡的同名變數仍然生效。"""
     from app.data_providers import custom as custom_sources
 
     manifest = custom_sources.plugin_manifest(name)
     if manifest is None or not custom_sources.is_builtin(name):
-        raise HTTPException(status_code=404, detail=f"插件 '{name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"外掛 '{name}' 不存在")
     if not manifest.get("api_key_env"):
-        raise HTTPException(status_code=400, detail=f"插件 '{name}' 不支持在界面配置 Key")
+        raise HTTPException(status_code=400, detail=f"外掛 '{name}' 不支援在界面設定 Key")
     secrets_store.clear(f"{name.lower()}_api_key")
     custom_sources.load_all()
     status = next((p for p in custom_sources.list_plugins() if p["name"] == name), None)
@@ -634,14 +634,14 @@ def reload_data_sources() -> dict:
 def install_plugin(name: str) -> dict:
     """安裝指定外掛的依賴 (npm install / pip install), 完成後重新掃描。
 
-    根據 plugin.yaml 的 runtime 字段決定安裝方式。安裝可能耗時較長 (網路下載),
+    根據 plugin.yaml 的 runtime 欄位決定安裝方式。安裝可能耗時較長 (網路下載),
     客戶端需設較長超時。
     """
     from app.data_providers import custom as custom_sources
     if not custom_sources.is_builtin(name):
-        raise HTTPException(status_code=404, detail=f"插件 '{name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"外掛 '{name}' 不存在")
     ok, message = custom_sources.install_plugin(name)
-    # 無論成功失敗都重新掃描, 刷新外掛狀態 (安裝可能部分成功)
+    # 無論成功失敗都重新掃描, 重新整理外掛狀態 (安裝可能部分成功)
     custom_sources.load_all()
     result = list_data_sources()
     result["install_ok"] = ok
@@ -658,7 +658,7 @@ def uninstall_plugin(name: str) -> dict:
     from app.data_providers import custom as custom_sources
     from app.services import preferences
     if not custom_sources.is_builtin(name):
-        raise HTTPException(status_code=404, detail=f"插件 '{name}' 不存在")
+        raise HTTPException(status_code=404, detail=f"外掛 '{name}' 不存在")
     selected = preferences.load()
     ok, message = custom_sources.uninstall_plugin(name)
     updates = {}
@@ -677,7 +677,7 @@ def uninstall_plugin(name: str) -> dict:
 
 @router.get("/data-sources/{name}")
 def get_data_source(name: str) -> dict:
-    """讀取一個自定義資料來源的完整配置(用於前端編輯回填)。"""
+    """讀取一個自訂資料來源的完整設定(用於前端編輯回填)。"""
     from app.data_providers import custom as custom_sources
     cfg = custom_sources.get_config_dict(name)
     if cfg is None:
@@ -687,7 +687,7 @@ def get_data_source(name: str) -> dict:
 
 @router.post("/data-sources")
 def save_data_source(req: CustomSourceIn) -> dict:
-    """創建或更新一個自定義資料來源 yaml, 保存後自動 reload。"""
+    """建立或更新一個自訂資料來源 yaml, 儲存後自動 reload。"""
     from app.data_providers import custom as custom_sources
     config = req.model_dump()
     config["name"] = (config.get("name") or "").lower()
@@ -701,7 +701,7 @@ def save_data_source(req: CustomSourceIn) -> dict:
 
 @router.delete("/data-sources/{name}")
 def delete_data_source(name: str, request: Request) -> dict:
-    """刪除一個自定義資料來源 yaml, 保存後自動 reload。
+    """刪除一個自訂資料來源 yaml, 儲存後自動 reload。
 
     若當前總開關選中的就是被刪的源, 回退到 taiwan。
     """
@@ -728,14 +728,14 @@ def delete_data_source(name: str, request: Request) -> dict:
         updates["adj_factor_provider"] = "same_as_daily"
     if updates:
         preferences.save(updates)
-    # 刪除源可能觸發偏好回退 taiwan, 同步刷新能力快照
+    # 刪除源可能觸發偏好回退 taiwan, 同步重新整理能力快照
     request.app.state.capabilities = detect_capabilities()
     return list_data_sources()
 
 
 @router.post("/data-sources/test")
 def test_data_source(req: CustomSourceTestIn) -> dict:
-    """試拉自定義資料來源，不寫盤。"""
+    """試拉自訂資料來源，不寫盤。"""
     from app.data_providers import custom as custom_sources
 
     temporary = req.config is not None
@@ -752,7 +752,7 @@ def test_data_source(req: CustomSourceTestIn) -> dict:
             provider = custom_sources.get_provider(req.provider)
         return provider.test_dataset(req.dataset, req.symbols)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"自定義資料來源測試失敗: {e}") from e
+        raise HTTPException(status_code=400, detail=f"自訂資料來源測試失敗: {e}") from e
     finally:
         if temporary and provider is not None:
             provider.close()
@@ -760,7 +760,7 @@ def test_data_source(req: CustomSourceTestIn) -> dict:
 
 @router.put("/preferences/data-providers")
 def update_data_providers(req: DataProvidersIn, request: Request) -> dict:
-    """保存資料來源選擇。"""
+    """儲存資料來源選擇。"""
     from app.services import preferences
     updates = req.model_dump(exclude_none=True)
     allowed = preferences._allowed_data_providers()
@@ -772,7 +772,7 @@ def update_data_providers(req: DataProvidersIn, request: Request) -> dict:
         updates[key] = normalized
     if updates:
         preferences.save(updates)
-    # 刷新能力快照: 當前 provider 變化會改變自定義源能力增廣結果 (讀快取, 無網路請求)
+    # 重新整理能力快照: 當前 provider 變化會改變自訂源能力增廣結果 (讀快取, 無網路請求)
     request.app.state.capabilities = detect_capabilities()
     return {
         "daily_data_provider": preferences.get_daily_data_provider(),
@@ -785,7 +785,7 @@ def update_data_providers(req: DataProvidersIn, request: Request) -> dict:
 
 @router.put("/preferences/data-source-job-timeouts")
 def update_data_source_job_timeouts(req: DataSourceJobTimeoutPrefs) -> dict:
-    """保存普通與長資料後台任務的卡死判定時間。"""
+    """儲存普通與長資料背景任務的卡死判定時間。"""
     from app.services import preferences
     preferences.save(req.model_dump())
     return req.model_dump()
@@ -793,7 +793,7 @@ def update_data_source_job_timeouts(req: DataSourceJobTimeoutPrefs) -> dict:
 
 @router.get("/preferences/watchlist-columns")
 def get_watchlist_columns() -> dict:
-    """返回自選列表列配置。"""
+    """回傳自選列表列設定。"""
     from app.services import preferences
     cols = preferences.get_watchlist_columns()
     return {"columns": cols}
@@ -809,7 +809,7 @@ class NavHiddenIn(BaseModel):
 
 @router.put("/preferences/nav-order")
 def update_nav_order(req: NavOrderIn) -> dict:
-    """保存左側選單排序（內置頁面 path + 擴展分析選單 id 的有序列表）。"""
+    """儲存左側選單排序（內建頁面 path + 擴展分析選單 id 的有序列表）。"""
     from app.services import preferences
     saved = preferences.set_nav_order(req.nav_order)
     return {"nav_order": saved}
@@ -817,7 +817,7 @@ def update_nav_order(req: NavOrderIn) -> dict:
 
 @router.put("/preferences/nav-hidden")
 def update_nav_hidden(req: NavHiddenIn) -> dict:
-    """保存左側選單隱藏項。"""
+    """儲存左側選單隱藏項。"""
     from app.services import preferences
     saved = preferences.set_nav_hidden(req.nav_hidden)
     return {"nav_hidden": saved}
@@ -825,7 +825,7 @@ def update_nav_hidden(req: NavHiddenIn) -> dict:
 
 @router.put("/preferences/watchlist-columns")
 def update_watchlist_columns(req: dict) -> dict:
-    """保存自選列表列配置。"""
+    """儲存自選列表列設定。"""
     from app.services import preferences
     columns = req.get("columns", [])
     saved = preferences.set_watchlist_columns(columns)
@@ -834,7 +834,7 @@ def update_watchlist_columns(req: dict) -> dict:
 
 @router.put("/preferences/minute-sync")
 def update_minute_sync(req: MinuteSyncPrefs) -> dict:
-    """保存分鐘 K 同步偏好。
+    """儲存分鐘 K 同步偏好。
 
     minute_sync_segment_days 為可選:未傳(None)時不覆蓋現有值,便於開關/天數
     與段大小各自獨立更新。
@@ -869,7 +869,7 @@ class RealtimeQuoteScopePrefs(BaseModel):
 
 @router.put("/preferences/realtime-quotes")
 def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
-    """保存全域即時行情開關。
+    """儲存全域即時行情開關。
 
     none 檔無即時行情權限；free 檔開啟自選股即時；starter+ 開啟全市場即時。
     前端據此把開關置灰 / 回彈。
@@ -902,7 +902,7 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
 
 @router.put("/preferences/realtime-quote-scope")
 def update_realtime_quote_scope(req: RealtimeQuoteScopePrefs) -> dict:
-    """保存盤中即時行情範圍；獨立於盤後管道範圍。"""
+    """儲存盤中即時行情範圍；獨立於盤後管道範圍。"""
     from app.services import preferences
     cfg = req.model_dump(exclude_none=True)
     return preferences.set_realtime_quote_scope(cfg)
@@ -926,7 +926,7 @@ class IndicesNavPinnedPrefs(BaseModel):
 
 @router.put("/preferences/indices-nav-pinned")
 def update_indices_nav_pinned(req: IndicesNavPinnedPrefs) -> dict:
-    """保存側欄指數報價卡片固定顯示開關。
+    """儲存側欄指數報價卡片固定顯示開關。
     ON=常駐顯示；OFF=跟隨即時行情開關（僅即時開時顯示）。"""
     from app.services import preferences
     preferences.save({"indices_nav_pinned": req.indices_nav_pinned})
@@ -939,7 +939,7 @@ class WatchlistGroupsInNavPrefs(BaseModel):
 
 @router.put("/preferences/watchlist-groups-in-nav")
 def update_watchlist_groups_in_nav(req: WatchlistGroupsInNavPrefs) -> dict:
-    """保存自選分組是否顯示在側邊欄開關。"""
+    """儲存自選分組是否顯示在側邊欄開關。"""
     from app.services import preferences
     preferences.save({"watchlist_groups_in_nav": req.watchlist_groups_in_nav})
     return {"watchlist_groups_in_nav": req.watchlist_groups_in_nav}
@@ -954,7 +954,7 @@ class RealtimeMonitorConfigIn(BaseModel):
 
 @router.put("/preferences/realtime-monitor")
 def update_realtime_monitor_config(req: RealtimeMonitorConfigIn, request: Request) -> dict:
-    """更新實時監控設定 (SSE 刷新頁面、側欄指數、分時刷新)。"""
+    """更新即時監控設定 (SSE 重新整理頁面、側欄指數、分時重新整理)。"""
     from app.services import preferences
 
     cfg = req.model_dump(exclude_none=True)
@@ -973,7 +973,7 @@ class SystemNotifyPrefsIn(BaseModel):
 
 @router.put("/preferences/auto-ai-explain")
 def update_auto_ai_explain(req: SystemNotifyPrefsIn) -> dict:
-    """盤後自動 AI 說明開關 (預設關閉)；開啟後每日資料就緒時為雷達前 5 檔產生並保存。"""
+    """盤後自動 AI 說明開關 (預設關閉)；開啟後每日資料就緒時為雷達前 5 檔產生並儲存。"""
     from app.taiwan import auto_ai_explain
     return {"auto_ai_explain_enabled": auto_ai_explain.set_enabled(req.enabled)}
 
@@ -1043,7 +1043,7 @@ def update_telegram_query(req: SystemNotifyPrefsIn) -> dict:
 def update_system_notify(req: SystemNotifyPrefsIn) -> dict:
     """系統通知開關 — 開啟後監控告警同時推送到操作系統通知中心。
 
-    純偏好, 無副作用 (不像策略監控要遷移規則), 直接落盤即可。
+    純偏好, 無副作用 (不像策略監控要遷移規則), 直接寫入磁碟即可。
     quote_service 在每輪告警評估時讀此開關決定是否發系統通知。
     """
     from app.services import preferences
@@ -1233,7 +1233,7 @@ class WebhookEnabledDefaultIn(BaseModel):
 
 @router.put("/preferences/webhook-enabled-default")
 def update_webhook_enabled_default(req: WebhookEnabledDefaultIn) -> dict:
-    """新建監控規則時是否預設勾選推送 (老布爾接口, 相容舊前端)。
+    """新建監控規則時是否預設勾選推送 (老布林介面, 相容舊前端)。
 
     舊布林值無法安全推斷新的 LINE/Telegram 收件者,因此不自動啟用新渠道。
     """
@@ -1276,7 +1276,7 @@ def update_quote_interval(req: QuoteIntervalIn, request: Request) -> dict:
 
 @router.get("/preferences/quote-interval")
 def get_quote_interval(request: Request) -> dict:
-    """獲取當前行情輪詢間隔和檔位限制。"""
+    """取得當前行情輪詢間隔和檔位限制。"""
     qs = getattr(request.app.state, "quote_service", None)
     if not qs:
         return {"interval": 6.0, "min_interval": 6.0, "max_interval": 60.0}
@@ -1293,7 +1293,7 @@ class EnrichedBatchSizeIn(BaseModel):
 
 @router.put("/preferences/enriched-batch-size")
 def update_enriched_batch_size(req: EnrichedBatchSizeIn) -> dict:
-    """保存 enriched 全量計算批次大小。"""
+    """儲存 enriched 全量計算批次大小。"""
     from app.services import preferences
     size = preferences.set_enriched_batch_size(req.size)
     return {"enriched_batch_size": size}
@@ -1305,7 +1305,7 @@ class IndexDailyBatchSizeIn(BaseModel):
 
 @router.put("/preferences/index-daily-batch-size")
 def update_index_daily_batch_size(req: IndexDailyBatchSizeIn) -> dict:
-    """保存指數日 K 同步批次大小。"""
+    """儲存指數日 K 同步批次大小。"""
     from app.services import preferences
     size = preferences.set_index_daily_batch_size(req.size)
     return {"index_daily_batch_size": size}

@@ -1,7 +1,7 @@
-"""偏離列 (deviate_Nd) 計算測試 — 全量附著 + 盤中今日路徑。
+"""偏離欄 (deviate_Nd) 計算測試 — 全量附著 + 盤中今日路徑。
 
-注: 原 A 股「異動邊緣」監控棧 (services/abnormal_moves.py 及 type=abnormal
-監控規則) 已在 Phase 8B-5.2 移除; 本文件保留的是仍被 Screener 偏離列
+注: 原「異動邊緣」監控棧 (services/abnormal_moves.py 及 type=abnormal
+監控規則) 已在 Phase 8B-5.2 移除; 本檔案保留的是仍被 Screener 偏離欄
 (deviate_3d/10d/30d) 使用的通用指標管線測試。
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ from app.indicators.pipeline import (
     benchmark_momentum_today,
     load_benchmark_momentum,
 )
-from app.market_time import cn_today
+from app.taiwan.realtime.calendar import taipei_today
 
 
 def _write_index_daily(tmp_path, rows: list[tuple[str, date, float]]) -> None:
@@ -34,7 +34,7 @@ def _write_index_daily(tmp_path, rows: list[tuple[str, date, float]]) -> None:
 
 
 def test_attach_deviation_columns_math(tmp_path) -> None:
-    # 上證指數 4 天等差 +1: 3日動量 = 13/10-1 = 0.30
+    # 基準指數 4 天等差 +1: 3日動量 = 13/10-1 = 0.30
     # 個股 close 與指數同序列 → momentum_3d 缺失時按 close 就地補算, 偏離 = 0
     days = [date(2026, 8, 13), date(2026, 8, 14), date(2026, 8, 15), date(2026, 8, 18)]
     index_rows = [("000001.SH", d, 10.0 + i) for i, d in enumerate(days)]
@@ -45,7 +45,7 @@ def test_attach_deviation_columns_math(tmp_path) -> None:
             "symbol": ["600000.SH"] * len(days),
             "date": days,
             "close": [10.0 + i for i in range(len(days))],
-            # 10/30 日窗口已有動量列 → 直接使用
+            # 10/30 日視窗已有動量欄 → 直接使用
             "momentum_10d": [None] * 4,
             "momentum_30d": [None] * 4,
         }
@@ -58,7 +58,7 @@ def test_attach_deviation_columns_math(tmp_path) -> None:
 
 
 def test_attach_deviation_columns_missing_benchmark(tmp_path) -> None:
-    # 無指數資料: 偏離列為 null, 不拋異常
+    # 無指數資料: 偏離欄為 null, 不拋異常
     stock = pl.DataFrame(
         {
             "symbol": ["600000.SH"],
@@ -79,7 +79,7 @@ _BENCH_DAYS = [date(2026, 8, 11), date(2026, 8, 12), date(2026, 8, 13),
 
 
 def _write_sh_bench(tmp_path) -> None:
-    # 上證指數 6 日收盤 10..15, 末值 15 為昨收
+    # 基準指數 6 日收盤 10..15, 末值 15 為昨收
     _write_index_daily(tmp_path, [("000001.SH", d, 10.0 + i) for i, d in enumerate(_BENCH_DAYS)])
 
 
@@ -92,7 +92,7 @@ def test_benchmark_momentum_today_math(tmp_path) -> None:
     # 今收 = 15 x 1.10 = 16.5; 3 個交易日前的收盤 = 13 (與全量路徑 shift(3) 同口徑)
     # mom3d = 16.5/13 - 1
     assert abs(row["bench_mom3d"] - (16.5 / 13 - 1)) < 1e-9
-    # 10/30 日窗口收盤數不足 → null
+    # 10/30 日視窗收盤數不足 → null
     assert row["bench_mom10d"] is None
     assert row["bench_mom30d"] is None
 
@@ -103,7 +103,7 @@ def test_benchmark_momentum_today_math(tmp_path) -> None:
 
 def test_benchmark_momentum_today_excludes_today_rows(tmp_path) -> None:
     # 指數監控盤寫入的今日行不能當昨收 (否則即時漲跌被重複疊加)
-    today = cn_today()
+    today = taipei_today()
     rows = [("000001.SH", d, 10.0 + i) for i, d in enumerate(_BENCH_DAYS)]
     rows.append(("000001.SH", today, 99.0))  # 今日髒行
     _write_index_daily(tmp_path, rows)
@@ -115,7 +115,7 @@ def test_benchmark_momentum_today_excludes_today_rows(tmp_path) -> None:
 def test_attach_deviation_columns_today(tmp_path) -> None:
     _write_sh_bench(tmp_path)
     quotes = pl.DataFrame({"symbol": ["000001.SH"], "change_pct": [0.10]})
-    # 單日幀: 增量路徑產出的 momentum 列 (無 date 歷史, 無法 shift 補算)
+    # 單日幀: 增量路徑產出的 momentum 欄 (無 date 歷史, 無法 shift 補算)
     today_df = pl.DataFrame(
         {
             "symbol": ["600000.SH", "000001.SZ"],
@@ -127,13 +127,13 @@ def test_attach_deviation_columns_today(tmp_path) -> None:
     out = attach_deviation_columns_today(today_df, tmp_path, quotes)
     # SH: 0.5 - (16.5/13 - 1)
     assert abs(out["deviate_3d"][0] - (0.5 - (16.5 / 13 - 1))) < 1e-9
-    # SZ 無深證基準 → 按選基設計回退上證基準 (rt=0): 0.2 - (15/13 - 1)
+    # SZ 無對應基準 → 按選基設計回退 SH 基準 (rt=0): 0.2 - (15/13 - 1)
     assert abs(out["deviate_3d"][1] - (0.2 - (15.0 / 13 - 1))) < 1e-9
     assert "bench_close" not in out.columns
 
 
 def test_attach_deviation_columns_today_missing_momentum(tmp_path) -> None:
-    # 全量回退路徑可能缺 momentum_3d: 該窗口置 null, 其餘窗口正常
+    # 全量回退路徑可能缺 momentum_3d: 該視窗置 null, 其餘視窗正常
     days = [date(2026, 7, 1) + timedelta(days=i) for i in range(35)]
     _write_index_daily(tmp_path, [("000001.SH", d, 10.0 + i) for i, d in enumerate(days)])
     df = pl.DataFrame(
@@ -150,7 +150,7 @@ def test_attach_deviation_columns_today_missing_momentum(tmp_path) -> None:
 
 
 def test_attach_deviation_columns_no_bench_close_leak(tmp_path) -> None:
-    # load_benchmark_momentum 新增 bench_close 列後, 冷路徑輸出不應洩漏該列
+    # load_benchmark_momentum 新增 bench_close 欄後, 冷路徑輸出不應洩漏該欄
     _write_sh_bench(tmp_path)
     stock = pl.DataFrame(
         {

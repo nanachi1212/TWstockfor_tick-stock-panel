@@ -46,7 +46,7 @@ function ResearchWorkflow({ record }: { record: TaiwanAIResearchHistoryRecord })
     <p>當時持股：{typeof portfolio.shares === 'number' && Number.isFinite(portfolio.shares) ? `${portfolio.shares.toLocaleString()} 股` : '未記錄，不能視為零持股'}</p>
     <p>來源提醒：{typeof alert.alert_id === 'string' ? alert.alert_id : '未記錄'}{typeof alert.triggered_at === 'string' ? `，${alert.triggered_at}` : ''}{typeof alert.message === 'string' ? `，${alert.message}` : ''}</p>
     <nav aria-label="研究後續操作" className="flex flex-wrap gap-3 text-accent">
-      {stock && <><Link to={stock}>個股資料</Link><Link to={`${stock}#portfolio`}>檢視／登錄持股</Link><Link to={`${stock}#monitor`}>檢視／設定提醒</Link></>}
+      {stock && <><Link to={stock}>個股資料</Link><Link to={`${stock}#portfolio`}>檢視／登入持股</Link><Link to={`${stock}#monitor`}>檢視／設定提醒</Link></>}
       {snapshotLink ? <Link to={snapshotLink}>原候選快照與事後追蹤</Link> : <span className="text-muted">未記錄完整候選來源，無法連到原快照</span>}
     </nav>
   </section>

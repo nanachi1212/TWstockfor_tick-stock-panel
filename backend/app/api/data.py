@@ -24,15 +24,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/data", tags=["data"])
 
-# ===== 快取:storage(文件掃描) + 每張表 aggregate 各自快取 =====
+# ===== 快取:storage(檔案掃描) + 每張表 aggregate 各自快取 =====
 # 同步期間前端 2s 輪一次 status,每張表 aggregate 全表 count + min/max + distinct
 # 太重,加 TTL + 事件失效。stage 寫完只清對應那張表的快取。
 
-_TABLE_TTL = 30.0  # 兜底 TTL,即使沒人調 invalidate 也會過期
+_TABLE_TTL = 30.0  # 保底 TTL,即使沒人調 invalidate 也會過期
 _TABLE_TTL_LARGE = 120.0  # 大表(分鐘K等)單獨 TTL，避免多分區聚合反覆重算
-_STORAGE_TTL = 60.0  # storage 文件掃描獨立 TTL,stage 寫完不觸發重算
+_STORAGE_TTL = 60.0  # storage 檔案掃描獨立 TTL,stage 寫完不觸發重算
 
-# 聚合慢的大表（分區數多、行數多），使用更長的 TTL
+# 聚合慢的大表（分區數多、列數多），使用更長的 TTL
 _LARGE_TABLES = {"minute"}
 
 _storage_cache: dict[str, Any] | None = None
@@ -104,7 +104,7 @@ def _get_table_stats(name: str, fetch: Callable[[], dict | None]) -> dict | None
 
 
 def _safe_aggregate(repo, view: str) -> dict | None:
-    """聚合視圖基礎統計;視圖不存在或為空時返 None。"""
+    """聚合檢視表基礎統計;檢視表不存在或為空時返 None。"""
     try:
         row = repo.execute_one(
             f"""SELECT count(*) AS rows,
@@ -131,8 +131,8 @@ def _safe_aggregate(repo, view: str) -> dict | None:
 def _safe_aggregate_daily(repo, view: str = "kline_daily") -> dict | None:
     """日K輕量統計 — 零資料掃描。
 
-    從分區目錄名獲取日期範圍和交易日數，不讀任何 parquet。
-    標的數從 instruments 小表獲取（~5000行，毫秒級）。
+    從分區目錄名取得日期範圍和交易日數，不讀任何 parquet。
+    標的數從 instruments 小表取得（~5000行，毫秒級）。
     """
     daily_dir = repo.store.data_dir / "kline_daily"
     if not daily_dir.exists():
@@ -159,11 +159,11 @@ def _safe_aggregate_daily(repo, view: str = "kline_daily") -> dict | None:
 def _safe_aggregate_enriched(repo) -> dict | None:
     """Enriched 輕量統計 — 零資料掃描。
 
-    字段數從 DESCRIBE 讀 schema（不碰資料），毫秒級。
-    日期範圍從分區目錄名獲取（同 minute 策略），不讀任何 parquet。
+    欄位數從 DESCRIBE 讀 schema（不碰資料），毫秒級。
+    日期範圍從分區目錄名取得（同 minute 策略），不讀任何 parquet。
     標的數從 instruments 小表取。
     """
-    # 字段數：讀 schema，不碰資料
+    # 欄位數：讀 schema，不碰資料
     fields = 0
     try:
         cols = repo.execute_all("DESCRIBE kline_enriched")
@@ -171,7 +171,7 @@ def _safe_aggregate_enriched(repo) -> dict | None:
     except Exception:  # noqa: BLE001
         pass
 
-    # 日期範圍：從分區目錄名獲取，不掃資料
+    # 日期範圍：從分區目錄名取得，不掃資料
     enriched_dir = repo.store.data_dir / "kline_daily_enriched"
     if not enriched_dir.exists():
         return None
@@ -209,7 +209,7 @@ def _count_instruments_symbols(repo) -> int:
 
 
 def _safe_aggregate_instruments(repo) -> dict | None:
-    """instruments 視圖統計(無 date 列,用 as_of)。"""
+    """instruments 檢視表統計(無 date 欄,用 as_of)。"""
     try:
         row = repo.execute_one(
             """SELECT count(*) AS rows,
@@ -232,12 +232,12 @@ def _safe_aggregate_instruments(repo) -> dict | None:
 
 
 def _safe_aggregate_index_daily(repo) -> dict | None:
-    """指數日K統計。指數資料量較小，直接讀取 parquet 元資料統計真實行數。"""
+    """指數日K統計。指數資料量較小，直接讀取 parquet 元資料統計真實列數。"""
     return _safe_aggregate(repo, "kline_index_daily")
 
 
 def _safe_aggregate_index_enriched(repo) -> dict | None:
-    """指數 enriched 統計。指數資料量較小，直接讀取 parquet 元資料統計真實行數。"""
+    """指數 enriched 統計。指數資料量較小，直接讀取 parquet 元資料統計真實列數。"""
     fields = 0
     try:
         cols = repo.execute_all("DESCRIBE kline_index_enriched")
@@ -251,7 +251,7 @@ def _safe_aggregate_index_enriched(repo) -> dict | None:
 
 
 def _safe_aggregate_index_instruments(repo) -> dict | None:
-    """指數 instruments 視圖統計。"""
+    """指數 instruments 檢視表統計。"""
     try:
         row = repo.execute_one(
             """SELECT count(*) AS rows,
@@ -316,7 +316,7 @@ def _safe_aggregate_etf_enriched(repo) -> dict | None:
 
 
 def _safe_aggregate_etf_daily(repo) -> dict | None:
-    """ETF 日K統計 — 優先獨立 kline_etf_daily，相容舊 index 存儲。"""
+    """ETF 日K統計 — 優先獨立 kline_etf_daily，相容舊 index 儲存。"""
     queries = [
         """SELECT count(*) AS rows,
                   min(date) AS earliest,
@@ -352,7 +352,7 @@ def _safe_aggregate_etf_daily(repo) -> dict | None:
 
 
 def _safe_aggregate_adj_factor(repo) -> dict | None:
-    """adj_factor 視圖統計,日期範圍對齊日 K 覆蓋區間。"""
+    """adj_factor 檢視表統計,日期範圍對齊日 K 覆蓋區間。"""
     try:
         # 取日 K 的日期範圍作為過濾條件
         dr = repo.execute_one(
@@ -384,9 +384,9 @@ def _safe_aggregate_adj_factor(repo) -> dict | None:
 
 
 def _safe_aggregate_minute(repo) -> dict | None:
-    """kline_minute 統計 — 從分區目錄名獲取交易日數，跳過全表掃描。
+    """kline_minute 統計 — 從分區目錄名取得交易日數，跳過全表掃描。
 
-    分鐘 K 按 date=YYYY-MM-DD 分區存儲，直接數目錄即可，
+    分鐘 K 按 date=YYYY-MM-DD 分區儲存，直接數目錄即可，
     無需 count(*) / count(DISTINCT ...) 等昂貴查詢。
     """
     minute_dir = repo.store.data_dir / "kline_minute"
@@ -404,7 +404,7 @@ def _safe_aggregate_minute(repo) -> dict | None:
 
     dates.sort()
     return {
-        "rows": 0,  # 不再查詢行數
+        "rows": 0,  # 不再查詢列數
         "earliest_date": dates[0],
         "latest_date": dates[-1],
         "symbols_covered": 0,  # 不再查詢標的數
@@ -413,7 +413,7 @@ def _safe_aggregate_minute(repo) -> dict | None:
 
 
 def _safe_aggregate_financials(repo) -> dict | None:
-    """財務資料統計 — 檢查各表文件是否存在及行數。"""
+    """財務資料統計 — 檢查各表檔案是否存在及列數。"""
     data_dir = repo.store.data_dir
     tables_info: dict[str, dict] = {}
     total_rows = 0
@@ -443,7 +443,7 @@ def _safe_aggregate_financials(repo) -> dict | None:
 
 
 def _scan_dir_stats(dirpath: Path) -> tuple[int, float]:
-    """單次遍歷統計目錄下文件數和總大小(MB)。比 rglob+stat 快很多。"""
+    """單次走訪統計目錄下檔案數和總大小(MB)。比 rglob+stat 快很多。"""
     if not dirpath.exists():
         return 0, 0.0
     count = 0
@@ -463,7 +463,7 @@ def _scan_dir_stats(dirpath: Path) -> tuple[int, float]:
 
 
 def _scan_dir_recursive(entry: os.DirEntry) -> tuple[int, int]:
-    """遞歸統計一個 DirEntry 下的文件數和總字節數。"""
+    """遞迴統計一個 DirEntry 下的檔案數和總字節數。"""
     count = 0
     total = 0
     try:
@@ -484,7 +484,7 @@ def _scan_dir_recursive(entry: os.DirEntry) -> tuple[int, int]:
 
 
 def _compute_storage(data_dir: Path) -> dict:
-    """單次遍歷計算 storage 統計，避免多次 rglob。"""
+    """單次走訪計算 storage 統計，避免多次 rglob。"""
     import os
 
     # 只統計關心的子目錄
@@ -526,7 +526,7 @@ def _compute_storage(data_dir: Path) -> dict:
         stats["financials_files"] = fc
         stats["financials_size_mb"] = sz
         total_size += sz
-    # 根目錄散文件
+    # 根目錄散檔案
     for entry in os.scandir(data_dir):
         if entry.is_file(follow_symlinks=False):
             try:
@@ -551,7 +551,7 @@ def _next_cron_run(scheduler, job_id: str) -> str | None:
 
 
 def _get_storage(data_dir: Path) -> dict:
-    """返回快取的 storage 統計；走獨立 TTL，stage 寫完不觸發重算。"""
+    """回傳快取的 storage 統計；走獨立 TTL，stage 寫完不觸發重算。"""
     global _storage_cache, _storage_cache_ts
     now = time.time()
     with _storage_lock:
@@ -606,7 +606,7 @@ def status(request: Request) -> dict:
         "instruments": _get_table_stats("instruments", lambda: _safe_aggregate_instruments(repo)),
         "financials":  _get_table_stats("financials",  lambda: _safe_aggregate_financials(repo)),
 
-        # 文件層面資訊(快取)
+        # 檔案層面資訊(快取)
         "storage": _get_storage(data_dir),
 
         # 調度
@@ -632,8 +632,8 @@ def get_version() -> dict:
 def refresh_cache(request: Request) -> dict:
     """重建 Polars 記憶體快取 (clear + refresh), 不清資料、不清 alerts。
 
-    用於跨天後快取殘留、或維表更新後手動刷新場景。
-    與設定頁「清理並刷新」的區別: 那個清前端 react-query, 這個重建後端 enriched 快取。
+    用於跨天後快取殘留、或維表更新後手動重新整理場景。
+    與設定頁「清理並重新整理」的區別: 那個清前端 react-query, 這個重建後端 enriched 快取。
     """
     repo = request.app.state.repo
     repo.clear_cache()

@@ -69,7 +69,7 @@ export function DatePicker({
     setViewMonth(next.month)
   }, [value, min, max])
 
-  // 打開彈層: 按鈕的視口座標計算 + 智能方向翻轉 + 水平邊界裁剪
+  // 開啟彈層: 按鈕的視口座標計算 + 智能方向翻轉 + 水平邊界裁剪
   const handleOpen = () => {
     if (open) { setOpen(false); return }
     if (!btnRef.current) { setOpen(true); return }
@@ -80,7 +80,7 @@ export function DatePicker({
     const top = dropUp
       ? Math.max(8, r.top - POPUP_HEIGHT - POPUP_GAP)
       : r.bottom + POPUP_GAP
-    // 水平: 默認按 align 貼齊按鈕左/右邊緣, 再做右側溢出裁剪
+    // 水平: 預設按 align 貼齊按鈕左/右邊緣, 再做右側溢出裁剪
     const rawLeft = align === 'left' ? r.left : r.right - POPUP_WIDTH
     const left = Math.max(8, Math.min(rawLeft, window.innerWidth - POPUP_WIDTH - 8))
     setPos({ top, left })

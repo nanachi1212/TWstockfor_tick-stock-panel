@@ -161,7 +161,7 @@ function ComparisonResult({ data }: { data: BeginnerComparisonResponse }) {
       {data.differences.length ? data.differences.map(d => <div key={`${d.higher_symbol}-${d.lower_symbol}`} className="mt-2">
         <h3 className="font-medium text-foreground">{bySymbol.get(d.higher_symbol)?.name || d.higher_symbol} 相較於 {bySymbol.get(d.lower_symbol)?.name || d.lower_symbol}</h3>
         <ul className="mt-1 space-y-1 text-muted">{d.reasons.slice(0, 3).map(text => <li key={text}>• {text}</li>)}</ul>
-      </div>) : <p className="mt-1 text-muted">資料不足或沒有可支持的條件差異，不追加優先理由。</p>}
+      </div>) : <p className="mt-1 text-muted">資料不足或沒有可支援的條件差異，不追加優先理由。</p>}
     </section>
     <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       {data.groups.flatMap(group => group.symbols.map(symbol => {

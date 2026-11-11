@@ -26,7 +26,7 @@ import { PortfolioTradeDialog } from '@/components/portfolio/Portfolio'
 import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDialog'
 import { isSupportedPortfolioInstrument } from '@/lib/portfolio'
 
-// 分時列開放排序 (StockDataTable 實例級白名單; 表頭眼睛/刷新按鈕已 stopPropagation)
+// 分時列開放排序 (StockDataTable 實例級白名單; 表頭眼睛/重新整理按鈕已 stopPropagation)
 const INTRADAY_SORTABLE_KEYS = new Set(['intraday'])
 import { ColumnCustomizer } from '@/components/ColumnCustomizer'
 import { StockDataTable } from '@/components/stock-table/StockDataTable'
@@ -55,7 +55,7 @@ function getBoardType(symbol: string) {
   return boardTag(symbol)?.label ?? null
 }
 
-// ===== 換手率分檔色（卡片/表格用） =====
+// ===== 週轉率分檔色（卡片/表格用） =====
 
 function turnoverColor(rate: number | null | undefined): string {
   if (rate == null || Number.isNaN(rate)) return 'text-muted'
@@ -67,11 +67,11 @@ function turnoverColor(rate: number | null | undefined): string {
 }
 
 // ===== 動態列渲染 =====
-// 表頭/單元格渲染已共享化：純數據列由 @/components/stock-table/primitives 的
+// 表頭/單元格渲染已共享化：純資料列由 @/components/stock-table/primitives 的
 // renderBuiltinDataCell 處理；symbol/signals/candle/ext 等需上下文的列由下方
-// 表格 renderCell 回調處理。表格骨架使用 StockDataTable。
+// 表格 renderCell 回呼處理。表格骨架使用 StockDataTable。
 
-/** 渲染擴展數據列的值（含分隔/標籤/展開配置） */
+/** 渲染擴展資料列的值（含分隔/標籤/展開設定） */
 function renderExtValue(
   val: any,
   col: ColumnConfig,
@@ -82,7 +82,7 @@ function renderExtValue(
 ): React.ReactNode {
   if (val == null || Number.isNaN(val)) return <span className="text-muted">—</span>
   if (typeof val === 'number') {
-    // 數字格式化: 千分位 + 單位換算 + 小數位(由列配置控制)
+    // 數字格式化: 千分位 + 單位換算 + 小數位(由列設定控制)
     const cfg = col.extDisplay
     const hasNumFmt = cfg?.thousandSeparator || (cfg?.unitConvert && cfg.unitConvert !== 'none')
     const displayVal = hasNumFmt
@@ -94,16 +94,16 @@ function renderExtValue(
     return <span className={val ? 'text-bull' : 'text-muted'}>{val ? '是' : '否'}</span>
   }
 
-  // String — 按 extDisplay 配置渲染
+  // String — 按 extDisplay 設定渲染
   const cfg = col.extDisplay
   const str = String(val)
 
-  // 純文本模式
+  // 純文字模式
   if (cfg?.displayMode === 'text') {
     return <span className="text-foreground">{str}</span>
   }
 
-  // 標籤模式（默認）
+  // 標籤模式（預設）
   const separator = cfg?.separator?.trim() || null
   const tags = separator
     ? str.split(separator).map(s => s.trim()).filter(Boolean)
@@ -166,7 +166,7 @@ function renderExtValue(
   return <div className={isVertical ? 'flex flex-col items-start gap-0.5' : 'flex flex-wrap gap-0.5'}>{tagEls}</div>
 }
 
-/** 渲染擴展數據列的 <td> */
+/** 渲染擴展資料列的 <td> */
 function renderExtCell(
   r: any,
   col: ColumnConfig,
@@ -207,7 +207,7 @@ function renderExtCell(
   )
 }
 
-// ===== 搜索框組件（緊湊內聯式）=====
+// ===== 搜尋框元件（緊湊內聯式）=====
 
 function StockSearchBox({
   onPreview,
@@ -236,7 +236,7 @@ function StockSearchBox({
   const [activeIdx, setActiveIdx] = useState(-1)
 
   const search = useQuery({
-    // Taiwan-only 產品方向: 自選搜索只查台股證券主檔(TaiwanSecurityMaster),
+    // Taiwan-only 產品方向: 自選搜尋只查台股證券主檔(TaiwanSecurityMaster),
     // 不應再出現 A 股 .SH/.SZ/.BJ 結果。2330.TWSE / 6488.TPEX 這類標的可被搜到並加入自選。
     queryKey: QK.instrumentSearch(query, 'stock,etf,index'),
     queryFn: () => api.instrumentSearch(query, 20, 'stock,etf,index'),
@@ -359,7 +359,7 @@ function StockSearchBox({
                     </span>
                   ) : (
                     // 未加自選: + 一鍵加入當前分組頁籤 (全部/未分組頁簽下加為未分組);
-                    // 文件夾圖標展開分組菜單, 顯式選擇目標分組
+                    // 文件夾圖示展開分組選單, 顯式選擇目標分組
                     <span className="flex shrink-0 items-center gap-0.5">
                       <button
                         type="button"
@@ -396,12 +396,12 @@ function StockSearchBox({
   )
 }
 
-// ===== 實時監控圓點 =====
-// 自選頁 symbol 列代碼後的小圓點, 標識該標的正在被實時行情監控 (Free/低檔按自選監控模式)。
+// ===== 即時監控圓點 =====
+// 自選頁 symbol 列代碼後的小圓點, 標識該標的正在被即時行情監控 (Free/低檔按自選監控模式)。
 // 視覺以靜態實心點表達在線狀態，避免持續動畫干擾掃讀。
 // 配色用 accent (電光藍) 而非綠/紅: 項目設計規範規定紅綠僅用於價格/K線,
 // UI 狀態用 accent, 避免與價格漲跌色混淆。
-// 全市場模式不顯示 —— 全部都在監控, 標記無信息量。
+// 全市場模式不顯示 —— 全部都在監控, 標記無資訊量。
 function RealtimeDot({ title = '即時監控中' }: { title?: string }) {
   return (
     <span
@@ -414,9 +414,9 @@ function RealtimeDot({ title = '即時監控中' }: { title?: string }) {
   )
 }
 
-// ===== 卡片組件 =====
+// ===== 卡片元件 =====
 
-// 共享的空 K 線數組常量 — 避免每次渲染傳入新的 [] 破壞 StockCard 的 memo
+// 共享的空 K 線陣列常量 — 避免每次渲染傳入新的 [] 破壞 StockCard 的 memo
 const EMPTY_KLINE: KlineRow[] = []
 
 function cardColumnCount(viewportWidth: number): number {
@@ -561,7 +561,7 @@ const StockCard = React.memo(function StockCard({
           )}
           {r.consecutive_limit_ups > 0 && (
             <span className="shrink-0 inline-flex items-center justify-center px-1 h-[16px] rounded bg-danger/15 text-danger text-xs font-bold tabular-nums">
-              {r.consecutive_limit_ups === 1 ? '首板' : `${r.consecutive_limit_ups}連`}
+              {r.consecutive_limit_ups === 1 ? '漲停' : `${r.consecutive_limit_ups}連漲停`}
             </span>
           )}
           {isMonitored && <span className="ml-auto"><RealtimeDot /></span>}
@@ -581,10 +581,10 @@ const StockCard = React.memo(function StockCard({
 
         {/* 第三行: 指標 */}
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted leading-relaxed">
-          <span title="換手率">換手<span className={`font-mono ml-0.5 ${turnoverColor(r.turnover_rate)}`}>{r.turnover_rate != null ? `${r.turnover_rate.toFixed(2)}%` : '—'}</span></span>
+          <span title="週轉率">換手<span className={`font-mono ml-0.5 ${turnoverColor(r.turnover_rate)}`}>{r.turnover_rate != null ? `${r.turnover_rate.toFixed(2)}%` : '—'}</span></span>
           <span title="量比">量比<span className="font-mono ml-0.5">{fmtPrice(r.vol_ratio_5d)}</span></span>
           <span title="RSI14">RSI<span className="font-mono ml-0.5">{r.rsi_14 != null ? r.rsi_14.toFixed(1) : '—'}</span></span>
-          {/* 擴展數據列展示在卡片中 */}
+          {/* 擴展資料列展示在卡片中 */}
           {extCols.map(col => {
             if (col.source.type !== 'ext') return null
             const { configId, fieldName } = col.source
@@ -663,10 +663,10 @@ export function Watchlist() {
     if (selectedForCompare.size < MIN_COMPARE_SYMBOLS) return
     navigate(`/stocks/compare?symbols=${encodeURIComponent(Array.from(selectedForCompare).join(','))}`)
   }
-  // 分組卡片總覽: 臨時整頁模式, 不持久化; 關閉(含刷新)後回到原視圖設置
+  // 分組卡片總覽: 臨時整頁模式, 不持久化; 關閉(含重新整理)後回到原視圖設定
   const [groupCardsOpen, setGroupCardsOpen] = useState(false)
   const [portfolioTrade, setPortfolioTrade] = useState<{ symbol: string; name: string; quote: number | null } | null>(null)
-  // 分組統計條: 頂部圖形化分組漲跌概覽, 會話內開關, 不影響個股視圖設置
+  // 分組統計條: 頂部圖形化分組漲跌概覽, 會話內開關, 不影響個股視圖設定
   const [groupStatsOpen, setGroupStatsOpen] = useState(false)
   const [dailyKChartVisible, setDailyKChartVisible] = useState(() => {
     return storage.watchlistCandle.get(true)
@@ -675,13 +675,13 @@ export function Watchlist() {
     return storage.watchlistIntraday.get(true)
   })
 
-  // 列配置 — 從後端/localStorage 異步加載
+  // 列設定 — 從後端/localStorage 非同步載入
   const [columns, setColumns] = useState<ColumnConfig[]>([...BUILTIN_COLUMNS])
   const [customizerOpen, setCustomizerOpen] = useState(false)
   const [searchParams] = useSearchParams()
   const initialGroup = (searchParams.get('group') as WatchlistGroupFilter | null) ?? 'all'
   const [selectedGroup, setSelectedGroup] = useState<WatchlistGroupFilter>(initialGroup)
-  // URL ?group= 變化時同步選中分組 (側邊欄二級菜單切換分組時觸發)
+  // URL ?group= 變化時同步選中分組 (側邊欄二級選單切換分組時觸發)
   useEffect(() => {
     const g = (searchParams.get('group') as WatchlistGroupFilter | null) ?? 'all'
     setSelectedGroup(g)
@@ -704,7 +704,7 @@ export function Watchlist() {
     [columns],
   )
   const candleColumnEnabled = !!candleColumn
-  // 日k列渲染配置（來自列定製，已鉗制邊界）
+  // 日k列渲染設定（來自列定製，已鉗制邊界）
   const candleResolved = useMemo(() => resolveCandleConfig(candleColumn?.candleConfig), [candleColumn])
   const candleDays = candleResolved.days
   const candleSize = dailyKChartVisible
@@ -713,19 +713,19 @@ export function Watchlist() {
 
   const dailyKVisible = candleColumnEnabled && dailyKChartVisible
 
-  // 分時列檢測: 用戶開啟且列可見時才拉數據
+  // 分時列檢測: 使用者開啟且列可見時才拉資料
   const intradayColumn = useMemo(() =>
     columns.find(c => c.source.type === 'builtin' && c.source.key === 'intraday' && c.visible),
     [columns],
   )
-  // 分時列渲染配置（寬高, 來自列定製, 已鉗制邊界）
+  // 分時列渲染設定（寬高, 來自列定製, 已鉗制邊界）
   const intradayResolved = useMemo(() => resolveIntradayConfig(intradayColumn?.intradayConfig), [intradayColumn])
-  // 分時圖依賴分鐘K批量數據 (kline.minute.batch), 無數據時開了列也不拉
+  // 分時圖依賴分鐘K批量資料 (kline.minute.batch), 無資料時開了列也不拉
   const caps = useCapabilities()
   const hasMinuteBatch = !!caps.data?.capabilities?.['kline.minute.batch']
   const intradayVisible = !!intradayColumn && hasMinuteBatch && intradayChartVisible
 
-  // 計算可見列（列是否出現只由自定義列配置決定）
+  // 計算可見列（列是否出現只由自定義列設定決定）
   const visibleColumns = useMemo(() => {
     return columns.filter(c => c.visible)
   }, [columns])
@@ -741,7 +741,7 @@ export function Watchlist() {
       return next
     })
   }, [])
-  // 分組卡片: 整頁臨時展示, 開關不觸碰個股視圖設置
+  // 分組卡片: 整頁臨時展示, 開關不觸碰個股視圖設定
   const toggleGroupView = useCallback(() => {
     setGroupCardsOpen(open => !open)
   }, [])
@@ -799,7 +799,7 @@ export function Watchlist() {
     }
   }, [groupList.isSuccess, groups, selectedGroup])
 
-  // enriched 數據 — 傳入 ext_columns 參數
+  // enriched 資料 — 傳入 ext_columns 參數
   const enriched = useQuery({
     queryKey: QK.watchlistEnriched(extColumnsParam),
     queryFn: () => api.watchlistEnriched(extColumnsParam || undefined),
@@ -809,18 +809,18 @@ export function Watchlist() {
   const symbols = useMemo(() => enriched.data?.rows?.map((r: any) => r.symbol) ?? [], [enriched.data?.rows])
   const symbolsKey = symbols.join(',')
 
-  // 指數無本地分鐘K數據, 分時批量請求剔除指數 symbol (省請求, 避免逐只 404)
+  // 指數無本地分鐘K資料, 分時批量請求剔除指數 symbol (省請求, 避免逐只 404)
   const minuteSymbols = useMemo(
     () => symbols.filter((s: string) => (enriched.data?.rows ?? []).find((r: any) => r.symbol === s)?.asset_type !== 'index'),
     [symbols, enriched.data],
   )
   const minuteSymbolsKey = minuteSymbols.join(',')
 
-  // 實時行情狀態 (提前到此處: 分時輪詢判斷需要 realtimeRunning)
+  // 即時行情狀態 (提前到此處: 分時輪詢判斷需要 realtimeRunning)
   const quoteStatus = useQuoteStatus()
   const realtimeRunning = quoteStatus.data?.running ?? false
 
-  // 批量日k數據 (天數由列配置決定; 分組卡片視圖不展示蠟燭, 掛起請求)
+  // 批量日k資料 (天數由列設定決定; 分組卡片視圖不展示蠟燭, 掛起請求)
   const klineBatch = useQuery({
     queryKey: QK.watchlistKlineBatch(`${symbolsKey}|${candleDays}`),
     queryFn: () => api.klineDailyBatch(symbols, candleDays),
@@ -828,8 +828,8 @@ export function Watchlist() {
     staleTime: 5 * 60_000,  // 5 分鐘內不重請求
   })
 
-  // 當日蠟燭實時修補: 歷史 K 線按 staleTime 週期拉取 (見 queryKeys 註釋), 最後一根
-  // 蠟燭用每 tick 刷新的 enriched 當日 OHLC 前端覆蓋/追加, 蠟燭隨實時行情跳動, 零額外請求。
+  // 當日蠟燭即時修補: 歷史 K 線按 staleTime 週期拉取 (見 queryKeys 註釋), 最後一根
+  // 蠟燭用每 tick 重新整理的 enriched 當日 OHLC 前端覆蓋/追加, 蠟燭隨即時行情跳動, 零額外請求。
   const klineData = useMemo(() => {
     const base = dailyKVisible ? (klineBatch.data?.data ?? {}) : {}
     const liveRows = enriched.data?.rows
@@ -855,9 +855,9 @@ export function Watchlist() {
     return patched
   }, [dailyKVisible, klineBatch.data, enriched.data])
 
-  // 批量分時數據 (有分鐘K批量能力時, 列可見才拉)
-  // 刷新策略: 僅當實時行情運行 且 用戶在實時監控設置裡開啟 minute_intraday_refresh 時
-  // 按用戶設定的間隔輪詢 (不接 SSE 高頻, 避免每秒拉資料來源觸限流); 與 Screener / 設置卡片描述一致。
+  // 批量分時資料 (有分鐘K批量能力時, 列可見才拉)
+  // 重新整理策略: 僅當即時行情執行 且 使用者在即時監控設定裡開啟 minute_intraday_refresh 時
+  // 按使用者設定的間隔輪詢 (不接 SSE 高頻, 避免每秒拉資料來源觸限流); 與 Screener / 設定卡片描述一致。
   const { data: prefsData } = usePreferences()
   const intradayRefreshEnabled = prefsData?.minute_intraday_refresh ?? false
   const intradayRefreshInterval = prefsData?.minute_intraday_refresh_interval ?? 6
@@ -887,12 +887,12 @@ export function Watchlist() {
   const remove = useMutation({
     mutationFn: (sym: string) => api.watchlistRemove(sym),
     onSuccess: (_data, sym) => {
-      // 1. 立即從 enriched 緩存中移除該股票，UI 即時更新
+      // 1. 立即從 enriched 快取中移除該股票，UI 即時更新
       qc.setQueryData(['watchlist-enriched', extColumnsParam], (old: any) => {
         if (!old?.rows) return old
         return { ...old, rows: old.rows.filter((r: any) => r.symbol !== sym) }
       })
-      // 2. 清除 list 緩存，觸發後台 refetch
+      // 2. 清除 list 快取，觸發後台 refetch
       qc.invalidateQueries({ queryKey: QK.watchlist })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
       qc.invalidateQueries({ queryKey: ['kline-batch'] })
@@ -915,7 +915,7 @@ export function Watchlist() {
     mutationFn: () => api.watchlistClear(),
     onSuccess: () => {
       setConfirmClear(false)
-      // 立即清空 enriched 緩存
+      // 立即清空 enriched 快取
       qc.setQueryData(['watchlist-enriched', extColumnsParam], { rows: [], as_of: null, elapsed_ms: 0 })
       qc.invalidateQueries({ queryKey: QK.watchlist })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
@@ -973,7 +973,7 @@ export function Watchlist() {
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
 
-  // 穩定的 per-symbol 回調 (供 memo 化的 StockCard 使用, 避免每次渲染都傳新引用)
+  // 穩定的 per-symbol 回呼 (供 memo 化的 StockCard 使用, 避免每次渲染都傳新引用)
   const handleCardPreview = useCallback((sym: string, _name: string) => {
     navigate(`/stocks/${encodeURIComponent(sym)}`)
   }, [navigate])
@@ -987,7 +987,7 @@ export function Watchlist() {
     else removeGroupMember.mutate({ symbol, groupId })
   }, [addGroupMember, removeGroupMember])
   // 分組卡片總覽下點擊分組 tab / 卡片頭 = 鑽取該分組: 關閉總覽並選中分組,
-  // 個股視圖設置(table/card)保持用戶原選擇
+  // 個股視圖設定(table/card)保持使用者原選擇
   const handleGroupSelect = useCallback((group: WatchlistGroupFilter) => {
     setSelectedGroup(group)
     setGroupCardsOpen(false)
@@ -1000,7 +1000,7 @@ export function Watchlist() {
     () => new Map(listEntries.map(entry => [entry.symbol, entry.group_ids ?? []])),
     [listEntries],
   )
-  // 分組等權平均漲跌幅 (實時優先 rt_pct, 收盤兜底 change_pct; 與表格同源)
+  // 分組等權平均漲跌幅 (即時優先 rt_pct, 收盤備援 change_pct; 與表格同源)
   const groupPcts = useMemo(
     () => computeGroupPcts(
       listEntries,
@@ -1008,7 +1008,7 @@ export function Watchlist() {
     ),
     [listEntries, rows],
   )
-  // 分組「指標 + 排序 + 卡片顯示項」配置: 分組統計條與分組卡片共享同一份持久化設置
+  // 分組「指標 + 排序 + 卡片顯示項」設定: 分組統計條與分組卡片共享同一份持久化設定
   const [groupStatsConfig, setGroupStatsConfig] = useState(loadGroupStatsConfig)
   const updateGroupStatsConfig = useCallback((patch: GroupStatsConfigPatch) => {
     setGroupStatsConfig(prev => {
@@ -1035,9 +1035,9 @@ export function Watchlist() {
   }, [groupBySymbol, rows, selectedGroup])
   const watchlistContentLoading = list.isLoading || (allSymbols.length > 0 && enriched.isLoading)
 
-  // 實時監控圓點: 僅 Free/低檔 "按自選股實時監控" 模式 (mode === 'watchlist') 下顯示;
+  // 即時監控圓點: 僅 Free/低檔 "按自選股即時監控" 模式 (mode === 'watchlist') 下顯示;
   // 全市場模式 (mode === 'full_market') 全部標的都在監控, 標圓點無意義, 故不顯示。
-  // 後端自選實時模式實際只監控自選頁前 N 個 (N = watchlist_symbol_count), 順序與 allSymbols 一致。
+  // 後端自選即時模式實際只監控自選頁前 N 個 (N = watchlist_symbol_count), 順序與 allSymbols 一致。
   const realtimeMode = quoteStatus.data?.mode
   const watchlistMonitoredCount = quoteStatus.data?.watchlist_symbol_count ?? 0
   const showRealtimeDot = realtimeRunning && realtimeMode === 'watchlist'
@@ -1090,13 +1090,13 @@ export function Watchlist() {
     persistBoardFilter(new Set(BOARDS))
   }, [persistBoardFilter])
 
-  // 可篩選的內置列
+  // 可篩選的內建列
   const filterableBuiltinCols = useMemo(
     () => columns.filter(c => c.source.type === 'builtin' && !UNSORTABLE_KEYS.has(c.source.key) && c.id !== 'builtin:symbol'),
     [columns],
   )
 
-  // 按類別索引（複用列配置的分組定義）
+  // 按類別索引（複用列設定的分組定義）
   const colsByCategory = useMemo(() => {
     const map: Record<string, { id: string; label: string; col: typeof filterableBuiltinCols[number] }[]> = {}
     for (const cat of COLUMN_GROUPS) {
@@ -1121,7 +1121,7 @@ export function Watchlist() {
         return board != null && boardFilter.has(board)
       })
     }
-    // 數值/文本篩選
+    // 數值/文字篩選
     const activeFilters = Object.entries(filters).filter(([, v]) => v.min || v.max || v.text)
     if (activeFilters.length > 0) {
       result = result.filter(r => {
@@ -1148,7 +1148,7 @@ export function Watchlist() {
   const hasActiveFilters = activeFilterCount > 0 || hasBoardFilter
 
   // 排序（複用共享三態排序 hook）。分時列按「最新分鐘收盤 vs 昨收」排序（分時圖最後一點同口徑），
-  // 其餘列走共享取值；眼睛關閉時不拉分鐘數據，取值為 null → 保持原序。
+  // 其餘列走共享取值；眼睛關閉時不拉分鐘資料，取值為 null → 保持原序。
   const getWatchlistSortValue = useCallback((r: any, col: ColumnConfig) => {
     if (col.source.type === 'builtin' && col.source.key === 'intraday') {
       return getIntradaySortValue(r, minuteData[r.symbol])
@@ -1186,16 +1186,16 @@ export function Watchlist() {
     [visibleColumns]
   )
 
-  // "數據未就緒" 的個股數: 後端 LEFT JOIN 保證返回所有自選行,
-  // 指標全為 null 的行屬於 enriched 緩存未覆蓋 (新股/冷門/新用戶未同步), 非篩選導致.
-  // 用 close 是否為 null/undefined 判斷 "整行指標缺失" (close 是 enriched 最基礎字段).
+  // "資料未就緒" 的個股數: 後端 LEFT JOIN 保證返回所有自選行,
+  // 指標全為 null 的行屬於 enriched 快取未覆蓋 (新股/冷門/新使用者未同步), 非篩選導致.
+  // 用 close 是否為 null/undefined 判斷 "整行指標缺失" (close 是 enriched 最基礎欄位).
   const pendingCount = useMemo(
     () => sortedRows.filter((r: any) => r.close == null).length,
     [sortedRows],
   )
 
   // "被篩選條件隱藏" 的個股數: 後端返回的行數 vs 經過前端篩選後的行數.
-  // 分組切換不計入篩選隱藏，只比較當前分組內的數據。
+  // 分組切換不計入篩選隱藏，只比較當前分組內的資料。
   const hiddenCount = Math.max(0, rowsInSelectedGroup.length - sortedRows.length)
 
   const renderStockCard = (r: any) => (
@@ -1235,7 +1235,7 @@ export function Watchlist() {
               <span className="font-mono text-muted tabular-nums">{rowsInSelectedGroup.length}</span>
               <span className="text-muted/60 ml-0.5">檔</span>
             </span>
-            {/* 數據未就緒提示: 自選了但 enriched 緩存未覆蓋 (新股/冷門/新用戶未同步), 指標全為 null */}
+            {/* 資料未就緒提示: 自選了但 enriched 快取未覆蓋 (新股/冷門/新使用者未同步), 指標全為 null */}
             {pendingCount > 0 && (
               <span
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium bg-muted/15 text-muted border border-border/50 whitespace-nowrap"
@@ -1259,7 +1259,7 @@ export function Watchlist() {
         }
         right={
           <div className="flex flex-wrap items-center gap-2">
-            {/* 篩選 / 重置 / 搜索 */}
+            {/* 篩選 / 重置 / 搜尋 */}
             <button
               onClick={() => setFilterOpen(v => !v)}
               className={`inline-flex items-center justify-center h-8 w-8 rounded-btn transition-colors duration-150 ease-smooth ${
@@ -1329,7 +1329,7 @@ export function Watchlist() {
               <BarChart3 className="h-4 w-4" />
             </button>
             <div className="w-px h-5 bg-border" />
-            {/* 自定義列 / 刷新 */}
+            {/* 自定義列 / 重新整理 */}
             <button
               onClick={() => setCustomizerOpen(true)}
               className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth"
@@ -1581,7 +1581,7 @@ export function Watchlist() {
                       >
                         {intradayChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                       </button>
-                      {/* 分時圖顯示 且 未開自動輪詢時, 提供手動刷新按鈕 */}
+                      {/* 分時圖顯示 且 未開自動輪詢時, 提供手動重新整理按鈕 */}
                       {intradayChartVisible && !intradayAutoRefresh && (
                         <button
                           type="button"
@@ -1594,7 +1594,7 @@ export function Watchlist() {
                           <RefreshCw className={`h-3.5 w-3.5 ${minuteBatch.isFetching ? 'animate-spin' : ''}`} />
                         </button>
                       )}
-                      {/* 自動輪詢中: 顯示旋轉圖標提示正在實時刷新 */}
+                      {/* 自動輪詢中: 顯示旋轉圖示提示正在即時重新整理 */}
                       {intradayChartVisible && intradayAutoRefresh && (
                         <RefreshCw className="h-3 w-3 text-accent/60 animate-spin" aria-label="即時重新整理中" />
                       )}
@@ -1612,7 +1612,7 @@ export function Watchlist() {
                 const price = r.rt_price ?? r.close
                 const pct = r.rt_pct ?? r.change_pct
                 const name = r.rt_name ?? r.name
-                // 自選頁 symbol 列：預覽 + 內嵌刪除（減號圖標，二次確認）
+                // 自選頁 symbol 列：預覽 + 內嵌刪除（減號圖示，二次確認）
                 if (key === 'symbol') {
                   const board = boardTag(r.symbol)
                   return (
@@ -1724,7 +1724,7 @@ export function Watchlist() {
                     </td>
                   )
                 }
-                // 實時行情列：price/pct/amount 使用 rt_ 回退（自選頁有實時推送）
+                // 即時行情列：price/pct/amount 使用 rt_ 回退（自選頁有即時推送）
                 const numCls = 'px-2 py-1.5 text-right num tabular-nums'
                 if (key === 'price') {
                   // Data Freshness & Source Labels batch: 現價旁補上精簡新鮮度徽章
@@ -1781,7 +1781,7 @@ export function Watchlist() {
                 }
                 // 分時列
                 if (key === 'intraday') {
-                  // 指數無本地分鐘K數據, 分時列降級為佔位符
+                  // 指數無本地分鐘K資料, 分時列降級為佔位符
                   if (r.asset_type === 'index') {
                     const iw = intradayChartVisible ? intradayResolved.width : 40
                     const ih = intradayChartVisible ? intradayResolved.height : 40
@@ -1794,7 +1794,7 @@ export function Watchlist() {
                     )
                   }
                   const rows: MinuteKlineRow[] = minuteData[r.symbol] ?? []
-                  // 眼睛關閉(收起)時用小尺寸 (和日k收起態一致 40x40); 開啟時用配置值
+                  // 眼睛關閉(收起)時用小尺寸 (和日k收起態一致 40x40); 開啟時用設定值
                   const iw = intradayChartVisible ? intradayResolved.width : 40
                   const ih = intradayChartVisible ? intradayResolved.height : 40
                   return (
@@ -1807,7 +1807,7 @@ export function Watchlist() {
                     </td>
                   )
                 }
-                // 其餘純數據列 → 共享原語
+                // 其餘純資料列 → 共享原語
                 return renderBuiltinDataCell(r, col)
               }}
               className="rounded-card overflow-x-auto"

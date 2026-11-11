@@ -1,14 +1,14 @@
 """enriched 表計算流水線(§7.5 / §7.7 Step 2)。
 
-存儲層 (enriched parquet):
-  僅存儲基礎行情窄表 (14 列), 指標和信號由各服務即時計算。
+儲存層 (enriched parquet):
+  僅儲存基礎行情窄表 (14 欄), 指標和信號由各服務即時計算。
 
-  存儲列: symbol, date, OHLCV(前復權), volume, amount,
+  儲存欄: symbol, date, OHLCV(前復權), volume, amount,
           raw_close, raw_high, raw_low, turnover_rate,
           consecutive_limit_ups, consecutive_limit_downs
 
 設計:
-  - 100% Polars 表達式(SQL 窗口無法表達遞歸 EMA)
+  - 100% Polars 表達式(SQL 視窗無法表達遞迴 EMA)
   - 每隻標的獨立計算(`.over("symbol")`)
   - 有 adj_factor 時先應用前復權再算指標;無因子時直接用 raw
   - streaming collect 控制記憶體
@@ -26,7 +26,6 @@ from app.enriched_generation import (
     EnrichedPublication,
     enriched_publication_incomplete,
 )
-from app.market_time import cn_today
 from app.parquet import scan_daily_parquet, scan_enriched_parquet, scan_parquet_compat
 from app.price_limits import (
     polars_is_risk_warning_name,
@@ -41,12 +40,12 @@ logger = logging.getLogger(__name__)
 
 
 def invalidate_custom_signals() -> None:
-    """自定義訊號功能已移除; 保留空函式維持相容。"""
+    """自訂訊號功能已移除; 保留空函式維持相容。"""
     return None
 
 
 
-# enriched parquet 僅存儲的列 (14 列)
+# enriched parquet 僅儲存的列 (14 欄)
 ENRICHED_STORAGE_COLS = [
     "symbol", "date",
     "open", "high", "low", "close",          # 前復權
@@ -60,12 +59,12 @@ ENRICHED_STORAGE_COLS = [
 
 
 # ================================================================
-# enriched 完整列清單 (存儲 + 執行時計算)
-# 供 AI 審查代碼時參考: 策略/篩選/回測 可直接使用以下列名。
-# 分類: 存儲列 → 指標列 → 信號列 → JOIN 列
+# enriched 完整列清單 (儲存 + 執行時計算)
+# 供 AI 審查代碼時參考: 策略/篩選/回測 可直接使用以下欄名。
+# 分類: 儲存欄 → 指標欄 → 信號欄 → JOIN 欄
 # ================================================================
 ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
-    # ── 存儲列 (parquet 持久化) ──────────────────────────
+    # ── 儲存欄 (parquet 持久化) ──────────────────────────
     "symbol":                  "股票代號",
     "date":                    "交易日期",
     "open":                    "前復權開盤價",
@@ -123,7 +122,7 @@ ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
     "momentum_20d":            "20日動量",
     "momentum_30d":            "30日動量",
     "momentum_60d":            "60日動量",
-    # ── 異動偏離 (執行時由 repository 附著, 不落盤) ────────
+    # ── 異動偏離 (執行時由 repository 附著, 不寫入磁碟) ────────
     "deviate_3d":              "3日漲跌幅偏離值(vs對應指數, 小數)",
     "deviate_10d":             "10日漲跌幅偏離值",
     "deviate_30d":             "30日漲跌幅偏離值",
@@ -133,7 +132,7 @@ ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
     "rsi_6":                   "6日相對強弱指標",
     "rsi_14":                  "14日相對強弱指標",
     "rsi_24":                  "24日相對強弱指標",
-    # ── 信號列 (bool) ────────────────────────────────────
+    # ── 信號欄 (bool) ────────────────────────────────────
     "signal_ma_golden_5_20":   "MA5上穿MA20 (金叉)",
     "signal_ma_dead_5_20":     "MA5下穿MA20 (死叉)",
     "signal_ma_golden_20_60":  "MA20上穿MA60",
@@ -154,13 +153,13 @@ ENRICHED_COLUMNS: dict[str, dict[str, str]] = {
     "signal_limit_down":       "跌停",
     "signal_limit_down_recovery": "跌停翹板(跌停後回升)",
     "signal_broken_limit_up":  "炸板(最高觸及漲停但收盤未封住)",
-    # ── JOIN 列 (由 repository 從 instruments 表補充) ───
+    # ── JOIN 欄 (由 repository 從 instruments 表補充) ───
     "name":                    "股票名稱 (來自 instruments)",
     "total_shares":            "總股本 (來自 instruments)",
-    "float_shares":            "流通股本 (來自 instruments)",
+    "float_shares":            "流通在外股數本 (來自 instruments)",
 }
 
-# 僅供 AI/開發者快速索引: 按類別的列名列表
+# 僅供 AI/開發者快速索引: 按類別的欄名列表
 ENRICHED_COLUMNS_BY_CATEGORY: dict[str, list[str]] = {
     "storage":  [k for k in ENRICHED_COLUMNS if k in ENRICHED_STORAGE_COLS],
     "basic":    ["prev_close", "change_pct", "change_amount", "amplitude"],
@@ -238,7 +237,7 @@ def _apply_adj_factor(raw: pl.DataFrame, factors: pl.DataFrame) -> pl.DataFrame:
     raw_sorted = raw.sort(["symbol", "date"])
 
     # join_asof backward: 每根 K 線取 <= 其 date 的最新累積因子
-    # 同時帶 trade_date 列用於判斷除權日標記
+    # 同時帶 trade_date 欄用於判斷除權日標記
     df = raw_sorted.join_asof(
         factors_sorted.select("symbol", "trade_date", "cum_factor"),
         left_on="date",
@@ -269,7 +268,7 @@ def _apply_adj_factor(raw: pl.DataFrame, factors: pl.DataFrame) -> pl.DataFrame:
 # ================================================================
 
 # ── compute_indicators 的列依賴關係 (供 needed 裁剪時求閉包) ────────────
-# target -> 其計算所依賴的中間/指標列 (僅列出依賴非原始 OHLCV 的項)
+# target -> 其計算所依賴的中間/指標欄 (僅列出依賴非原始 OHLCV 的項)
 _INDICATOR_DEPS: dict[str, set[str]] = {
     "macd_dif": {"_ema12", "_ema26"},
     "boll_upper": {"ma20", "_boll_std"},
@@ -287,7 +286,7 @@ _INDICATOR_DEPS: dict[str, set[str]] = {
     "rsi_24": {"_delta", "_gain", "_loss"},
 }
 
-# compute_indicators 可產出的全部指標/臨時列 (needed=None 時即為此全集, 行為不變)
+# compute_indicators 可產出的全部指標/臨時欄 (needed=None 時即為此全集, 行為不變)
 _ALL_INDICATOR_COLS: frozenset[str] = frozenset({
     "prev_close", "ma5", "ma10", "ma20", "ma30", "ma60",
     "ema5", "ema10", "ema20", "ema30", "ema60", "_ema12", "_ema26",
@@ -303,7 +302,7 @@ _ALL_INDICATOR_COLS: frozenset[str] = frozenset({
 
 
 def _resolve_needed(needed: set[str] | None) -> set[str]:
-    """把 needed 展開為閉包 (含所依賴的中間列)。needed=None → 全集。"""
+    """把 needed 展開為閉包 (含所依賴的中間欄)。needed=None → 全集。"""
     if needed is None:
         return set(_ALL_INDICATOR_COLS)
     want = set(needed)
@@ -327,13 +326,13 @@ def compute_indicators(
     """從 OHLCV 資料計算全套技術指標。
 
     輸入必須包含: symbol, date, open, high, low, close, volume
-    返回添加了所有指標列的 DataFrame。
+    回傳添加了所有指標欄的 DataFrame。
 
     needed:
         None (預設) — 計算全部指標, 行為與歷史逐位一致 (所有 gate 為真, 表達式/順序不變)。
-        列名集合   — 僅計算這些列及其依賴閉包, 跳過無關的 EMA/KDJ/RSI 等 pass;
-                     輸出保留輸入列 + 所需指標列。被保留列的數值與全量計算逐位一致
-                     (逐列 window/rolling 相互獨立, 跳過其它列不影響保留列)。
+        欄名集合   — 僅計算這些列及其依賴閉包, 跳過無關的 EMA/KDJ/RSI 等 pass;
+                     輸出保留輸入欄 + 所需指標欄。被保留欄的數值與全量計算逐位一致
+                     (逐欄 window/rolling 相互獨立, 跳過其它列不影響保留欄)。
     """
     if df.is_empty():
         return df
@@ -402,7 +401,7 @@ def compute_indicators(
     if _p1:
         df = df.with_columns(_p1)
 
-    # Pass 2: MACD + BOLL (基於 Pass 1 基礎列)
+    # Pass 2: MACD + BOLL (基於 Pass 1 基礎欄)
     _p2: list[pl.Expr] = []
     if "macd_dif" in want:
         _p2.append((pl.col("_ema12") - pl.col("_ema26")).alias("macd_dif"))
@@ -445,7 +444,7 @@ def compute_indicators(
             pl.col("_tr").ewm_mean(alpha=1.0 / 14, adjust=False).over("symbol").alias("atr_14"),
         )
     if "vol_ratio_5d" in want:
-        # 標準量比(同花順/東財): 今日成交量 / 前5日均量(不含當天)
+        # 標準量比: 今日成交量 / 前5日均量(不含當天)
         # 盤後全量路徑: 當日 volume 是完整全天量, 無需時間折算
         df = df.with_columns(
             (pl.col("volume") / pl.col("_vol_ma5_prev")).alias("vol_ratio_5d"),
@@ -511,7 +510,7 @@ def compute_indicators(
 
     # Pass 6: 週轉率 (需要 float_shares, 後續在 compute_all 中 JOIN instruments 後補充)
 
-    # 清理臨時列 (只丟棄實際存在的臨時列)
+    # 清理臨時欄 (只丟棄實際存在的臨時欄)
     _temp_cols = ["_boll_std", "_tr", "_ema12", "_ema26",
                   "_kdj_ln", "_kdj_hn", "_vol_ma5", "_vol_ma5_prev", "_daily_pct",
                   "_delta", "_gain", "_loss",
@@ -562,13 +561,13 @@ INDICATOR_COLUMNS: frozenset[str] = frozenset(
 
 
 def get_signal_dependencies() -> dict[str, frozenset[str]]:
-    """返回內置與 JSON 自定義信號的唯一依賴映射。"""
+    """回傳內建與 JSON 自訂信號的唯一依賴映射。"""
     return dict(SIGNAL_DEPENDENCIES)
 
 def compute_signals(df: pl.DataFrame, needed: set[str] | None = None) -> pl.DataFrame:
-    """從已有指標列計算原子信號布爾列。
+    """從已有指標欄計算原子信號布林列。
 
-    輸入必須包含 compute_indicators() 產出的指標列。
+    輸入必須包含 compute_indicators() 產出的指標欄。
     """
     if df.is_empty():
         return df
@@ -666,7 +665,7 @@ def compute_limit_signals(
     need_down = bool(want & {"signal_limit_down", "consecutive_limit_downs", "signal_limit_down_recovery"})
     need_price_limits = need_up or need_down
 
-    # 從 instruments 取 ST 標記、流通股本(週轉率用)以及最新日漲跌停價
+    # 從 instruments 取風險警示標記、流通在外股數本(週轉率用)以及最新日漲跌停價
     inst_cols = ["symbol"]
     instrument_needs = set()
     if need_price_limits:
@@ -703,9 +702,12 @@ def compute_limit_signals(
     df = df.join(inst_subset, on="symbol", how="left", suffix="_inst")
 
     if "turnover_rate" in want:
-        df = apply_historical_float_shares(df, historical_shares, today=cn_today())
+        # 延後匯入: 避免與 app.taiwan 循環匯入
+        from app.taiwan.realtime.calendar import taipei_today
 
-    # Turnover (%): CN volume is lots; Taiwan volume and float_shares are shares.
+        df = apply_historical_float_shares(df, historical_shares, today=taipei_today())
+
+    # Turnover (%): legacy volume is in lots; Taiwan volume and float_shares are shares.
     if "turnover_rate" in want and "float_shares" in df.columns and "volume" in df.columns:
         df = df.with_columns(
             pl.when(pl.col("float_shares") > 0)
@@ -889,14 +891,14 @@ def compute_limit_signals(
         .alias("signal_broken_limit_up")
         )
 
-    # 清理臨時列 + JOIN 引入的 instruments 列 (不存入 enriched)
+    # 清理臨時欄 + JOIN 引入的 instruments 欄 (不存入 enriched)
     cleanup = ["_prev_raw_close", "_limit_pct",
                "_theoretical_limit_up", "_theoretical_limit_down",
                "_effective_limit_up", "_effective_limit_down",
                "_grp_up", "_grp_down", "_instrument_as_of"]
     if "_is_st" in df.columns:
         cleanup.append("_is_st")
-    # 清理 join 產生的重複列
+    # 清理 join 產生的重複欄
     for c in df.columns:
         if c.endswith("_inst"):
             cleanup.append(c)
@@ -944,7 +946,7 @@ def filter_halt_days(df: pl.DataFrame) -> pl.DataFrame:
 
     停牌日的 open/high 必然為 0 (無集合競價)。注意 close 可能被資料來源
     填充為前收盤價而非 0, 因此不能用 "OHLC 全零" 判斷, 否則會漏過這類
-    停牌記錄 (如 *ST 撤銷風險警示的停牌日), 汙染 MA/ATR 等指標。
+    停牌記錄 (如風險警示撤銷的停牌日), 汙染 MA/ATR 等指標。
     """
     if df.is_empty() or "open" not in df.columns or "high" not in df.columns:
         return df
@@ -961,7 +963,7 @@ def compute_enriched(
     instruments: pl.DataFrame | None = None,
     historical_shares: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
-    """對原始日 K 應用前復權 + 全量計算指標 + 信號, 產出完整 enriched (含全部指標列)。
+    """對原始日 K 應用前復權 + 全量計算指標 + 信號, 產出完整 enriched (含全部指標欄)。
 
     輸入應包含至少: symbol, date, open, high, low, close, volume (可選 amount)。
     如果提供了 factors, 先應用前復權再算指標。
@@ -1001,27 +1003,27 @@ def compute_enriched(
 
 
 def _select_storage_cols(df: pl.DataFrame) -> pl.DataFrame:
-    """寫入 parquet 前裁剪到存儲列 (14 列)。"""
+    """寫入 parquet 前裁剪到儲存欄 (14 欄)。"""
     cols = [c for c in ENRICHED_STORAGE_COLS if c in df.columns]
     return df.select(cols)
 
 
 # ================================================================
-# 異動偏離列 (deviate_3d/10d/30d)
+# 異動偏離欄 (deviate_3d/10d/30d)
 #
 # N 日漲跌幅偏離值 = 個股 N 日累計漲跌幅 - 對應指數同期漲跌幅,
 # 是交易所「異常波動 / 嚴重異常波動」規則的量化口徑 (如主板 3日±20%,
 # 10日+100%, 30日+200%)。不屬於 compute_indicators 的純函式範圍
-# (需要指數資料), 因此在 repository 讀取路徑上附著, 不隨 parquet 落盤。
+# (需要指數資料), 因此在 repository 讀取路徑上附著, 不隨 parquet 寫入磁碟。
 # ================================================================
 
 DEVIATION_WINDOWS: tuple[int, ...] = (3, 10, 30)
 
-# 各交易所基準指數 (偏離值規則的「對應指數」近似): 優先分類指數, 缺失時回退
+# 各交易所代碼後綴的基準指數 (舊版非台股代碼專用, 台股不走此路徑; 偏離值規則的「對應指數」近似): 優先分類指數, 缺失時回退
 _BENCHMARK_PREFERENCE: dict[str, list[str]] = {
-    "SH": ["000002.SH", "000001.SH"],   # 上證A指 → 上證指數
-    "SZ": ["399107.SZ", "399001.SZ"],   # 深證A指 → 深證成指
-    "BJ": ["899050.BJ", "000001.SH"],   # 北證50 → 上證指數
+    "SH": ["000002.SH", "000001.SH"],   # 分類指數 → 大盤指數
+    "SZ": ["399107.SZ", "399001.SZ"],   # 分類指數 → 大盤指數
+    "BJ": ["899050.BJ", "000001.SH"],   # 分類指數 → 回退大盤指數
 }
 
 _benchmark_cache: dict[str, tuple[float, pl.DataFrame | None]] = {}
@@ -1031,10 +1033,10 @@ _BENCHMARK_CACHE_TTL = 600.0
 def load_benchmark_momentum(data_dir: Path) -> pl.DataFrame | None:
     """讀取指數日K, 計算各基準指數的滾動 N 日漲跌幅。
 
-    返回長表: date, bench_exchange, bench_close, bench_mom3d, bench_mom10d, bench_mom30d。
+    回傳長表: date, bench_exchange, bench_close, bench_mom3d, bench_mom10d, bench_mom30d。
     bench_close 供盤中路徑外推今日基準動量 (benchmark_momentum_today)。
-    無可用指數資料時返回 None (偏離列置 null, 不阻塞主流程)。
-    進程內按 data_dir 快取 (TTL 10 分鐘)。
+    無可用指數資料時回傳 None (偏離欄置 null, 不阻塞主流程)。
+    行程內按 data_dir 快取 (TTL 10 分鐘)。
     """
     import time as _time
 
@@ -1067,7 +1069,7 @@ def load_benchmark_momentum(data_dir: Path) -> pl.DataFrame | None:
             available = set(df_idx["symbol"].to_list())
             picked = [s for s in wanted if s in available]
             # 每個交易所取優先級最高的可用基準; 全缺時回退到任一可用基準。
-            # 同一基準可服務多個交易所 (如北證50 缺失時北交所回退上證指數)。
+            # 同一基準可服務多個交易所 (如 BJ 的分類指數缺失時回退 SH 的大盤指數)。
             pairs: list[tuple[str, str]] = []
             for exchange, candidates in _BENCHMARK_PREFERENCE.items():
                 hit = next((s for s in candidates if s in available), None)
@@ -1114,10 +1116,10 @@ def _bench_exchange_expr() -> pl.Expr:
 
 
 def attach_deviation_columns(df: pl.DataFrame, data_dir: Path) -> pl.DataFrame:
-    """為已含 momentum_Nd 的 enriched 幀附著 deviate_Nd 偏離列 (全量/冷路徑)。
+    """為已含 momentum_Nd 的 enriched 幀附著 deviate_Nd 偏離欄 (全量/冷路徑)。
 
-    缺失的動量列 (如 momentum_3d 不在指標全集裡) 就地按 close 補算,
-    與 compute_indicators 在同一幀上的 shift 語義一致。
+    缺失的動量欄 (如 momentum_3d 不在指標全集裡) 就地按 close 補算,
+    與 compute_indicators 在同一幀上的 shift 語意一致。
     基準按 symbol 後綴分交易所匹配, join 不上的行 (新上市/基準缺失) 置 null。
     """
     if df.is_empty():
@@ -1178,7 +1180,7 @@ def benchmark_momentum_today(
     基準日K parquet 盤中不含今日, 今日基準收盤 = 昨收 × (1 + 即時漲跌)。
     N 日動量 = 今日基準收盤 / N 個交易日前的收盤 - 1; 交易所與
     load_benchmark_momentum 的選基邏輯一致 (同一 TTL 快取幀)。
-    返回小表: bench_exchange, bench_mom3d, bench_mom10d, bench_mom30d。
+    回傳小表: bench_exchange, bench_mom3d, bench_mom10d, bench_mom30d。
     無基準資料時 None。
     """
     bench = load_benchmark_momentum(data_dir)
@@ -1186,7 +1188,9 @@ def benchmark_momentum_today(
         return None
     # 指數監控 (mode=all) 盤中會向 kline_index_daily 寫入今日行;
     # 「昨收」必須排除今日, 否則即時漲跌被重複疊加
-    today = cn_today()
+    from app.taiwan.realtime.calendar import taipei_today  # 延後匯入: 避免與 app.taiwan 循環匯入
+
+    today = taipei_today()
     bench = bench.filter(pl.col("date") < today)
     if bench.is_empty():
         return None
@@ -1220,12 +1224,12 @@ def attach_deviation_columns_today(
     data_dir: Path,
     index_quotes: pl.DataFrame | None = None,
 ) -> pl.DataFrame:
-    """為盤中單日 enriched 幀附著 deviate_Nd 偏離列 (增量熱路徑)。
+    """為盤中單日 enriched 幀附著 deviate_Nd 偏離欄 (增量熱路徑)。
 
     與 attach_deviation_columns 的區別: 入參是「僅今日」的單日幀, 無法用
     shift 補算動量, 直接使用幀上已有的 momentum_Nd (compute_enriched_today
     產出); 基準動量用 benchmark_momentum_today 的即時外推值。
-    缺失動量的窗口 (如全量回退路徑無 momentum_3d) 置 null, 不阻塞主流程。
+    缺失動量的視窗 (如全量回退路徑無 momentum_3d) 置 null, 不阻塞主流程。
     """
     dev_cols = [f"deviate_{n}d" for n in DEVIATION_WINDOWS]
     if df.is_empty():
@@ -1253,9 +1257,9 @@ def run_pipeline(data_dir: Path | None = None,
                  symbols: list[str] | None = None,
                  new_dates_only: bool = False,
                  on_batch_done: Callable[[int, int], None] | None = None) -> int:
-    """執行盤後管道:讀 kline_daily + adj_factor → 前復權 + 計算存儲列 → 寫 enriched。
+    """執行盤後管道:讀 kline_daily + adj_factor → 前復權 + 計算儲存欄 → 寫 enriched。
 
-    enriched 表僅存儲 14 列基礎行情窄表 (OHLCV + raw_close/high/low + turnover_rate + 連板數)。
+    enriched 表僅儲存 14 欄基礎行情窄表 (OHLCV + raw_close/high/low + turnover_rate + 連板數)。
 
     模式:
       - 全量 (symbols=None, new_dates_only=False):
@@ -1269,7 +1273,7 @@ def run_pipeline(data_dir: Path | None = None,
       - 除權因子增量 (symbols 指定, new_dates_only=False):
           只對指定 symbol 做局部重算併合並回已有 enriched。
           用於無新日K資料、僅除權因子變更的場景。
-    返回寫入的行數。
+    回傳寫入的列數。
     """
     import time as _t
     t0 = _t.perf_counter()
@@ -1327,7 +1331,7 @@ def run_pipeline(data_dir: Path | None = None,
                 raw_new = pl.concat([raw_new, scan_daily_parquet(nd / "*.parquet", cast_options=_cast)], how="diagonal_relaxed")
             raw_new = raw_new.sort(["symbol", "date"]).collect(streaming=True)
 
-            # 增量模式: 只算新日期, 但指標需要歷史窗口
+            # 增量模式: 只算新日期, 但指標需要歷史視窗
             # 讀已有 enriched 最近 60 天作為歷史前綴
             sym_list = raw_new["symbol"].unique().to_list()
             hist_df = _load_recent_history(enriched_base, sym_list, days=60)
@@ -1423,7 +1427,7 @@ def run_pipeline(data_dir: Path | None = None,
     import gc
 
     # ── 按 symbol 分批處理: 每隻股只有 ~244 行, 無冗餘計算 ──
-    # 先獲取全部 symbol 列表
+    # 先取得全部 symbol 欄表
     lf_all = scan_daily_parquet(daily_glob, cast_options=_cast)
     if symbols:
         sym_set = set(symbols)
@@ -1558,7 +1562,7 @@ def run_pipeline(data_dir: Path | None = None,
 
 
 def _load_factors(factor_path: Path) -> pl.DataFrame:
-    """載入復權因子文件。"""
+    """載入復權因子檔案。"""
     if not factor_path.exists():
         return pl.DataFrame()
     try:
@@ -1569,7 +1573,7 @@ def _load_factors(factor_path: Path) -> pl.DataFrame:
 
 
 def _load_recent_history(enriched_base: Path, symbols: list[str], days: int) -> pl.DataFrame:
-    """從已有 enriched parquet 載入最近 N 天的歷史資料(用於增量模式的指標計算窗口)。
+    """從已有 enriched parquet 載入最近 N 天的歷史資料(用於增量模式的指標計算視窗)。
 
     只讀基礎行情列, 作為指標計算的歷史前綴。
     """
@@ -1599,7 +1603,7 @@ def _load_recent_history(enriched_base: Path, symbols: list[str], days: int) -> 
 
 
 def compute_enriched_single(daily_for_symbol: pl.DataFrame) -> pl.DataFrame:
-    """單股版本 — Free 使用者用,拉下來單股 K 後即時計算全部指標+信號返回給前端。"""
+    """單股版本 — Free 使用者用,拉下來單股 K 後即時計算全部指標+信號回傳給前端。"""
     if daily_for_symbol.is_empty():
         return daily_for_symbol
 
@@ -1631,15 +1635,15 @@ def compute_enriched_today(
     只處理 ~5500 行, 耗時 ~10-50ms (替代全量 compute_enriched 的 1.5-2s)。
 
     參數:
-        live_agg:       repo.get_live_agg() — 包含所有遞推狀態 + 窗口聚合
+        live_agg:       repo.get_live_agg() — 包含所有遞推狀態 + 視窗聚合
         prev_enriched:  repo.get_enriched_latest() — 昨天的完整 enriched (用於信號交叉判斷)
         today_ohlcv:    今天的 OHLCV (symbol, date, open, high, low, close, volume, amount)
         instruments:    維表 (漲跌停/週轉率需要)
         elapsed_minutes: 當日已交易分鐘數(用於標準量比的時間折算)。
             None 或 0 表示不折算(盤後或時間不可用, 此時 volume 已是全天量)。
 
-    返回:
-        今天的 enriched DataFrame (~5500 行, 64 列)
+    回傳:
+        今天的 enriched DataFrame (~5500 行, 64 欄)
     """
     if today_ohlcv.is_empty() or live_agg.is_empty():
         return pl.DataFrame()
@@ -1652,7 +1656,7 @@ def compute_enriched_today(
     df = today_ohlcv.join(live_state, on="symbol", how="left")
     has_history_state = pl.col("_has_history_state").fill_null(False)
 
-    # ---- 前復權: 保存原始價 → 調整 OHLCV ----
+    # ---- 前復權: 儲存原始價 → 調整 OHLCV ----
     df = df.with_columns([
         pl.col("close").alias("raw_close"),
         pl.col("high").alias("raw_high"),
@@ -1679,9 +1683,9 @@ def compute_enriched_today(
         prev_close = pl.col("close_right") if "close_right" in df.columns else pl.col("close")
         df = df.with_columns(prev_close.alias("prev_close"))
     elif "_adj_factor" in df.columns:
-        # 保存 API 原始前收盤價 (用於漲跌停價計算)
+        # 儲存 API 原始前收盤價 (用於漲跌停價計算)
         df = df.with_columns(pl.col("prev_close").alias("_prev_close_raw"))
-        # API 返回的 prev_close 是原始價, 乘復權因子對齊復權價 (用於 change_pct)
+        # API 回傳的 prev_close 是原始價, 乘復權因子對齊復權價 (用於 change_pct)
         df = df.with_columns((pl.col("prev_close") * pl.col("_adj_factor").fill_null(1.0)).alias("prev_close"))
 
     # change_pct / change_amount / amplitude: 有則直接用, 無則計算
@@ -1775,7 +1779,7 @@ def compute_enriched_today(
         ])
 
     # ---- 量比 ----
-    # vol_ma5/vol_ma10 保留原語義(含當天的均量), 其他地方在用
+    # vol_ma5/vol_ma10 保留原語意(含當天的均量), 其他地方在用
     vol_ma5 = (pl.col("_vol_ma5_partial_sum") + pl.col("volume")) / 5
     vol_ma10 = (pl.col("_vol_ma10_partial_sum") + pl.col("volume")) / 10
     # Taiwan volume ratio: accumulated volume / (previous mean daily volume * session fraction).
@@ -1814,7 +1818,7 @@ def compute_enriched_today(
         (pl.col("close") / pl.col("_close_60d_ago") - 1).alias("momentum_60d"),
     ])
 
-    # ---- 動量 3d (異動偏離 deviate_3d 用; 舊 live_agg 未帶該狀態時跳過, 偏離列自然置 null) ----
+    # ---- 動量 3d (異動偏離 deviate_3d 用; 舊 live_agg 未帶該狀態時跳過, 偏離欄自然置 null) ----
     if "_close_3d_ago" in df.columns:
         df = df.with_columns(
             (pl.col("close") / pl.col("_close_3d_ago") - 1).alias("momentum_3d")
@@ -1900,7 +1904,7 @@ def compute_enriched_today(
     if instruments is not None and not instruments.is_empty():
         df = _compute_limit_signals_today(df, instruments)
 
-    # ---- 清理內部列 ----
+    # ---- 清理內部欄 ----
     drop_cols = [
         "close_right", "high_right", "low_right", "_prev_close_raw",
         "_ma5_partial_sum", "_ma10_partial_sum", "_ma20_partial_sum",
@@ -1984,7 +1988,9 @@ def _compute_limit_signals_today(df: pl.DataFrame, instruments: pl.DataFrame) ->
     else:
         prev_raw = pl.col("raw_close")
     is_risk_warning = pl.col("_is_st") if "_is_st" in df.columns else pl.lit(False)
-    trade_date = pl.col("date") if "date" in df.columns else pl.lit(cn_today())
+    from app.taiwan.realtime.calendar import taipei_today  # 延後匯入: 避免與 app.taiwan 循環匯入
+
+    trade_date = pl.col("date") if "date" in df.columns else pl.lit(taipei_today())
     limit_pct = polars_price_limit_pct(
         pl.col("symbol"),
         trade_date,

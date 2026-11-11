@@ -111,7 +111,7 @@ def test_taiwan_monitor_engine_explicit_override_still_respected(tmp_path):
 
 
 def test_data_root_matches_ashare_sibling_layout():
-    """taiwan/ 應該是 settings.data_dir 下與 A 股 instruments/、kline_daily/ 同級的
+    """taiwan/ 應該是 settings.data_dir 下與 instruments/、kline_daily/ 同級的
     子目錄, 而不是另立門戶的第二套資料根 —— 迴歸保護, 防止未來又長出
     TAIWAN_DATA_ROOT / APP_DATA_ROOT 之類互相競爭的路徑系統。"""
     from app.config import settings

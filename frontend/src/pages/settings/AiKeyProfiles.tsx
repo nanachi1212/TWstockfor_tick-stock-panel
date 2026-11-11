@@ -234,7 +234,7 @@ export function AiKeyProfilesPanel() {
             AI API Key 多組管理
           </h3>
           <p className="text-xs text-muted mt-0.5">
-            保存多組 API Key 或 Codex／Claude 訂閱，手動切換使用中的 Profile。Dashboard AI、個股 AI、每日摘要 AI
+            儲存多組 API Key 或 Codex／Claude 訂閱，手動切換使用中的 Profile。Dashboard AI、個股 AI、每日摘要 AI
             全部使用同一個目前使用中的 Profile；「設為深度」的 Profile 只給辯論裁判與最終建議用。
           </p>
         </div>

@@ -18,7 +18,7 @@ export function fmtVolume(v: number | null | undefined): string {
   return v.toFixed(0)
 }
 
-// A 股語義色:紅漲綠跌 → 僅用於價格相關元素
+// 台股語義色:紅漲綠跌 → 僅用於價格相關元素
 export function priceColorClass(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v) || v === 0) return 'text-muted'
   return v > 0 ? 'text-bull' : 'text-bear'
@@ -77,17 +77,17 @@ export function isToday(iso: string): boolean {
 
 export function formatLogTime(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  return d.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 }
 
 /**
- * 擴展數據列數字格式化 — 千分位逗號 + 單位換算 + 小數位。
- * 供自選/策略列表的擴展數據 number 單元格統一調用。
+ * 擴展資料列數字格式化 — 千分位逗號 + 單位換算 + 小數位。
+ * 供自選/策略列表的擴展資料 number 單元格統一呼叫。
  *
  * opts:
  *   - thousandSeparator: true 則加英文逗號(1,234,567)
- *   - unitConvert: 'none'(默認不換算) / 'wan'(÷1e4 加"萬") / 'yi'(÷1e8 加"億") / 'auto'(≥1e8用億, ≥1e4用萬)
- *   - unitDecimals: 換算後保留小數位(默認 2); unitConvert=none 時此值僅控制原值小數位
+ *   - unitConvert: 'none'(預設不換算) / 'wan'(÷1e4 加"萬") / 'yi'(÷1e8 加"億") / 'auto'(≥1e8用億, ≥1e4用萬)
+ *   - unitDecimals: 換算後保留小數位(預設 2); unitConvert=none 時此值僅控制原值小數位
  */
 export function formatExtNumber(
   val: number,

@@ -8,10 +8,10 @@ _FENCED_JSON_RE = re.compile(r"```(?:json)?\s*\n?(.*?)```", re.DOTALL)
 
 
 def _extract_json_object(text: str) -> object:
-    """從 LLM 文本提取 JSON 對象（多級容錯）。
+    """從 LLM 文本提取 JSON 物件（多級容錯）。
 
     依次嘗試: 整段 → markdown 圍欄內 → 首個 {...} 平衡塊;
-    每級再對 尾隨垃圾 / 尾逗號 做輕量修復。全部失敗才報錯。
+    每級再對 尾隨垃圾 / 尾逗號 做輕量修復。全部失敗才出錯。
     """
     source = text or ""
     candidates: list[str] = []
@@ -33,7 +33,7 @@ def _extract_json_object(text: str) -> object:
             json.loads(candidate)
         except json.JSONDecodeError as e:
             last_error = e
-    raise ValueError(f"AI 返回的不是合法 JSON: {last_error}")
+    raise ValueError(f"AI 回傳的不是合法 JSON: {last_error}")
 
 
 def _try_parse_json(candidate: str) -> object | None:
@@ -49,7 +49,7 @@ def _try_parse_json(candidate: str) -> object | None:
             return json.loads(v)
         except json.JSONDecodeError:
             pass
-        # 去掉陣列/對象結尾的多餘逗號 (AI 常見錯誤): `,}` / `,]`
+        # 去掉陣列/物件結尾的多餘逗號 (AI 常見錯誤): `,}` / `,]`
         cleaned = re.sub(r",\s*([}\]])", r"\1", v)
         if cleaned != v:
             try:
@@ -60,7 +60,7 @@ def _try_parse_json(candidate: str) -> object | None:
 
 
 def _first_brace_block(text: str) -> str:
-    """括號配對截取首個 {...} 塊（AI 偶爾混入前後解釋文字時的兜底）。"""
+    """括號配對截取首個 {...} 塊（AI 偶爾混入前後解釋文字時的保底）。"""
     start = text.find("{")
     if start < 0:
         return text

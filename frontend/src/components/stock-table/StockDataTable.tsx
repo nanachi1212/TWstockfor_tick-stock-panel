@@ -1,8 +1,8 @@
 /**
  * 股票列表表格骨架（自選/策略頁共享）。
  *
- * 職責：表頭渲染（讀列配置 label/align + 可排序三態指示器）、表體遍歷、sticky 表頭。
- * 不內置任何業務邏輯：單元格內容（含 symbol 列交互、操作列、ext 列）由調用方通過
+ * 職責：表頭渲染（讀列設定 label/align + 可排序三態指示器）、表體遍歷、sticky 表頭。
+ * 不內建任何業務邏輯：單元格內容（含 symbol 列交互、操作列、ext 列）由呼叫方通過
  * renderCell / renderExtraCol 注入。這樣兩個頁面的特有交互得以保留，同時表頭能力一致。
  */
 import { cloneElement, isValidElement, useRef, type ReactElement, type ReactNode } from 'react'
@@ -17,15 +17,15 @@ export type { SortState }
 export interface StockDataTableProps {
   columns: ColumnConfig[]
   rows: any[]
-  /** 單元格渲染回調。返回 null 時回退到內置純數據列渲染。 */
+  /** 單元格渲染回呼。返回 null 時回退到內建純資料列渲染。 */
   renderCell: (r: any, col: ColumnConfig) => ReactNode
-  /** 行 key（默認取 r.symbol） */
+  /** 行 key（預設取 r.symbol） */
   rowKey?: (r: any) => string | number
-  /** 行 className（默認含 hover） */
+  /** 行 className（預設含 hover） */
   rowClassName?: (r: any) => string
   /** 表頭是否 sticky（自選頁需要，策略頁不需要） */
   headerSticky?: boolean
-  /** 最小表格寬度，默認按列數計算 */
+  /** 最小表格寬度，預設按列數計算 */
   minWidth?: number
   /** 排序：外部受控時傳入（含當前 sort 與 toggle）；不傳則表頭不可排序 */
   sort?: SortState | null
@@ -87,7 +87,7 @@ export function StockDataTable({
   const columnCount = visibleColumns.length + (renderExtraCol || extraHeader ? 1 : 0)
 
   const isColSortable = (col: ColumnConfig): boolean => {
-    // 排序能力由調用方是否提供 onSortToggle 決定；sort 是否為 null 隻影響當前指示器
+    // 排序能力由呼叫方是否提供 onSortToggle 決定；sort 是否為 null 隻影響當前指示器
     if (!onSortToggle) return false
     if (col.source.type === 'builtin' && UNSORTABLE_KEYS.has(col.source.key) && !extraSortableKeys?.has(col.source.key)) return false
     return true

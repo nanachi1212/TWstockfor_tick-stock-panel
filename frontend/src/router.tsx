@@ -88,7 +88,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
 
   // 僅首次載入(本地無快取)時顯示佔位。
   // 後台重取 (isFetching) 時本地已有上一份快取可用, 直接放行, 避免切頁時整屏 logo 閃爍。
-  // 防誤重定向已由 Onboarding/AI 等處 invalidate 前的 setQueryData 同步快取兜底。
+  // 防誤重定向已由 Onboarding/AI 等處 invalidate 前的 setQueryData 同步快取備援。
   if (settings.isLoading) {
     return (
       <div className="min-h-screen bg-base grid place-items-center">
@@ -100,7 +100,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // 查詢出錯或字段缺失時不攔截 —— 寧可放行,也不把使用者卡在空白頁
+  // 查詢出錯或欄位缺失時不攔截 —— 寧可放行,也不把使用者卡在空白頁
   if (settings.data && settings.data.onboarding_completed === false) {
     return <Navigate to="/onboarding" replace />
   }

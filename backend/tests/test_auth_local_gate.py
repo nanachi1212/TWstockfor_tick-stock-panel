@@ -39,7 +39,7 @@ def _client(peer: str = "127.0.0.1") -> TestClient:
         {"sec-fetch-site": "same-site", "origin": "http://localhost:8080"},
         {"origin": "https://attacker.example"},
         {"origin": "null"},
-        # DNS rebinding: Origin 與 Host 同為攻擊者域名
+        # DNS rebinding: Origin 與 Host 同為攻擊者網域
         {"host": "attacker.example:3018", "origin": "http://attacker.example:3018"},
         {"host": "evil_x.example:3018"},  # Starlette host 正則不接受的寫法也須按原始頭判斷
     ],
@@ -60,7 +60,7 @@ def test_cross_site_and_rebinding_are_rejected(headers):
         {"host": "mypc.localdomain:3018", "sec-fetch-site": "same-origin"},
         {"host": "nas.local", "origin": "http://nas.local"},
         {"host": "[::1]:3018", "origin": "http://[::1]:3018"},
-        # 反代改寫 Host($proxy_host), 瀏覽器 Origin 是內網地址
+        # 反向代理改寫 Host($proxy_host), 瀏覽器 Origin 是內網地址
         {"origin": "http://192.168.1.5"},
     ],
 )
@@ -69,7 +69,7 @@ def test_local_same_origin_requests_pass(headers):
 
 
 def test_multi_line_xff_cannot_spoof_local():
-    # 反代(HAProxy 等)另起一行追加真實客戶端; 攻擊者自填的第一行不能被單獨採信
+    # 反向代理(HAProxy 等)另起一行追加真實客戶端; 攻擊者自填的第一行不能被單獨採信
     for peer in ("127.0.0.1", "172.17.0.1"):
         client = _client(peer)
         headers = [("x-forwarded-for", "127.0.0.1"), ("x-forwarded-for", "203.0.113.9")]
@@ -93,17 +93,17 @@ def _request(peer: str, xff: list[str]) -> Request:
 
 
 def test_client_ip_uses_rightmost_public_hop_from_trusted_proxy():
-    # 公網客戶端在左側自填 IP 不能改變限流鍵
+    # 公開網路客戶端在左側自填 IP 不能改變限流鍵
     assert auth_api._client_ip(_request("127.0.0.1", ["1.2.3.4, 198.51.100.7"])) == "198.51.100.7"
-    # 兩層反代: 跳過內網反代跳, 每個公網客戶端仍有自己的限流鍵
+    # 兩層反向代理: 跳過內網反向代理跳, 每個公開網路客戶端仍有自己的限流鍵
     assert auth_api._client_ip(_request("127.0.0.1", ["198.51.100.7, 172.18.0.2"])) == "198.51.100.7"
     assert auth_api._client_ip(_request("127.0.0.1", ["203.0.113.9, 172.18.0.2"])) == "203.0.113.9"
     # 全為內網跳: 取最左
     assert auth_api._client_ip(_request("127.0.0.1", ["192.168.1.66, 172.18.0.2"])) == "192.168.1.66"
     assert auth_api._client_ip(_request("127.0.0.1", ["127.0.0.1", "203.0.113.9"])) == "203.0.113.9"
-    # 公網直連: XFF 一律忽略
+    # 公開網路直連: XFF 一律忽略
     assert auth_api._client_ip(_request("203.0.113.9", ["127.0.0.1"])) == "203.0.113.9"
-    # 多層本機反代: 任一跳為公網即非本機
+    # 多層本機反向代理: 任一跳為公開網路即非本機
     assert not auth_api._is_local_request(_request("127.0.0.1", ["203.0.113.9, 172.18.0.2"]))
     assert auth_api._is_local_request(_request("127.0.0.1", ["192.168.1.66"]))
 

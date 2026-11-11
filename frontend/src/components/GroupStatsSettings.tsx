@@ -10,14 +10,14 @@ import {
 } from '@/lib/watchlistGroupStats'
 
 /**
- * 分組「指標 + 排序」設置彈層 — 分組統計條與分組卡片共用。
+ * 分組「指標 + 排序」設定彈層 — 分組統計條與分組卡片共用。
  * 狀態由父級持有並持久化, 這裡只負責彈層交互與展示。
  * showCardLimit 為真時額外暴露分組卡片顯示項 (條數/頭部彩條/序號, 僅卡片視圖有意義)。
  */
 export function GroupStatsSettings({
   config,
   onChange,
-  ariaLabel = '分組統計設置',
+  ariaLabel = '分組統計設定',
   showCardLimit = false,
 }: {
   config: GroupStatsConfig
@@ -28,7 +28,7 @@ export function GroupStatsSettings({
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  // 點擊面板外部關閉 (與自選頁搜索框同模式)
+  // 點擊面板外部關閉 (與自選頁搜尋框同模式)
   useEffect(() => {
     if (!open) return
     const handleClick = (e: MouseEvent) => {
@@ -95,7 +95,7 @@ export function GroupStatsSettings({
           {showCardLimit && (
             <>
               <div className="mt-2.5 text-xs uppercase tracking-wider text-muted">卡片顯示</div>
-              <div className="mt-1 flex items-center gap-2" title="分組卡片默認展示組內前 N 條, 可展開查看全部">
+              <div className="mt-1 flex items-center gap-2" title="分組卡片預設展示組內前 N 條, 可展開查看全部">
                 <button
                   type="button"
                   aria-label="減少卡片顯示條數"

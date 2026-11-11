@@ -67,7 +67,7 @@ describe('MarketBreadthValuationTab', () => {
     expect(screen.getByText('載入大盤研究資料中…')).toBeInTheDocument()
     view.rerender(<QueryClientProvider client={client}><MarketBreadthValuationTab asOf="2026-09-29" view="valuation" /></QueryClientProvider>)
     await screen.findByText('個股本益比中位數')
-    expect(screen.getByText('歷史日期估值使用目前保存的最新 revision，非 Historical PIT。')).toBeInTheDocument()
+    expect(screen.getByText('歷史日期估值使用目前儲存的最新 revision，非 Historical PIT。')).toBeInTheDocument()
     expect(screen.queryByText(/尚無可觀測日 K/)).not.toBeInTheDocument()
   })
 

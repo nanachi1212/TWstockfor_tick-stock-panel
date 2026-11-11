@@ -62,6 +62,6 @@ PTT／Social AI 更新呼叫既有 `SocialSentimentJobManager.start_manual()`，
 
 後端測試涵蓋聚合、狀態映射、stale／partial／unavailable、provider failure、安全重試、併發去重、保留缺失欄位、HTTP 403、安全原因輸出、API 白名單及 AI 設定變更。前端測試涵蓋呈現、搜尋／狀態篩選、禁用、任務、快取失效、看板摘要與導航。
 
-瀏覽器 smoke 使用隔離的合成資料與真實 health API，驗證 19 列、HTTP 403 僅原因、非同步重新驗證、直接刷新，以及深色桌面與淺色窄螢幕。此測試不代表已驗證真實市場 provider 的即時可用性。
+瀏覽器 smoke 使用隔離的合成資料與真實 health API，驗證 19 列、HTTP 403 僅原因、非同步重新驗證、直接重新整理，以及深色桌面與淺色窄螢幕。此測試不代表已驗證真實市場 provider 的即時可用性。
 
 合成測試資料畫面：[深色桌面](images/data-health-dark.png)、[淺色窄螢幕](images/data-health-light-narrow.png)。

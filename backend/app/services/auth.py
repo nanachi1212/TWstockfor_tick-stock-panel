@@ -1,13 +1,13 @@
 """訪問密碼認證 — 單使用者, 自託管場景。
 
 設計:
-  - 密碼用 PBKDF2-HMAC-SHA256 哈希(標準庫 hashlib, 無新依賴), 加隨機 salt。
+  - 密碼用 PBKDF2-HMAC-SHA256 雜湊(標準庫 hashlib, 無新依賴), 加隨機 salt。
     即使 auth.json 洩露, 也無法逆向出明文密碼。
-  - 會話用隨機 token(token_urlsafe), 記憶體 + 文件雙存(支持多進程/重啟不丟失)。
-  - 存儲: data/user_data/auth.json (chmod 0600), 仿 secrets_store 模式。
+  - 會話用隨機 token(token_urlsafe), 記憶體 + 檔案雙存(支援多行程/重啟不丟失)。
+  - 儲存: data/user_data/auth.json (chmod 0600), 仿 secrets_store 模式。
 
 安全要點:
-  - 設密碼接口必須限制本機/內網(見 auth router), 防黑客搶佔域名搶先設密碼。
+  - 設密碼介面必須限制本機/內網(見 auth router), 防黑客搶佔網域搶先設密碼。
   - 登入限流: 錯5次鎖5分鐘(見 auth router 記憶體計數)。
   - 單密碼, 不做多使用者(避免重構全項目資料層)。
 """
@@ -35,9 +35,9 @@ _TOKEN_BYTES = 32
 SESSION_TTL = 30 * 24 * 3600
 
 _lock = threading.Lock()
-# 記憶體中的有效會話: { token: expire_ts }。進程重啟後從磁盤恢復。
+# 記憶體中的有效會話: { token: expire_ts }。行程重啟後從磁碟恢復。
 _sessions: dict[str, float] = {}
-# 記憶體會話最後一次與 auth.json 同步時的檔案戳記; 檔案被其他程序 (如撤銷腳本) 改過就重讀。
+# 記憶體會話最後一次與 auth.json 同步時的檔案戳記; 檔案被其他行程 (如撤銷腳本) 改過就重讀。
 _sessions_stamp: tuple[int, int] | None = None
 
 # 檔案未變更時重用驗證結果; 改密碼後失效, 外部修改則重新驗證。
@@ -121,7 +121,7 @@ def _sync_sessions_locked() -> None:
 
 
 def _hash_password(password: str, salt: bytes | None = None) -> tuple[str, str]:
-    """返回 (salt_hex, hash_hex)。salt 為 None 時生成新 salt。"""
+    """回傳 (salt_hex, hash_hex)。salt 為 None 時生成新 salt。"""
     if salt is None:
         salt = os.urandom(_SALT_LEN)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, _PBKDF2_ITER)
@@ -182,10 +182,10 @@ def set_password(password: str) -> None:
 
 
 def bootstrap_from_env() -> bool:
-    """首次初始化: 若環境變數 AUTH_PASSWORD 已配置且尚未設過密碼, 則用它設密碼。
+    """首次初始化: 若環境變數 AUTH_PASSWORD 已設定且尚未設過密碼, 則用它設密碼。
 
-    公網伺服器部署場景: 避免每次都要 SSH 端口轉發才能設首個密碼。
-    明文密碼只在記憶體/配置中, 經 set_password() 哈希後寫入 auth.json (chmod 0600)。
+    公開網路伺服器部署場景: 避免每次都要 SSH 端口轉發才能設首個密碼。
+    明文密碼只在記憶體/設定中, 經 set_password() 雜湊後寫入 auth.json (chmod 0600)。
     一旦設定成功, 後續重啟不再覆蓋 (使用者改密碼走 UI, 不受環境變數影響)。
 
     Returns:
@@ -195,7 +195,7 @@ def bootstrap_from_env() -> bool:
 
     pwd = (settings.auth_password or "").strip()
     # Compose 會對 env_file 中未加單引號的 $VAR 做插值。Docker 部署時同時
-    # 只讀掛載原始 .env,首次初始化密碼直接按 dotenv 語義讀取,避免特殊字元被截斷。
+    # 只讀掛載原始 .env,首次初始化密碼直接按 dotenv 語意讀取,避免特殊字元被截斷。
     if _ENV_FILE.is_file():
         from dotenv import dotenv_values
 
@@ -258,7 +258,7 @@ def create_verify_session(password: str) -> str | None:
 
 
 def verify_and_create_session(password: str) -> str | None:
-    """驗證主密碼, 成功則創建會話並返回 token, 失敗返回 None。"""
+    """驗證主密碼, 成功則建立會話並回傳 token, 失敗回傳 None。"""
     with _lock:
         _sync_sessions_locked()
         d = _load()
@@ -308,14 +308,14 @@ def _persist_sessions_locked() -> None:
 
 
 def _restore_sessions() -> None:
-    """啟動時從 auth.json 恢復未過期會話(支持進程重啟不丟登入態)。"""
+    """啟動時從 auth.json 恢復未過期會話(支援行程重啟不丟登入態)。"""
     global _sessions_stamp
     with _lock:
         saved = _load().get("sessions") or {}
         _sessions_stamp = None  # 強制從磁碟重讀
         _sync_sessions_locked()
         if len(_sessions) != len(saved):
-            # 有過期會話被清理, 落盤一次
+            # 有過期會話被清理, 寫入磁碟一次
             _persist_sessions_locked()
 
 

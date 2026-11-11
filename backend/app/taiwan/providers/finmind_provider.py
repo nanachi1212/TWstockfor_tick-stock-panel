@@ -308,7 +308,7 @@ class FinMindAdapter:
             return {
                 "ok": False,
                 "error_type": "no_data",
-                "message": f"FinMind API 連線正常但未回傳基準標的 ({probe_symbol}) 任何數據，未能驗證資料可用性。",
+                "message": f"FinMind API 連線正常但未回傳基準標的 ({probe_symbol}) 任何資料，未能驗證資料可用性。",
             }
         except FinMindAuthError as e:
             return {

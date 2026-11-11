@@ -156,7 +156,7 @@ export function SettingsMenuSettingsPanel() {
     }
     for (const e of BUILTIN_PAGES) {
       if (seen.has(e.id)) continue
-      // 未保存過排序的新條目: 內置頁插回默認位置
+      // 未儲存過排序的新條目: 內建頁插回預設位置
       const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {
@@ -187,7 +187,7 @@ export function SettingsMenuSettingsPanel() {
     }
     for (const e of allEntries) {
       if (seen.has(e.id)) continue
-      // 與 allEntries 同一語義: 未保存的新內置頁插回默認位置而非追加到末尾
+      // 與 allEntries 同一語義: 未儲存的新內建頁插回預設位置而非追加到末尾
       const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {

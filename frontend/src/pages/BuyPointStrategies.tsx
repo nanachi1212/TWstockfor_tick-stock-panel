@@ -34,7 +34,7 @@ function Conditions({ strategy }: { strategy: BuyPointStrategy }) {
 
 function SignalRow({ signal, onSnapshot }: { signal: BuyPointSignal; onSnapshot: (signal: BuyPointSignal) => void }) {
   const copy = async () => {
-    const prompt = `請分析此買點訊號的支持因素、反對因素與資料不足處，不要替使用者做交易決定。\n策略：${signal.strategy_id}\n標的：${signal.symbol} ${signal.name}\n狀態：${statusLabel[signal.status]}\n支持：${signal.triggered_conditions.join('、') || '無'}\n未達：${signal.failed_conditions.join('、') || '無'}\n風險：${signal.risk_flags.join('、') || '無'}`
+    const prompt = `請分析此買點訊號的支援因素、反對因素與資料不足處，不要替使用者做交易決定。\n策略：${signal.strategy_id}\n標的：${signal.symbol} ${signal.name}\n狀態：${statusLabel[signal.status]}\n支援：${signal.triggered_conditions.join('、') || '無'}\n未達：${signal.failed_conditions.join('、') || '無'}\n風險：${signal.risk_flags.join('、') || '無'}`
     await navigator.clipboard.writeText(prompt)
     toast('已複製買點分析資料', 'success')
   }
@@ -56,7 +56,7 @@ function SignalRow({ signal, onSnapshot }: { signal: BuyPointSignal; onSnapshot:
       {signal.risk_flags.length > 0 && <div className="mt-2 flex items-center gap-1 text-xs text-danger"><ShieldAlert className="h-3 w-3" />{signal.risk_flags.join('、')}</div>}
       <div className="mt-2 flex gap-2">
         <button type="button" onClick={copy} className="inline-flex items-center gap-1 rounded bg-elevated px-2 py-1 text-xs text-secondary hover:text-foreground"><Copy className="h-3 w-3" />複製 AI 分析提示詞</button>
-        {(signal.status === 'triggered' || signal.status === 'approaching') && <button type="button" onClick={() => onSnapshot(signal)} className="inline-flex items-center gap-1 rounded bg-accent/10 px-2 py-1 text-xs text-accent hover:bg-accent/20"><Save className="h-3 w-3" />保存買點快照</button>}
+        {(signal.status === 'triggered' || signal.status === 'approaching') && <button type="button" onClick={() => onSnapshot(signal)} className="inline-flex items-center gap-1 rounded bg-accent/10 px-2 py-1 text-xs text-accent hover:bg-accent/20"><Save className="h-3 w-3" />儲存買點快照</button>}
       </div>
     </div>
   )

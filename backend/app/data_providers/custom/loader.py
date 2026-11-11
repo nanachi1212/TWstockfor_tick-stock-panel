@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 _PROVIDERS: dict[str, GenericHTTPProvider] = {}
 _LOAD_ERRORS: list[dict] = []
 
-# 內置外掛狀態: {name: {available, status, runtime, ...}} 供設定頁獨立分類展示。
+# 內建外掛狀態: {name: {available, status, runtime, ...}} 供設定頁獨立分類展示。
 # available=False 的外掛不註冊進 _PROVIDERS (不可切換), 但記錄狀態供 UI 顯示安裝提示。
 _PLUGIN_STATUS: dict[str, dict] = {}
 
@@ -34,7 +34,7 @@ _NAME_RE = re.compile(r"^[a-z0-9_]+$")
 
 
 def plugins_dir() -> Path:
-    """內置可選外掛目錄 (app/plugins/, 與現有包結構一致, 開發態/容器態路徑統一)。"""
+    """內建可選外掛目錄 (app/plugins/, 與現有包結構一致, 開發態/容器態路徑統一)。"""
     return Path(__file__).resolve().parents[2] / "plugins"
 
 
@@ -66,12 +66,12 @@ def load_all(path: Path | None = None) -> None:
             logger.warning("custom data source load failed %s: %s", file, e)
             _LOAD_ERRORS.append({"path": str(file), "errors": [str(e)]})
 
-    # 內置可選外掛 (plugins/ 目錄)。與使用者 YAML 源獨立, 缺依賴只記狀態不報錯。
+    # 內建可選外掛 (plugins/ 目錄)。與使用者 YAML 源獨立, 缺依賴只記狀態不出錯。
     _load_builtin_plugins()
 
 
 def list_sources() -> list[dict]:
-    """只列出使用者自定義 (YAML) 源。內置外掛 (builtin=True) 由 list_plugins 獨立呈現。"""
+    """只列出使用者自訂 (YAML) 源。內建外掛 (builtin=True) 由 list_plugins 獨立呈現。"""
     return [
         {
             "name": provider.name,
@@ -85,12 +85,12 @@ def list_sources() -> list[dict]:
 
 
 def list_plugins() -> list[dict]:
-    """返回所有內置外掛的狀態 (含已裝/未裝), 供設定頁獨立分類顯示。"""
+    """回傳所有內建外掛的狀態 (含已裝/未裝), 供設定頁獨立分類顯示。"""
     return list(_PLUGIN_STATUS.values())
 
 
 def plugin_manifest(name: str) -> dict | None:
-    """讀取指定外掛的 plugin.yaml 清單。名稱不合 _NAME_RE 時不碰文件系統(防路徑穿越與 UNC 路徑)。"""
+    """讀取指定外掛的 plugin.yaml 清單。名稱不合 _NAME_RE 時不碰檔案系統(防路徑穿越與 UNC 路徑)。"""
     if not _NAME_RE.fullmatch(name or ""):
         return None
     plugin_dir = plugins_dir() / name
@@ -101,26 +101,26 @@ def plugin_manifest(name: str) -> dict | None:
 
 
 def plugin_dir_of(name: str) -> Path:
-    """返回外掛目錄路徑。"""
+    """回傳外掛目錄路徑。"""
     if not _NAME_RE.fullmatch(name or ""):
         raise ValueError(f"invalid plugin name: {name!r}")
     return plugins_dir() / name
 
 
 def probe_plugin_key(name: str, api_key: str) -> tuple[bool, str]:
-    """呼叫外掛的 probe_api_key(key) 探測候選 Key(不落盤)。
+    """呼叫外掛的 probe_api_key(key) 探測候選 Key(不寫入磁碟)。
 
     約定: 聲明了 api_key_env 的外掛, 其 entry 模組提供模組級
     probe_api_key(key) -> (ok, reason)。未聲明或未提供 → (False, 原因)。
     """
     manifest = plugin_manifest(name)
     if manifest is None:
-        return False, f"插件 '{name}' 不存在"
+        return False, f"外掛 '{name}' 不存在"
     if not manifest.get("api_key_env"):
-        return False, f"插件 '{name}' 不支持在界面配置 Key"
+        return False, f"外掛 '{name}' 不支援在界面設定 Key"
     entry = str(manifest.get("entry") or "")
     if ":" not in entry:
-        return False, f"插件 '{name}' entry 非法"
+        return False, f"外掛 '{name}' entry 非法"
     try:
         module = importlib.import_module(entry.split(":", 1)[0])
     except Exception as e:
@@ -137,8 +137,8 @@ def probe_plugin_key(name: str, api_key: str) -> tuple[bool, str]:
 def install_plugin(name: str) -> tuple[bool, str]:
     """安裝指定外掛的依賴。根據 runtime 執行 npm install / pip install。
 
-    返回 (是否成功, 消息)。成功後呼叫方應 reload 重新掃描。
-    依賴未找到 (npm/pip 缺失) 或命令失敗時返回 False。
+    回傳 (是否成功, 消息)。成功後呼叫方應 reload 重新掃描。
+    依賴未找到 (npm/pip 缺失) 或命令失敗時回傳 False。
     """
     manifest = plugin_manifest(name)
     if manifest is None:
@@ -166,15 +166,15 @@ def install_plugin(name: str) -> tuple[bool, str]:
             # Python 型外掛: 優先用 uv pip install (uv 管理的 venv 無 pip 模組),
             # 回退 python -m pip。都裝進當前後端虛擬環境。
             # 關鍵: uv 分支必須顯式傳 --python sys.executable。dev.ps1 直接跑
-            # .venv/Scripts/python.exe 而不 activate, 後端進程 VIRTUAL_ENV 為空,
+            # .venv/Scripts/python.exe 而不 activate, 後端行程 VIRTUAL_ENV 為空,
             # uv pip 會預設選 PATH 上的基礎解釋器 (如 conda base, 常為只讀) →
             # 裝錯環境並 exit 2 (訪問拒絕)。--python 鎖定後端自身 venv, 與 pip
             # 回退路徑 (sys.executable -m pip) 的目標一致。
-            # uv 容錯: 使用者全域 uv.toml 配置錯誤時 exit 2, 回退 --no-config 重試。
-            # UV_HTTP_TIMEOUT=300: akshare 等含大包(如 mini-racer 14MB), 預設 30s 不夠。
+            # uv 容錯: 使用者全域 uv.toml 設定錯誤時 exit 2, 回退 --no-config 重試。
+            # UV_HTTP_TIMEOUT=300: 含大型套件(如 mini-racer 14MB)的資料來源, 預設 30s 不夠。
             req = pdir / "requirements.txt"
             if not req.exists():
-                return False, "Python 型插件需要 requirements.txt"
+                return False, "Python 型外掛需要 requirements.txt"
             uv_bin = shutil.which("uv")
             if uv_bin:
                 result = subprocess.run(
@@ -182,12 +182,11 @@ def install_plugin(name: str) -> tuple[bool, str]:
                     capture_output=True, text=True, timeout=300,
                     env={**__import__("os").environ, "UV_HTTP_TIMEOUT": "300"},
                 )
-                # exit 2 通常是設定檔解析錯誤, 繞過配置重試
-                # --no-config 會丟鏡像, 顯式傳國內鏡像加速 (與使用者 uv.toml 意圖一致)
+                # exit 2 通常是設定檔解析錯誤, 繞過設定重試
+                # --no-config 會忽略使用者 uv.toml, 改用 uv 預設的官方 PyPI 來源
                 if result.returncode == 2:
                     result = subprocess.run(
                         [uv_bin, "pip", "install", "--no-config",
-                         "--index-url", "https://pypi.tuna.tsinghua.edu.cn/simple",
                          "--python", sys.executable,
                          "-r", str(req)],
                         capture_output=True, text=True, timeout=300,
@@ -206,7 +205,7 @@ def install_plugin(name: str) -> tuple[bool, str]:
         return False, f"安裝失敗: {e}"
 
     if result.returncode != 0:
-        # 取 stderr 的第一個 error: 行(真正的錯誤原因), 避免把 uv 的長字段列表返回給使用者
+        # 取 stderr 的第一個 error: 行(真正的錯誤原因), 避免把 uv 的長欄位列表回傳給使用者
         raw = (result.stderr or result.stdout or "").strip()
         first_err = ""
         for line in raw.splitlines():
@@ -272,7 +271,7 @@ def uninstall_plugin(name: str) -> tuple[bool, str]:
 
 
 def is_builtin(name: str) -> bool:
-    """判斷 name 是否為內置外掛 (不可被使用者編輯/刪除)。"""
+    """判斷 name 是否為內建外掛 (不可被使用者編輯/刪除)。"""
     return (name or "").lower() in _PLUGIN_STATUS
 
 
@@ -307,9 +306,9 @@ def is_custom_provider(name: str) -> bool:
 
 
 def provider_has_dataset(name: str, dataset: str) -> bool:
-    """判斷某個 custom 源是否配置了指定資料集。
+    """判斷某個 custom 源是否設定了指定資料集。
 
-    用於主流程分流: 未配置的資料集不得嘗試呼叫不具備該能力的資料來源。
+    用於主流程分流: 未設定的資料集不得嘗試呼叫不具備該能力的資料來源。
     """
     provider = _PROVIDERS.get((name or "").lower())
     if provider is None:
@@ -318,7 +317,7 @@ def provider_has_dataset(name: str, dataset: str) -> bool:
 
 
 def get_config_dict(name: str) -> dict | None:
-    """讀取一個已載入 custom 源的原始配置 dict(用於前端編輯回填)。內置外掛不可編輯。"""
+    """讀取一個已載入 custom 源的原始設定 dict(用於前端編輯回填)。內建外掛不可編輯。"""
     if is_builtin(name):
         return None
     provider = _PROVIDERS.get((name or "").lower())
@@ -362,9 +361,9 @@ def _config_to_dict(config: CustomSourceConfig) -> dict:
 
 
 def save_config(name: str, config: dict) -> Path:
-    """把一份配置 dict 寫成 data/data_sources/{name}.yaml, 返回寫入路徑。"""
+    """把一份設定 dict 寫成 data/data_sources/{name}.yaml, 回傳寫入路徑。"""
     if is_builtin(name):
-        raise ValueError(f"'{name}' 是內置外掛, 不可編輯")
+        raise ValueError(f"'{name}' 是內建外掛, 不可編輯")
     if not _NAME_RE.match(name or ""):
         raise ValueError(f"invalid data source name: {name!r} (only lowercase a-z 0-9 _ allowed)")
     base = data_sources_dir()
@@ -378,9 +377,9 @@ def save_config(name: str, config: dict) -> Path:
 
 
 def delete_config(name: str) -> bool:
-    """刪除 data/data_sources/{name}.yaml。返回是否真的刪除了。"""
+    """刪除 data/data_sources/{name}.yaml。回傳是否真的刪除了。"""
     if is_builtin(name):
-        raise ValueError(f"'{name}' 是內置外掛, 不可刪除")
+        raise ValueError(f"'{name}' 是內建外掛, 不可刪除")
     if not _NAME_RE.match(name or ""):
         raise ValueError(f"invalid data source name: {name!r}")
     base = data_sources_dir().resolve()
@@ -507,7 +506,7 @@ def _sanitize_dataset(ds_name: str, ds_cfg: dict) -> dict:
 
 
 # ================================================================
-# 內置可選外掛 (plugins/ 目錄) 的發現與註冊
+# 內建可選外掛 (plugins/ 目錄) 的發現與註冊
 # ================================================================
 
 def _load_builtin_plugins() -> None:
@@ -564,9 +563,9 @@ def _register_one_plugin(manifest: dict) -> None:
     try:
         provider_cls = _load_entry(manifest["entry"])
         provider = provider_cls() if isinstance(provider_cls, type) else provider_cls
-        provider.builtin = True  # 標記為內置 (list_sources 過濾, 不可被使用者編輯/刪除)
+        provider.builtin = True  # 標記為內建 (list_sources 過濾, 不可被使用者編輯/刪除)
         _PROVIDERS[name] = provider
-        logger.info("內置外掛 %s 已註冊 (runtime=%s)", name, runtime)
+        logger.info("內建外掛 %s 已註冊 (runtime=%s)", name, runtime)
     except Exception as e:  # noqa: BLE001
         # 聲稱可用但 import 失敗 → 標記不可用, 避免啟動崩潰
         _PLUGIN_STATUS[name]["available"] = False
@@ -575,16 +574,16 @@ def _register_one_plugin(manifest: dict) -> None:
 
 
 def _call_check(check_ref: str | None) -> tuple[bool, str]:
-    """呼叫外掛清單裡指定的可用性檢測函式, 返回 (是否可用, 原因)。
+    """呼叫外掛清單裡指定的可用性檢測函式, 回傳 (是否可用, 原因)。
 
-    check_ref 格式 "module.path:func_name"。無 check 字段時視為可用。
+    check_ref 格式 "module.path:func_name"。無 check 欄位時視為可用。
     """
     if not check_ref:
         return True, "ok"
     try:
         func = _load_entry(check_ref)
         result = func()
-        # 相容兩種返回: (bool, str) 或 bool
+        # 相容兩種回傳: (bool, str) 或 bool
         if isinstance(result, tuple):
             return bool(result[0]), str(result[1])
         return bool(result), "ok" if result else "不可用"
@@ -593,7 +592,7 @@ def _call_check(check_ref: str | None) -> tuple[bool, str]:
 
 
 def _load_entry(entry_ref: str):
-    """動態載入 'module.path:attr' 形式的引用, 返回屬性對象 (類或函式)。"""
+    """動態載入 'module.path:attr' 形式的引用, 回傳屬性物件 (類或函式)。"""
     if ":" not in entry_ref:
         raise ValueError(f"entry 格式應為 'module.path:attr', 得到: {entry_ref!r}")
     module_path, attr = entry_ref.split(":", 1)

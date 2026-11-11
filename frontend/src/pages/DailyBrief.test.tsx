@@ -159,12 +159,12 @@ describe('DailyBrief Page (A12)', () => {
     expect(await screen.findByText('22150.80')).toBeInTheDocument()
     expect(screen.getByText('策略候選載入中；市場與持股資料已可先閱讀。')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).toBeDisabled()
-    expect(screen.getByRole('button', { name: '保存本次為研究快照' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '儲存本次為研究快照' })).toBeDisabled()
     expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith({ target_date: '2026-08-28', portfolio_holdings: [], include_strategy_matches: true })
     await act(async () => finish({ ...base, candidates: { ...base.candidates, strategy_status: 'available', strategy_matches: [{ ...base.candidates.new_top10[0], symbol: '2454.TWSE', name: '策略已完成', reason_type: 'strategy_match' }] } }))
     expect(await screen.findByText('策略已完成')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).not.toBeDisabled())
-    expect(screen.getByRole('button', { name: '保存本次為研究快照' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: '儲存本次為研究快照' })).not.toBeDisabled()
   })
 
   it('keeps preview on strategy failure and allows AI and saving with partial status', async () => {
@@ -176,13 +176,13 @@ describe('DailyBrief Page (A12)', () => {
     render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
     expect(await screen.findByText('策略候選載入失敗；可先使用其他已就緒資料分析。')).toBeInTheDocument()
     expect(screen.getByText('22150.80')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '保存本次為研究快照' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '儲存本次為研究快照' })).toBeDisabled()
     const aiButton = screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]
     expect(aiButton).not.toBeDisabled()
     fireEvent.click(aiButton)
     expect(await screen.findByText('部分資料分析')).toBeInTheDocument()
     expect(api.dailyBrief.generateAiSummary).toHaveBeenCalledWith(expect.objectContaining({ candidates: expect.objectContaining({ strategy_status: 'unavailable' }) }))
-    fireEvent.click(screen.getByRole('button', { name: '保存此份' }))
+    fireEvent.click(screen.getByRole('button', { name: '儲存此份' }))
     await waitFor(() => expect(api.dailyBrief.saveDailyBrief).toHaveBeenCalledWith(expect.objectContaining({ structured_brief: expect.objectContaining({ candidates: expect.objectContaining({ strategy_status: 'unavailable' }) }) })))
   })
 
@@ -190,9 +190,9 @@ describe('DailyBrief Page (A12)', () => {
     const base = buildMockBrief()
     vi.mocked(api.dailyBrief.buildDailyBrief).mockResolvedValue({ ...base, candidates: { ...base.candidates, strategy_status: 'available', new_top10: [{ ...base.candidates.new_top10[0], close: null }] } } as any)
     render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter><DailyBrief /></MemoryRouter></QueryClientProvider>)
-    expect(await screen.findByText('候選股缺少有效價格，暫時無法保存研究快照。')).toBeInTheDocument()
+    expect(await screen.findByText('候選股缺少有效價格，暫時無法儲存研究快照。')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).not.toBeDisabled())
-    const save = screen.getByRole('button', { name: '保存本次為研究快照' })
+    const save = screen.getByRole('button', { name: '儲存本次為研究快照' })
     expect(save).toBeDisabled()
     fireEvent.click(save)
     expect(api.selectionReview.saveSnapshot).not.toHaveBeenCalled()
@@ -212,7 +212,7 @@ describe('DailyBrief Page (A12)', () => {
     expect(await screen.findByText('舊部分資料分析')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重試策略候選' }))
     await waitFor(() => expect(screen.queryByText('舊部分資料分析')).not.toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: '保存此份' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '儲存此份' })).not.toBeInTheDocument()
   })
 
   it('ignores late AI output from a previous holdings context', async () => {
@@ -228,7 +228,7 @@ describe('DailyBrief Page (A12)', () => {
     await waitFor(() => expect(api.dailyBrief.buildDailyBrief).toHaveBeenCalledWith(expect.objectContaining({ portfolio_holdings: [expect.objectContaining({ shares: 1000 })] })))
     await act(async () => finish({ section_a_market: '過期持股分析', section_b_key_changes: [], section_c_portfolio: '', section_d_watchlist: '', section_e_candidates: '', section_f_risks: '', section_g_tracking: '', evidence_sources: [] }))
     expect(screen.queryByText('過期持股分析')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '保存此份' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '儲存此份' })).not.toBeInTheDocument()
   })
 
   it('keeps unknown history incomplete while allowing its AI independently of live loading', async () => {
@@ -239,8 +239,8 @@ describe('DailyBrief Page (A12)', () => {
     expect(await screen.findByText('22150.80')).toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: '歷史日報 (1)' }))
     fireEvent.click(screen.getByText('2026-08-27 每日摘要'))
-    expect(screen.getByText('策略候選完整性未知；可分析已知資料，但無法保存完整研究快照。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '保存本次為研究快照' })).toBeDisabled()
+    expect(screen.getByText('策略候選完整性未知；可分析已知資料，但無法儲存完整研究快照。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '儲存本次為研究快照' })).toBeDisabled()
     expect(screen.getAllByRole('button', { name: '產生今日 AI 摘要' })[0]).not.toBeDisabled()
   })
 

@@ -1,10 +1,10 @@
 /**
- * 通用列表列自定義組件。
+ * 通用列表列自定義元件。
  *
  * 布局：
- * - 上半區「已啟用」：已啟用的列，@dnd-kit 拖拽排序
- * - 下半區「內置列」：按業務分組摺疊
- * - 底部「擴展數據列」：複用 ext_data schema，按需添加字段
+ * - 上半區「已啟用」：已啟用的列，@dnd-kit 拖曳排序
+ * - 下半區「內建列」：按業務分組摺疊
+ * - 底部「擴展資料列」：複用 ext_data schema，按需新增欄位
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -32,19 +32,19 @@ interface ListColumnCustomizerProps {
   builtinSectionLabel?: string
   extColumnAlign?: 'left' | 'center' | 'right'
   extFieldFilter?: (field: { name: string; label: string; type: string }) => boolean
-  /** 是否顯示擴展數據列區塊（默認 true；信息條等無法渲染 ext 數據的場景設為 false）。 */
+  /** 是否顯示擴展資料列區塊（預設 true；資訊條等無法渲染 ext 資料的場景設為 false）。 */
   showExtColumns?: boolean
-  /** 是否顯示「單獨顯示」勾選項（默認 false；僅信息條場景啟用，讓某列獨佔一行）。 */
+  /** 是否顯示「單獨顯示」勾選項（預設 false；僅資訊條場景啟用，讓某列獨佔一行）。 */
   showStandaloneToggle?: boolean
 }
 
-/** 判斷擴展數據字段類型是否為數字(int/float/double/number/decimal 等)。
- * 舊列 source 無 fieldType 時默認 true(放寬), 讓舊列也能配置數字格式 ——
+/** 判斷擴展資料欄位類型是否為數字(int/float/double/number/decimal 等)。
+ * 舊列 source 無 fieldType 時預設 true(放寬), 讓舊列也能設定數字格式 ——
  * 若列實際非數字, 渲染時 typeof val==='number' 判斷會跳過格式化, 無副作用。 */
 function isNumericFieldType(ft?: string): boolean {
   if (!ft) return true
   const t = ft.toLowerCase()
-  // 明確是文本類則不顯示
+  // 明確是文字類則不顯示
   if (['str', 'string', 'text', 'char', 'varchar', 'date', 'time', 'bool', 'boolean'].some(k => t.includes(k))) {
     return false
   }
@@ -116,7 +116,7 @@ function SortableActiveCol({ col, onRemove, onConfig, configOpen, extTableLabel,
           <button
             onClick={() => onConfig(configOpen ? null : col.id)}
             className={`transition-all ${configOpen ? 'text-accent' : 'opacity-0 group-hover:opacity-100 touch-visible text-muted hover:text-accent'}`}
-            title="配置"
+            title="設定"
           >
             <Settings2 className="h-3 w-3" />
           </button>
@@ -412,7 +412,7 @@ export function ListColumnCustomizer({
             </div>
           </label>
         )}
-        {/* 數字格式化配置: 千分位 + 單位換算 + 小數位(僅 number 類型字段) */}
+        {/* 數字格式化設定: 千分位 + 單位換算 + 小數位(僅 number 類型欄位) */}
         {col.source.type === 'ext' && isNumericFieldType(col.source.fieldType) && (
           <>
             <div className="border-t border-border/40 pt-2 mt-1 text-xs text-muted">數字格式</div>
@@ -470,7 +470,7 @@ export function ListColumnCustomizer({
     </motion.div>
   )
 
-  // 策略列配置（精簡版：僅顯示數量/位置/排列方向，複用 extDisplay 存儲）
+  // 策略列設定（精簡版：僅顯示數量/位置/排列方向，複用 extDisplay 儲存）
   const renderStrategiesConfig = (col: ColumnConfig) => (
     <motion.div
       initial={{ height: 0, opacity: 0 }}
@@ -562,7 +562,7 @@ export function ListColumnCustomizer({
           value={col.candleConfig?.[field] ?? cfg[field]}
           onChange={e => {
             const raw = e.target.value
-            // 空字符串 → 存 undefined (回退到默認值顯示); 否則存原始數字 (不鉗制)
+            // 空字符串 → 存 undefined (回退到預設值顯示); 否則存原始數字 (不鉗制)
             updateCandleConfig(col.id, { [field]: raw === '' ? undefined : Number(raw) } as Partial<CandleColumnConfig>)
           }}
           onBlur={e => {
@@ -747,7 +747,7 @@ export function ListColumnCustomizer({
                   <div className="flex items-center gap-1.5 px-1 py-1.5">
                     <Eye className="h-3 w-3 text-accent/70" />
                     <span className="text-xs font-semibold text-accent/80 uppercase tracking-wider">已啟用</span>
-                    <span className="text-xs text-muted">{activeCols.length} 列，拖拽排序</span>
+                    <span className="text-xs text-muted">{activeCols.length} 列，拖曳排序</span>
                   </div>
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     <SortableContext items={activeCols.map(c => c.id)} strategy={verticalListSortingStrategy}>

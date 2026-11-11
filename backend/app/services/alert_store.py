@@ -1,4 +1,4 @@
-"""告警觸發記錄存儲 — JSONL 追加寫 + 滾動清理。
+"""告警觸發記錄儲存 — JSONL 追加寫 + 滾動清理。
 
 職責:
   - 把每次觸發的 AlertEvent 追加寫入 data/user_data/alerts.jsonl
@@ -6,8 +6,8 @@
   - 滾動清理: 保留近 N 天 + 上限 M 條 (取交集)
 
 設計:
-  - JSONL 每行一個 JSON 對象,便於增量追加和流式讀取
-  - 清理策略: 追加後按需 prune (按 ts 刪舊),避免文件無限膨脹
+  - JSONL 每行一個 JSON 物件,便於增量追加和流式讀取
+  - 清理策略: 追加後按需 prune (按 ts 刪舊),避免檔案無限膨脹
   - 讀時全量載入到記憶體過濾 (記錄量受上限約束, 5000 條量級無壓力)
 """
 from __future__ import annotations
@@ -100,7 +100,7 @@ def _rewrite_locked(path: Path, events: list[dict]) -> None:
 
 
 def append(data_dir: Path, event: dict) -> None:
-    """追加一條觸發記錄。event 應含 ts(毫秒)、rule_id、source 等字段。"""
+    """追加一條觸發記錄。event 應含 ts(毫秒)、rule_id、source 等欄位。"""
     line = json.dumps(_prepare_event(event), ensure_ascii=False)
     with _lock:
         p = _path(data_dir)
@@ -177,9 +177,9 @@ def list_recent(
     source: str | None = None,
     type: str | None = None,
 ) -> list[dict]:
-    """讀取近 N 天記錄,按時間倒序,支持按 source/type 過濾。
+    """讀取近 N 天記錄,按時間倒序,支援按 source/type 過濾。
 
-    持鎖讀: prune/delete/clear 會整文件重寫, 無鎖讀可能讀到截斷內容。
+    持鎖讀: prune/delete/clear 會整檔案重寫, 無鎖讀可能讀到截斷內容。
     """
     import time
     cutoff = (time.time() - days * 86400) * 1000  # 毫秒
@@ -216,7 +216,7 @@ def list_recent(
 
 
 def clear(data_dir: Path) -> int:
-    """清空全部記錄,返回清除的條數。"""
+    """清空全部記錄,回傳清除的條數。"""
     with _lock:
         p = _path(data_dir)
         if not p.exists():
@@ -232,7 +232,7 @@ def clear(data_dir: Path) -> int:
 
 
 def delete_one(data_dir: Path, ts: int) -> bool:
-    """刪除指定 ts 的單條記錄,返回是否刪除成功。
+    """刪除指定 ts 的單條記錄,回傳是否刪除成功。
 
     JSONL 無主鍵, 用 ts(毫秒時間戳) 作為標識。
     若存在多條同 ts, 只刪第一條。
@@ -344,7 +344,7 @@ def delete_by_id(data_dir: Path, alert_id: str) -> bool:
 
 
 def count(data_dir: Path) -> int:
-    """返回當前記錄總數。持鎖讀, 防與整文件重寫併發。"""
+    """回傳當前記錄總數。持鎖讀, 防與整檔案重寫並行。"""
     p = _path(data_dir)
     if not p.exists():
         return 0
@@ -381,7 +381,7 @@ def _prune_locked(p: Path) -> None:
     if len(kept) > MAX_RECORDS:
         kept.sort(key=lambda x: x.get("ts", 0))
         kept = kept[-MAX_RECORDS:]
-    # 重寫文件
+    # 重寫檔案
     try:
         _rewrite_locked(p, kept)
     except Exception as e:

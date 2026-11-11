@@ -6,6 +6,7 @@ import { useTodayQuantSelection } from '@/components/quant/TodaySelection'
 import { type TaiwanDailyStatus } from './MarketOverviewCard'
 import { SectionTitle } from './SectionTitle'
 import { pctClass, fmtStockPct } from './dashboardFormat'
+import { statusLabel } from '@/lib/evidenceLabel'
 
 export function IndustryStrengthList({ title, rows, tone, quantBySymbol }: { title: string; rows: IndustryMetrics[]; tone: 'bull' | 'bear'; quantBySymbol: Map<string, number> }) {
   return (
@@ -29,7 +30,7 @@ export function IndustryStrengthList({ title, rows, tone, quantBySymbol }: { tit
           {ind.top_turnover.some(stock => quantBySymbol.has(stock.symbol)) && <div className="mt-0.5 flex gap-2 truncate text-xs text-accent"><span className="shrink-0">Quant Top：</span>{ind.top_turnover.filter(stock => quantBySymbol.has(stock.symbol)).map(stock => <Link key={stock.symbol} to={`/stocks/${encodeURIComponent(stock.symbol)}`} className="truncate hover:underline">{stock.name} #{quantBySymbol.get(stock.symbol)}</Link>)}</div>}
         </div>
       ))}
-      {rows.length === 0 && <div className="rounded border border-dashed border-border py-3 text-center text-xs text-muted">暫無資料</div>}
+      {rows.length === 0 && <div className="rounded border border-dashed border-border py-3 text-center text-xs text-muted">尚無資料</div>}
     </div>
   )
 }
@@ -63,7 +64,7 @@ export function IndustryStrengthCard({ snapshot, loading, error, marketDailyStat
         <p className="py-4 text-xs text-muted">目前尚無可比較的產業資料。</p>
       ) : (
         <>
-          {marketDailyStatus !== 'current' && <p className="mb-1 text-xs text-warning">日行情狀態 {marketDailyStatus}，資料交易日 {ind.data.trade_date}。</p>}
+          {marketDailyStatus !== 'current' && <p className="mb-1 text-xs text-warning">日行情狀態 {statusLabel(marketDailyStatus)}，資料交易日 {ind.data.trade_date}。</p>}
           <div className="grid grid-cols-2 gap-2">
             <IndustryStrengthList title="最強" rows={top} tone="bull" quantBySymbol={quantBySymbol} />
             <IndustryStrengthList title="最弱" rows={bottom} tone="bear" quantBySymbol={quantBySymbol} />

@@ -365,7 +365,7 @@ describe('formatDailyBriefCopy & Prompt', () => {
     })
 
     expect(text).toContain('晨報日期：2026-09-25')
-    expect(text).toContain('數據基礎日 (evidence_date)：2026-09-24')
+    expect(text).toContain('資料基礎日 (evidence_date)：2026-09-24')
     expect(text).toContain('資料狀態：cached')
     expect(text).toContain('個人持股詳細資料：未包含（隱私保護已啟用，持有檔數：5 檔）')
     expect(text).not.toContain('800 元')

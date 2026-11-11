@@ -148,7 +148,7 @@ describe('beginner comparator', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('比較資料暫時無法讀取')
     vi.mocked(api.beginnerComparison).mockResolvedValueOnce({ ...comparison(), differences: [] })
     fireEvent.click(screen.getByRole('button', { name: '更新比較' }))
-    expect(await screen.findByText('資料不足或沒有可支持的條件差異，不追加優先理由。')).toBeInTheDocument()
+    expect(await screen.findByText('資料不足或沒有可支援的條件差異，不追加優先理由。')).toBeInTheDocument()
   })
 
   it.each(['available', 'waiting', 'stale'] as const)('does not periodically reload full comparison for %s Fugle context; refresh stays manual', async state => {

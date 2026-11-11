@@ -1,6 +1,6 @@
 """排程 job: 台股盤後增量更新、晚間補抓、買點評估。
 
-所有 job 都只讀本機已落盤資料與官方公開資料來源 (TWSE / TPEx)。
+所有 job 都只讀本機已寫入磁碟資料與官方公開資料來源 (TWSE / TPEx)。
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _refresh_after_close_research() -> dict[str, object]:
 
 
 def _refresh_single_view(repo: KlineRepository, name: str) -> None:
-    """刷新單個 DuckDB 視圖。"""
+    """重新整理單個 DuckDB 檢視表。"""
     d = repo.store.data_dir.as_posix()
     paths = {
         "kline_daily": f"{d}/kline_daily/**/*.parquet",
@@ -90,7 +90,7 @@ def _refresh_single_view(repo: KlineRepository, name: str) -> None:
 
 
 def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> None:
-    """台股盤後更新 + 後續鏈 (研究視圖、Quant、Auto Watch、自動 AI 說明、收盤推播)。
+    """台股盤後更新 + 後續鏈 (研究檢視表、Quant、Auto Watch、自動 AI 說明、收盤推播)。
 
     16:30/晚間排程與啟動補更新共用這一條, 避免補更新只刷資料卻漏掉盤後產出。
     """
@@ -216,8 +216,8 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         replace_existing=True,
     )
 
-    # 月營收收存檔與官方事件快照只在手動更新時刷新, 過期後選股會判為資料不可用。
-    # 月營收於盤前 (開盤前取得) 與收盤後各刷新一次, 事件快照每小時刷新 (TTL 1 小時)。
+    # 月營收收存檔與官方事件快照只在手動更新時重新整理, 過期後選股會判為資料不可用。
+    # 月營收於盤前 (開盤前取得) 與收盤後各重新整理一次, 事件快照每小時重新整理 (TTL 1 小時)。
     def _scheduled_official_evidence_refresh(kind: str) -> None:
         try:
             from app.config import settings
@@ -284,7 +284,7 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
             replace_existing=True,
         )
 
-    # 買點策略只讀本地已落盤資料與自選股設定, 每個交易日盤中至少評估兩次。
+    # 買點策略只讀本地已寫入磁碟資料與自選股設定, 每個交易日盤中至少評估兩次。
     # 外部通知沿用既有 alert/SSE/LINE/Telegram 管線, 資料不足時由 evaluator fail closed。
     def _scheduled_buy_point_evaluation():
         try:
@@ -378,7 +378,7 @@ def _get_app_state():
 
 
 def notify_daily_data_updated(app_state=None) -> None:
-    """盤後資料已落盤: SSE 通知前端刷新依賴日線的查詢 (含持股分析)。失敗不影響更新本身。"""
+    """盤後資料已寫入磁碟: SSE 通知前端重新整理依賴日線的查詢 (含持股分析)。失敗不影響更新本身。"""
     qs = getattr(app_state or _app_state_ref, "quote_service", None)
     if qs is None:
         return

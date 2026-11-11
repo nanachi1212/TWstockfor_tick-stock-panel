@@ -30,7 +30,7 @@ export function Monitor() {
   const twRules = twRulesQuery.data?.rules || []
 
   // 台股觸發記錄 (與 strategy_alert SSE 共用同一份 alertsQuery/api.alertsList,
-  // 只是 Monitor 頁面級的兜底輪詢 — 未讀徽標/即時刷新走既有 monitorBadge/SSE)
+  // 只是 Monitor 頁面級的備援輪詢 — 未讀徽標/即時重新整理走既有 monitorBadge/SSE)
   const alertsQuery = useQuery({
     queryKey: QK.alerts(undefined),
     queryFn: () => api.alertsList({ days: 7, limit: 500 }),
@@ -113,7 +113,7 @@ export function Monitor() {
                       setPresetTwQuote(null)
                       setTwEditorOpen(true)
                     }}
-                    title="新建台股規則"
+                    title="新增台股規則"
                     className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-accent/40 hover:text-accent hover:shadow-sm cursor-pointer"
                   >
                     <Plus className="h-3.5 w-3.5" />

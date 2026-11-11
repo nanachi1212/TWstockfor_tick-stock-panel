@@ -128,7 +128,7 @@ export function TaiwanStockDetail() {
   const [volUnit, setVolUnit] = useState<'lots' | 'shares'>('lots')
   const [portfolioRevision, setPortfolioRevision] = useState(0)
   const autoAnalyzeStartedFor = useRef<string | null>(null)
-  // Beginner Stock Picker v1: 第一屏只給結論；原始數據收在「展開進階資料」。
+  // Beginner Stock Picker v1: 第一屏只給結論；原始資料收在「展開進階資料」。
   const [showAdvanced, setShowAdvanced] = useState<boolean>(() => storage.stockDetailAdvanced.get(false))
   useEffect(() => {
     if (['#portfolio', '#monitor'].includes(location.hash)) setShowAdvanced(true)
@@ -440,7 +440,7 @@ export function TaiwanStockDetail() {
         setAiError(res.error_message || (requestedMode === 'advice' ? 'AI 建議生成失敗' : 'AI 研究報告生成失敗'))
       }
     } catch (e: any) {
-      setAiError(e?.message || 'AI 服務調用失敗，請稍後重試')
+      setAiError(e?.message || 'AI 服務呼叫失敗，請稍後重試')
     } finally {
       setIsAiLoading(false)
     }
@@ -810,7 +810,7 @@ export function TaiwanStockDetail() {
 
                 {/* 操作按鈕 */}
                 {/* Phase 8B-4.2.1: 移除原本連到 /backtest?symbol=... 的「查看回測」
-                    按鈕 —— 該回測工作台的標的選擇器目前仍呼叫 A 股 instrumentSearch,
+                    按鈕 —— 該回測工作台的標的選擇器目前仍呼叫舊版 instrumentSearch,
                     無法真正選取台股標的,留著會是誤導使用者的死路連結。route/component
                     本身未刪除,待台股回測真正可用後再視情況加回。 */}
                 <div className="flex flex-col gap-1.5">
@@ -950,7 +950,7 @@ export function TaiwanStockDetail() {
                 </div>
               ) : (
                 <div className="flex h-[400px] items-center justify-center text-xs text-muted border border-dashed border-border rounded-xl">
-                  暫無歷史 K 線資料
+                  尚無歷史 K 線資料
                 </div>
               )}
               {!!data.timeframe_verdicts?.length && <TimeframeVerdicts verdicts={data.timeframe_verdicts} />}
@@ -1139,7 +1139,7 @@ export function TaiwanStockDetail() {
                   </div>
                 </div>
               ) : (
-                <div className="py-8 text-center text-xs text-muted">目前暫無計算完成之因子</div>
+                <div className="py-8 text-center text-xs text-muted">目前尚無計算完成之因子</div>
               )}
             </div>
           </div>
@@ -2254,9 +2254,9 @@ export function TaiwanStockDetail() {
               <BriefSection title="事件與新聞脈絡" text={aiReport.events_news_interpretation} />
             )}
             <BriefSection title="為什麼值得注意" text={[aiReport.industry_interpretation, aiReport.institutional_interpretation, aiReport.margin_interpretation, aiReport.abnormal_diagnostics_interpretation].filter(Boolean).join(' ')} items={aiReport.key_observations.map(item => item.text)} />
-            <BriefSection title="我的部位（占已登錄持股市值）" text={aiReport.portfolio_interpretation} />
+            <BriefSection title="我的部位（占已登入持股市值）" text={aiReport.portfolio_interpretation} />
             <BriefSection title="提醒解讀" text={aiReport.alert_interpretation} />
-            <BriefSection title="風險" text={aiReport.risk_factors.length === 0 ? 'AI 未列出有資料支持的具體風險訊號。' : undefined} items={aiReport.risk_factors.map(item => item.text)} />
+            <BriefSection title="風險" text={aiReport.risk_factors.length === 0 ? 'AI 未列出有資料支援的具體風險訊號。' : undefined} items={aiReport.risk_factors.map(item => item.text)} />
             <BriefSection title="接下來觀察" text={(aiReport.watch_next ?? []).length === 0 ? '目前資料不足以列出具體觀察點。' : undefined} items={(aiReport.watch_next ?? []).map(item => item.text)} />
 
             <details className="rounded-lg border border-border/40 bg-base/20 p-3">
@@ -2342,7 +2342,7 @@ export function TaiwanStockDetail() {
             {/* Risk Factors with Evidence Chips */}
             {aiReport.risk_factors && aiReport.risk_factors.length > 0 && (
               <div className="bg-base/40 p-3.5 rounded-lg border border-border/40 space-y-2">
-                <span className="text-xs font-semibold text-amber-400 block">【數據揭示之風險特徵 (Risk Evidence)】</span>
+                <span className="text-xs font-semibold text-amber-400 block">【資料揭示之風險特徵 (Risk Evidence)】</span>
                 <div className="space-y-2">
                   {aiReport.risk_factors.map((rsk, idx) => (
                     <div key={idx} className="flex flex-col gap-1 bg-surface/60 p-2 rounded border border-border/30">
@@ -2363,7 +2363,7 @@ export function TaiwanStockDetail() {
             {/* Deterministic Missing Information */}
             {aiReport.missing_information && aiReport.missing_information.length > 0 && (
               <div className="bg-base/30 p-2.5 rounded-lg border border-border/30 text-xs text-muted">
-                <span className="font-semibold text-zinc-400 block mb-1">【系統數據覆蓋度說明】:</span>
+                <span className="font-semibold text-zinc-400 block mb-1">【系統資料覆蓋度說明】:</span>
                 <ul className="list-disc list-inside space-y-0.5 font-mono text-xs">
                   {aiReport.missing_information.map((item, idx) => (
                     <li key={idx} className="text-zinc-400">{item}</li>

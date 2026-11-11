@@ -1,10 +1,7 @@
-"""Taiwan session timing; cn_* names remain deprecated compatibility aliases."""
+"""台股交易時段計時。"""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
-
-# Deprecated compatibility name for legacy timestamp consumers.
-CN_TZ = timezone(timedelta(hours=8))
+from datetime import datetime
 
 
 def trading_minutes_per_session() -> float:
@@ -13,20 +10,6 @@ def trading_minutes_per_session() -> float:
 
     return float((REGULAR_OPEN_END.hour - REGULAR_OPEN_START.hour) * 60
                  + REGULAR_OPEN_END.minute - REGULAR_OPEN_START.minute)
-
-
-def cn_now() -> datetime:
-    """Deprecated compatibility alias for Taiwan local time."""
-    from app.taiwan.realtime.calendar import taipei_now
-
-    return taipei_now()
-
-
-def cn_today() -> date:
-    """Deprecated compatibility alias for the Taiwan local date."""
-    from app.taiwan.realtime.calendar import taipei_today
-
-    return taipei_today()
 
 
 def trading_minutes_elapsed_from_dt(dt: datetime) -> float:
@@ -46,15 +29,19 @@ def trading_minutes_elapsed_from_dt(dt: datetime) -> float:
 
 def trading_minutes_elapsed() -> float:
     """Current Taiwan session progress, used only when a quote timestamp is absent."""
-    return trading_minutes_elapsed_from_dt(cn_now())
+    from app.taiwan.realtime.calendar import taipei_now
+
+    return trading_minutes_elapsed_from_dt(taipei_now())
 
 
 def trading_minutes_elapsed_from_ts(ts_ms: int | float | None) -> float:
     """Read a millisecond quote timestamp; unavailable timestamps retain full-day semantics."""
     if not ts_ms:
         return trading_minutes_per_session()
+    from app.taiwan.realtime.calendar import TAIPEI_TZ
+
     try:
-        dt = datetime.fromtimestamp(int(ts_ms) / 1000.0, tz=CN_TZ)
+        dt = datetime.fromtimestamp(int(ts_ms) / 1000.0, tz=TAIPEI_TZ)
     except (OverflowError, ValueError, TypeError, OSError):
         return trading_minutes_per_session()
     return trading_minutes_elapsed_from_dt(dt)

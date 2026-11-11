@@ -204,7 +204,7 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 # ----------------------------------------------------------------
 # 使用者 focus 輸入淨化 — 防止通過"特別關注"繞過紅線誘導 AI 給出買賣建議
-# 命中任一敏感詞時,整個 focus 被丟棄(返回空串),由各 analyzer 據此跳過注入。
+# 命中任一敏感詞時,整個 focus 被丟棄(回傳空串),由各 analyzer 據此跳過注入。
 # ----------------------------------------------------------------
 _FOCUS_BLOCKLIST = re.compile(
     r"買入|賣出|加倉|減倉|輕倉|重倉|半倉|全倉|倉位|止損|止盈|"
@@ -220,8 +220,8 @@ _FOCUS_BLOCKLIST = re.compile(
 def sanitize_focus(focus: str) -> str:
     """淨化使用者輸入的 focus 文本。
 
-    命中交易指令/投資建議類敏感詞時返回空串,阻止其注入 AI 提示詞。
-    這是對系統提示詞紅線的兜底:即便使用者試圖通過 focus 繞過,也不會生效。
+    命中交易指令/投資建議類敏感詞時回傳空串,阻止其注入 AI 提示詞。
+    這是對系統提示詞紅線的保底:即便使用者試圖通過 focus 繞過,也不會生效。
     """
     if not focus:
         return ""
@@ -256,7 +256,7 @@ def current_openai_model() -> str:
 def current_codex_model() -> str:
     stored = secrets_store.load()
     model = stored.get("ai_codex_model")
-    # 舊版本的兩種 provider 共用 ai_model。僅在舊配置仍啟用 Codex 時回退讀取,
+    # 舊版本的兩種 provider 共用 ai_model。僅在舊設定仍啟用 Codex 時回退讀取,
     # 避免把正常的 OpenAI-compatible 模型誤當作 Codex 模型。
     if model is None and current_ai_provider() == CODEX_CLI_PROVIDER:
         model = stored.get("ai_model")
@@ -288,15 +288,15 @@ def current_ai_request_timeout() -> float:
 
 
 def current_ai_context_window() -> int:
-    """當前 AI 輸入上下文窗口上限 (約 token): secrets.json 優先, 否則 config 預設。"""
+    """當前 AI 輸入上下文視窗上限 (約 token): secrets.json 優先, 否則 config 預設。"""
     return secrets_store.get_ai_config_int("ai_context_window", settings.ai_context_window)
 
 
 def _resolve_max_tokens(max_tokens: int | None, *, cap: int | None = None) -> int | None:
-    """顯式傳入的 max_tokens 鉗制到配置輸出上限; None 保持 None。
+    """顯式傳入的 max_tokens 限制到設定輸出上限; None 保持 None。
 
     None = 不傳該參數(推理型模型的思考 token 計入 max_tokens 預算,
-    顯式限制會擠佔正文, 語義見 generate_ai_text), 不能映射成配置上限。
+    顯式限制會擠佔正文, 語意見 generate_ai_text), 不能映射成設定上限。
     """
     if max_tokens is None:
         return None
@@ -321,11 +321,11 @@ def _check_input_budget(
     context_window: int | None = None,
     max_output_tokens: int | None = None,
 ) -> None:
-    """輸入估算超出上下文窗口時給出明確報錯, 避免上游 400 或靜默截斷。
+    """輸入估算超出上下文視窗時給出明確的錯誤訊息, 避免來源 400 或靜默截斷。
 
     token 計數不精確, 僅作安全網: 用中/英文混合估算, 只有明顯超窗才拒絕;
-    使用者可在 AI 設定裡調大『上下文窗口』。max_tokens=None(輸出放開)時用
-    配置上限作輸出預留估計。
+    使用者可在 AI 設定裡調大『上下文視窗』。max_tokens=None(輸出放開)時用
+    設定上限作輸出預留估計。
     """
     context_window = current_ai_context_window() if context_window is None else context_window
     if context_window <= 0:
@@ -336,7 +336,7 @@ def _check_input_budget(
     if est + output_reserve > context_window:
         raise ValueError(
             f"輸入過長: 估算輸入約 {est} tokens, 加上輸出預算 {max_tokens} tokens, "
-            f"超過上下文窗口 {context_window}。請縮短輸入, 或在 AI 設定中調大『上下文窗口』。"
+            f"超過上下文視窗 {context_window}。請縮短輸入, 或在 AI 設定中調大『上下文視窗』。"
         )
 
 
@@ -393,7 +393,7 @@ def normalize_codex_command(command: str | None, *, strict: bool = True) -> str:
     if not value or value.lower() == CODEX_DEFAULT_COMMAND:
         return CODEX_DEFAULT_COMMAND
     if strict:
-        raise ValueError("Codex CLI 僅支持使用預設 codex 命令自動解析, 不支持自定義可執行路徑")
+        raise ValueError("Codex CLI 僅支援使用預設 codex 命令自動解析, 不支援自訂可執行路徑")
     return CODEX_DEFAULT_COMMAND
 
 
@@ -419,7 +419,7 @@ def codex_cli_available() -> bool:
     """Codex CLI 是否真正可用: 解析命令後實跑一次 --version。
 
     僅 which 到二進制不夠 — npm 殼缺平台原生二進制時同樣存在於 PATH,
-    但一執行就報錯(如 "Codex CLI not available"), 狀態頁會誤報已連接。
+    但一執行就出錯(如 "Codex CLI not available"), 狀態頁會誤報已連接。
     """
     try:
         base = _codex_base_command()
@@ -457,7 +457,7 @@ def ai_configured(provider: str | None = None) -> bool:
     return bool(secrets_store.get_ai_key())
 
 
-# ── 本機模型暖機: 同一程序內第一次呼叫某個本機模型時, 逾時放寬到兩倍 (上限 300 秒) ──
+# ── 本機模型暖機: 同一行程內第一次呼叫某個本機模型時, 逾時放寬到兩倍 (上限 300 秒) ──
 _WARMED_UP: set[str] = set()
 
 
@@ -492,7 +492,7 @@ async def generate_ai_text(
     max_tokens=None 表示不傳該參數(輸出上限交給服務端預設) — 推理型模型
     (如 deepseek reasoner 系)的思考 token 計入 max_tokens 預算, 顯式限制
     會擠佔正文甚至全部吃光(正文 0 字 + finish=length), 長分析類呼叫應放開。
-    顯式傳入的數值會被鉗制到配置的輸出上限 (AI 設定可調)。
+    顯式傳入的數值會被限制到設定的輸出上限 (AI 設定可調)。
     """
     if config_snapshot is None:
         config_snapshot = snapshot_ai_provider_config()
@@ -728,7 +728,7 @@ async def _run_openai_once(
 ) -> str:
     ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
     if not ai_key:
-        raise RuntimeError("AI API Key 未配置, 請在設定頁配置")
+        raise RuntimeError("AI API Key 未設定, 請在設定頁設定")
 
     client = _openai_client(ai_key, timeout, config_snapshot=config_snapshot)
     model = config_snapshot.model if config_snapshot is not None else (
@@ -927,7 +927,7 @@ async def _stream_openai(
 ) -> AsyncIterator[str]:
     ai_key = config_snapshot.api_key if config_snapshot is not None else secrets_store.get_ai_key()
     if not ai_key:
-        raise RuntimeError("AI API Key 未配置, 請在設定頁配置")
+        raise RuntimeError("AI API Key 未設定, 請在設定頁設定")
 
     client = _openai_client(ai_key, timeout, config_snapshot=config_snapshot)
     model = config_snapshot.model if config_snapshot is not None else current_ai_model()
@@ -1131,19 +1131,19 @@ def _format_openai_error(exc: Exception) -> str:
     detail = _openai_error_detail(exc)
     status_messages = {
         400: "請求參數無效, 請檢查模型名稱和上下文長度",
-        401: "API Key 無效或無權限, 請檢查設定頁配置",
-        403: "AI 服務拒絕訪問, 請檢查帳號權限或網關配置",
-        404: "模型或接口地址不存在, 請檢查 AI Base URL 和模型名稱",
+        401: "API Key 無效或無權限, 請檢查設定頁設定",
+        403: "AI 服務拒絕訪問, 請檢查帳號權限或閘道設定",
+        404: "模型或介面地址不存在, 請檢查 AI Base URL 和模型名稱",
         408: "AI 服務請求超時, 請稍後重試",
         429: "AI 服務限流或額度不足, 請稍後重試或檢查額度",
         500: "AI 服務內部錯誤, 請稍後重試",
-        502: "AI 網關返回錯誤, 請稍後重試或檢查 AI Base URL",
+        502: "AI 閘道回傳錯誤, 請稍後重試或檢查 AI Base URL",
         503: "AI 服務暫時不可用, 請稍後重試",
-        504: "AI 上游服務超時, 請稍後重試或檢查 AI Base URL / 網路",
+        504: "AI 服務端超時, 請稍後重試或檢查 AI Base URL / 網路",
     }
-    # 優先透出上游真實錯誤 (如 Moonshot 的 "model not found"), 僅在沒有
+    # 優先回傳來源真實錯誤 (如 Moonshot 的 "model not found"), 僅在沒有
     # 可讀 detail 時才回落到按狀態碼的通用文案, 避免吞掉排障關鍵資訊。
-    message = detail or status_messages.get(status) or "請稍後重試或檢查 AI 服務配置"
+    message = detail or status_messages.get(status) or "請稍後重試或檢查 AI 服務設定"
     if status:
         return f"AI 服務請求失敗({status}): {message}"
     return f"AI 服務請求失敗: {message}"
@@ -1198,7 +1198,7 @@ async def _run_codex_cli(
     config_snapshot: AIProviderConfigSnapshot | None = None,
 ) -> str:
     prompt = _codex_prompt(messages, max_tokens=max_tokens)
-    run_path = Path(tempfile.mkdtemp(prefix="tickflow-codex-run-"))
+    run_path = Path(tempfile.mkdtemp(prefix="tsp-codex-run-"))
     try:
         codex_home_path = run_path / "codex-home"
         workspace_path = run_path / "workspace"
@@ -1257,7 +1257,7 @@ async def _run_codex_cli(
             raise RuntimeError(f"Codex CLI 呼叫失敗: {detail[-1200:]}")
         result = final_message or out
         if not result:
-            raise RuntimeError("Codex CLI 未返回內容")
+            raise RuntimeError("Codex CLI 未回傳內容")
         return result
     finally:
         await asyncio.to_thread(_remove_tree_best_effort, run_path)
@@ -1297,7 +1297,7 @@ async def _run_claude_cli(
 ) -> str:
     """Run one isolated `claude -p` turn on the user's Claude subscription and return its text."""
     prompt = _codex_prompt(messages, max_tokens=max_tokens)
-    workspace = Path(tempfile.mkdtemp(prefix="tickflow-claude-run-"))
+    workspace = Path(tempfile.mkdtemp(prefix="tsp-claude-run-"))
     try:
         from app.services.ai_key_profiles import validate_model_name
 
@@ -1322,7 +1322,7 @@ async def _run_claude_cli(
                 raise RuntimeError("Claude 訂閱登入已失效，請在終端機執行 claude 並用 /login 重新登入")
             raise RuntimeError(f"Claude Code CLI 呼叫失敗: {detail[-1200:]}")
         if not isinstance(result, str) or not result.strip():
-            raise RuntimeError("Claude Code CLI 未返回內容")
+            raise RuntimeError("Claude Code CLI 未回傳內容")
         return result.strip()
     finally:
         await asyncio.to_thread(shutil.rmtree, workspace, True)

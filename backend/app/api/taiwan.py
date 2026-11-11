@@ -352,14 +352,14 @@ def get_taiwan_transaction_tax(
 
 @router.get("/data-status", response_model=FreshnessStatus)
 def get_taiwan_data_status():
-    """獲取台股市場三大本地數據集 (日線、三大法人、融資券) 之最新落盤日期與市場時效狀況。"""
+    """取得台股市場三大本地資料集 (日線、三大法人、融資券) 之最新寫入磁碟日期與市場時效狀況。"""
     svc = TaiwanDailyUpdateService()
     return svc.get_freshness()
 
 
 @router.get("/history-status", response_model=TaiwanHistoryStatus)
 def get_taiwan_history_status():
-    """獲取台股歷史日 K 資料狀態 (是否已落盤、最早/最新日期、交易日數、是否需初始化)。"""
+    """取得台股歷史日 K 資料狀態 (是否已寫入磁碟、最早/最新日期、交易日數、是否需初始化)。"""
     return get_history_status()
 
 
@@ -429,7 +429,7 @@ def get_taiwan_data_capabilities():
 
 @router.post("/stocks/compare", response_model=TaiwanStockComparisonResponse)
 def compare_taiwan_stocks(request: TaiwanStockCompareRequest):
-    """台股多標的 (2-5檔) 確定性客觀比較 (純本地計算，0 AI 調用，0 執行期外部請求)。
+    """台股多標的 (2-5檔) 確定性客觀比較 (純本地計算，0 AI 呼叫，0 執行期外部請求)。
 
     NOTE: 此路由必須註冊於任何 /stocks/{symbol} 動態路由之前，
     避免 FastAPI 依註冊順序將 'compare' 誤判為 {symbol} 路徑參數。
@@ -501,7 +501,7 @@ def get_taiwan_stock_detail(
     symbol: str,
     days: int = Query(120, ge=10, le=1000, description="歷史日 K 線根數"),
 ):
-    """獲取單一台股標的完整研究工作台資料 (一站式聚合，不因單一來源失敗中斷)。"""
+    """取得單一台股標的完整研究工作台資料 (一站式聚合，不因單一來源失敗中斷)。"""
     try:
         # Validate symbol format (e.g. 2330.TWSE, 8069.TPEX)
         parse_symbol(symbol)
@@ -1074,7 +1074,7 @@ def get_selection_forward_batch_detail(batch_id: str):
 
 @router.post("/selection-review/snapshots")
 def save_selection_snapshot(body: dict[str, Any]):
-    """保存本次選股結果為不可變快照 (Point-in-time snapshot)。"""
+    """儲存本次選股結果為不可變快照 (Point-in-time snapshot)。"""
     from app.taiwan.selection_review_models import SaveSelectionSnapshotRequest
     from app.taiwan.selection_review_service import get_selection_review_service
 
@@ -1368,7 +1368,7 @@ class SaveDailyBriefPayload(BaseModel):
 
 @router.post("/daily-brief/save")
 def save_daily_brief_history(payload: SaveDailyBriefPayload):
-    """保存使用者確認的每日摘要歷史至本機 user_data。"""
+    """儲存使用者確認的每日摘要歷史至本機 user_data。"""
     from app.taiwan.daily_brief_models import DailyBriefAISummary, DeterministicDailyBrief
     from app.taiwan.daily_brief_service import get_daily_brief_service
 
@@ -1394,7 +1394,7 @@ def save_daily_brief_history(payload: SaveDailyBriefPayload):
 
 @router.get("/daily-brief/history")
 def list_daily_brief_history(limit: int | None = None):
-    """取得歷史保存的每日摘要清單。"""
+    """取得歷史儲存的每日摘要清單。"""
     from app.taiwan.daily_brief_service import get_daily_brief_service
 
     svc = get_daily_brief_service()

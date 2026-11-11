@@ -121,7 +121,7 @@ def test_revocation_by_another_process_takes_effect_on_running_server(auth_store
 
     verify_token = auth_store.create_verify_session(VERIFY)
     main_token = auth_store.verify_and_create_session(MAIN)
-    # 模擬撤銷腳本在另一個程序改寫 auth.json: 執行中伺服器的記憶體會話不會先被清掉。
+    # 模擬撤銷腳本在另一個行程改寫 auth.json: 執行中伺服器的記憶體會話不會先被清掉。
     path = tmp_path / "user_data" / "auth.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     for key in ("verify_hash", "verify_salt"):

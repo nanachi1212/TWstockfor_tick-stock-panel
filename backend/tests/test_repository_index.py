@@ -21,11 +21,11 @@ def _write_index_instruments(repo, rows):
 
 def test_name_map_includes_index(repo):
     _write_index_instruments(repo, {
-        "symbol": ["000001.SH"], "name": ["上證指數"],
+        "symbol": ["000001.SH"], "name": ["測試指數"],
         "code": ["000001"], "asset_type": ["index"],
     })
     names = repo.get_name_map(["000001.SH", "600000.SH"])
-    assert names.get("000001.SH") == "上證指數"
+    assert names.get("000001.SH") == "測試指數"
     assert "600000.SH" not in names  # 未收錄不造名
 
 
@@ -76,7 +76,7 @@ def test_name_map_partial_query_does_not_poison_cache(repo):
 
 
 def test_name_map_cache_invalidated_on_instruments_refresh(repo):
-    """維表刷新後快取必須失效: 新收錄的股票能立刻查到名稱。"""
+    """維表重新整理後快取必須失效: 新收錄的股票能立刻查到名稱。"""
     _write_stock_instruments(repo, ["600000.SH"], ["浦發銀行"])
     assert repo.get_name_map(["600000.SH"]) == {"600000.SH": "浦發銀行"}
     _write_stock_instruments(repo, ["600000.SH", "301999.SZ"], ["浦發銀行", "新股股份"])
@@ -128,7 +128,7 @@ def test_get_enriched_latest_asset_index(repo):
     df, dt = repo.get_enriched_latest_asset("index")
     assert str(dt) == "2026-07-24"
     assert df["symbol"].to_list() == ["000001.SH"]
-    assert "ma5" in df.columns or "rsi_14" in df.columns  # 重算產出指標列
+    assert "ma5" in df.columns or "rsi_14" in df.columns  # 重算產出指標欄
 
 
 def test_get_enriched_latest_asset_index_cold_no_refresh(repo):

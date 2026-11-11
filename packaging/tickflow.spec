@@ -1,15 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配置 — 桌面客戶端 (onedir 模式)。
+"""PyInstaller 打包設定 — 桌面用戶端 (onedir 模式)。
 
 為什麼 onedir 而非 onefile:
-  - onefile 每次啟動都解壓到臨時 _MEIxxxxx, 與 APScheduler/多線程衝突
-  - onedir 啟動更快, 調試更方便 (可看到目錄結構), 原生庫直接在目錄裡
+  - onefile 每次啟動都解壓到臨時 _MEIxxxxx, 與 APScheduler/多執行緒衝突
+  - onedir 啟動更快, 除錯更方便 (可看到目錄結構), 原生庫直接在目錄裡
   - 體積差異通過壓縮安裝包彌補 (CI 裡 zip 打包)
 
 入口: backend/app/desktop.py (桌面版入口, 含 uvicorn + pywebview)
 
-構建 (在項目根目錄):
-  cd frontend && pnpm build                     # 先構建前端到 frontend/dist
+建置 (在專案根目錄):
+  cd frontend && pnpm build                     # 先建置前端到 frontend/dist
   pyinstaller packaging/tickflow.spec           # 產物在 dist/NanachiStockPanel/
 """
 import sys
@@ -27,7 +27,7 @@ _IS_MACOS = sys.platform == "darwin"
 
 block_cipher = None
 
-# ── 資源路徑基準: 項目根 (spec 文件在 packaging/ 下) ──────────────────
+# ── 資源路徑基準: 專案根 (spec 文件在 packaging/ 下) ──────────────────
 ROOT = Path(SPECPATH).parent
 FRONTEND_DIST = str(ROOT / "frontend" / "dist")
 VERSION_FILE = str(ROOT / "VERSION")
@@ -36,8 +36,8 @@ if not RELEASE_SEED.is_file():
     raise FileNotFoundError(
         "Missing release seed. Run scripts/build_release_seed.py before PyInstaller."
     )
-# 圖標按平台選: Windows 用 .ico, macOS 用 .icns (PyInstaller 對 .ico 在
-# mac 上靜默忽略, 不換格式 Dock/Finder 會顯示通用圖標)。兩者都由
+# 圖示按平台選: Windows 用 .ico, macOS 用 .icns (PyInstaller 對 .ico 在
+# mac 上靜默忽略, 不換格式 Dock/Finder 會顯示通用圖示)。兩者都由
 # packaging/generate_icon.py 一併生成。
 APP_ICON = str(ROOT / "packaging" / ("icon.icns" if _IS_MACOS else "icon.ico"))
 
@@ -72,8 +72,8 @@ for pkg in ("polars", "pyarrow", "duckdb", "fastexcel"):
     hiddenimports += h
 
 # Polars 的發行包名為 polars-runtime-32 / polars-runtime-compat, 但實際
-# Python 導入包帶前導下劃線。release.yml 安裝 legacy-cpu 後必須收集二者，
-# 否則 onedir 產物無法在沒有 AVX2/FMA 的舊 CPU 上加載兼容內核。
+# Python 匯入包帶前導下劃線。release.yml 安裝 legacy-cpu 後必須收集二者，
+# 否則 onedir 產物無法在沒有 AVX2/FMA 的舊 CPU 上載入相容核心。
 for pkg in ("_polars_runtime_32", "_polars_runtime_compat"):
     if find_spec(pkg) is not None:
         rt_d, rt_b, rt_h = collect_all(pkg)
@@ -81,20 +81,20 @@ for pkg in ("_polars_runtime_32", "_polars_runtime_compat"):
         binaries += rt_b
         hiddenimports += rt_h
 
-# Polars 新 ABI 運行時由加載器選擇，需顯式收集子模塊。
+# Polars 新 ABI 執行階段由載入器選擇，需顯式收集子模組。
 hiddenimports += collect_submodules("polars", filter=_runtime_submodule)
 
-# ── pywebview 平台後端 (動態導入, PyInstaller 默認抓不到) ────────────
+# ── pywebview 平台後端 (動態匯入, PyInstaller 預設抓不到) ────────────
 hiddenimports += collect_submodules("webview")
 hiddenimports += collect_submodules("webview.platforms")
 
-# ── 系統通知後端 (winotify/plyer 按平台動態導入) ─────────────────────
+# ── 系統通知後端 (winotify/plyer 按平台動態匯入) ─────────────────────
 if sys.platform == "win32":
     hiddenimports += collect_submodules("winotify")
 hiddenimports += collect_submodules("plyer")
 hiddenimports += collect_submodules("plyer.platforms")
 
-# ── uvicorn 動態導入的模塊 (loop/protocol/logging 按字符串加載) ──────
+# ── uvicorn 動態匯入的模組 (loop/protocol/logging 按字串載入) ──────
 hiddenimports += [
     "uvicorn.logging",
     "uvicorn.loops",
@@ -110,12 +110,12 @@ hiddenimports += [
     "uvicorn.lifespan.on",
 ]
 
-# ── fastapi / pydantic 元數據 (版本檢測用) ───────────────────────────
+# ── fastapi / pydantic 元資料 (版本檢測用) ───────────────────────────
 # 注意: 任何用 importlib.metadata.version() 讀版本的包, 都必須 copy_metadata,
 # 否則 frozen 後報 PackageNotFoundError。
-# 用容錯寫法: 不存在的包跳過, 避免不同環境 (有無裝某依賴) 導致構建失敗。
+# 用容錯寫法: 不存在的包跳過, 避免不同環境 (有無裝某依賴) 導致建置失敗。
 def _safe_metadata(pkg):
-    """收集包元數據, 包不存在時靜默跳過。"""
+    """收集包元資料, 包不存在時靜默跳過。"""
     try:
         return copy_metadata(pkg)
     except Exception:
@@ -129,7 +129,7 @@ for pkg in (
 ):
     datas += _safe_metadata(pkg)
 
-# ── 隨包資源 (只讀, 放進 _MEIPASS) ────────────────────────────────────
+# ── 隨包資源 (唯讀, 放進 _MEIPASS) ────────────────────────────────────
 # 前端 dist → static/ (config.py frozen 模式讀 _MEIPASS/static)
 datas += [(FRONTEND_DIST, "static")]
 # VERSION → 包根 (app.__version__ 與 UI 的唯一版本來源)
@@ -192,7 +192,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=APP_ICON,      # 應用圖標 (與 favicon/logo 一致)
+    icon=APP_ICON,      # 應用圖示 (與 favicon/logo 一致)
 )
 
 coll = COLLECT(
@@ -209,12 +209,12 @@ coll = COLLECT(
 # ── macOS: 封裝成 .app 包 ────────────────────────────────────────────
 # Windows/Linux: 上面 COLLECT 產出的 onedir 目錄即是最終產物。
 # macOS: 額外加 BUNDLE, 把目錄包裝成標準 .app (Contents/MacOS/...),
-# 這樣 Dock/Finder 能識別, 用戶可雙擊啟動, 並顯示自定義 .icns 圖標。
+# 這樣 Dock/Finder 能識別, 使用者可雙擊啟動, 並顯示自定義 .icns 圖示。
 # BUNDLE 必須引用上面的 COLLECT (coll), 它會把 coll 的產物搬進 .app。
 #
 # PyInstaller 6 BUNDLE 關鍵參數 (見 building/osx.py):
-#   - version:            → CFBundleShortVersionString (默認 0.0.0, 必須顯式傳)
-#   - info_plist (單數!):  用戶自定義鍵, update 合併進默認 plist, 可覆蓋任意字段
+#   - version:            → CFBundleShortVersionString (預設 0.0.0, 必須顯式傳)
+#   - info_plist (單數!):  使用者自定義鍵, update 合併進預設 plist, 可覆蓋任意欄位
 if _IS_MACOS:
     APP_VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip().removeprefix("v")
 

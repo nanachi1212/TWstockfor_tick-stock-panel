@@ -107,10 +107,10 @@ async def write_reflection(advice: dict[str, Any], outcome: dict[str, Any]) -> R
                 "role": "user",
                 "content": f"""結果與當時的 Advice：{json.dumps(facts, ensure_ascii=False, default=str)}
 
-評估窗口是交易計畫本身（停損、停利或最長持有天數）；單一結果不等於策略好壞。
+評估視窗是交易計畫本身（停損、停利或最長持有天數）；單一結果不等於策略好壞。
 summary 寫 2 到 4 句純文字（不要條列、標題或 markdown），依序：
 1. 引用報酬數字；有 alpha_pct 時一併引用相對加權指數的超額報酬。not_triggered 時說明沒進場代表什麼。
-2. 指出 Advice 的哪個理由被結果支持，哪個被推翻。
+2. 指出 Advice 的哪個理由被結果支援，哪個被推翻。
 3. 若結果主要來自大盤而非個股理由，直接講。
 lessons 只寫 1 條具體教訓，下次同一策略可以直接用。
 這段文字會原文存檔，並在下次分析時重讀，每個字都要有用。不可給價格、目標價或信心分數。

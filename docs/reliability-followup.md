@@ -98,6 +98,6 @@
 | 認證檔損壞 | 正常登入並暖過認證快取後，僅破壞隔離目標 `auth.json`。備份選項、匯出、還原、研究、追蹤、認證狀態、首次設定及登入共 8 種請求均回 `503 AUTH_STORE_UNAVAILABLE`；未登入請求也被阻擋，健康檢查維持 200。畫面顯示無法載入備份選項，損壞檔案未被首次設定或登入覆寫。 |
 | 認證修復 | 放回演練前另外保存的正常認證檔後，已登入受保護 API 回 200，未登入回 401；持股帳本與還原後檔案仍完整。來源登入狀態也不能直接用於另一個目標認證檔。 |
 
-既有相關驗證：`test_device_transfer.py`、`test_device_transfer_tracking.py`、`test_auth_env_bootstrap.py` 共 43 項通過；前端 `Backup.test.tsx` 共 9 項通過。涵蓋損壞備份／錯誤密碼不寫入、寫入失敗復原、追蹤 SQLite WAL 備份與瀏覽器寫入失敗回滾。未增加測試或產品程式，僅補本段演練紀錄。
+既有相關驗證：`test_device_transfer.py`、`test_device_transfer_tracking.py`、`test_auth_env_bootstrap.py` 共 43 項通過；前端 `Backup.test.tsx` 共 9 項通過。涵蓋損壞備份／錯誤密碼不寫入、寫入失敗復原、追蹤 SQLite WAL 備份與瀏覽器寫入失敗還原。未增加測試或產品程式，僅補本段演練紀錄。
 
 此演練證明私人紀錄可恢復，不包含市場資料重建、追蹤報酬重算或 Windows 安裝版驗證。裝置備份刻意不含登入用 `auth.json`，認證修復需另有受保護的正常副本；本次只使用合成帳密，未讀取任何正式憑證。

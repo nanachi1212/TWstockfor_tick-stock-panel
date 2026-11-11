@@ -51,6 +51,7 @@
 | 🧭 **今日選股** | 每日承接雷達:今日候選加上持股與自選股,分成可觀察／等拉回／等突破／不追,顯示承接區或突破價、失效位與盤中狀態;卡片上可展開 AI 白話說明、一鍵加入自選並自動監控 |
 | 📊 **看板** | 今日市場強弱(漲跌家數與偏強/中性/偏弱)、產業強弱最強最弱、自選股動態、台股資料狀態、監控觸發記錄 |
 | 🔍 **台股選股** | 全市場量化統計快照、產業類股輪動、10 類客觀異常訊號、5 組常用篩選、技術面與法人籌碼進階條件、AI 自然語言條件解析 |
+| 💼 **我的持股** | 匯入並檢視自己的持股清單(可選檔案、拖曳或直接貼上券商／Excel 的表格) |
 | ⭐ **自選股** | 自選清單與多對多分組、表格/卡片雙檢視、自訂欄位、板塊與風險警示過濾、迷你日K與分時 |
 | ⚖️ **多股比較** | 多檔並列的確定性比較表(報酬率、外資買賣超、本益比、異常訊號數),AI 客觀解讀為選配且需手動觸發 |
 | 📈 **個股頁面** | 歷史日K與成交量、五檔即時盤口、三大法人買賣超、融資融券與券資比、近 5 日核心籌碼滾動因子、漲跌幅限制規則 |
@@ -64,7 +65,9 @@
 
 **監控規則類型**:價格高於/低於、漲幅高於、跌幅低於、成交量高於、成交量異常放大、接近漲停、接近跌停。後兩者對無漲跌幅限制的商品不適用。
 
-**AI 的用途**:今日選股卡片與個股頁的白話解讀、個股頁依買點策略約束的行動建議(Advice,buy 需策略觸發且有有效計畫)、選股頁把中文條件翻譯成篩選欄位、多股比較頁的客觀解讀。全部手動觸發;可接雲端或本機 OpenAI 相容服務(LM Studio、llama.cpp),本機模型會自動關閉思考模式以加快回應。不設定 AI 完全不影響其他功能。
+**進階功能**(側邊欄底部收合,共十一頁):每日摘要、大盤研究、研究歷史、事件中心、買點策略、選股復盤、策略實驗室、社群聲量、社群即時撈取、模型驗證、資料健康。
+
+**AI 的用途**:今日選股卡片與個股頁的白話解讀、個股頁依買點策略約束的行動建議(Advice,buy 需策略觸發且有有效計畫)、台股選股頁把中文條件翻譯成篩選欄位、多股比較頁與每日摘要的客觀解讀。全部手動觸發;可接雲端或本機 OpenAI 相容服務(LM Studio、llama.cpp),本機模型會自動關閉思考模式以加快回應。不設定 AI 完全不影響其他功能。
 
 **外部提醒**:在「設定 → 監控」儲存 LINE Messaging API 或 Telegram Bot 後，可先傳送測試訊息，再勾選全域外送通道；App 內提醒一律保留，可選 App only、加 LINE、加 Telegram 或兩者都加。只有 TWStock 後端執行並觸發提醒時才會發送；外部服務故障不影響 App 內提醒。憑證保存在本機 `data/user_data/secrets.json`，不會送到前端回應中。
 
@@ -84,7 +87,7 @@
 | macOS(Apple Silicon) | `NanachiStockPanel-macos-arm64.dmg` |
 | Linux | `NanachiStockPanel-linux-x64.tar.gz` |
 
-Windows 不需要系統管理員權限。下載 `NanachiStockPanel-Setup-x64.exe` 後雙擊安裝，安裝程式會建立開始功能表與桌面捷徑；雙擊 `Nanachi 的台股監控看板` 即可使用，不需要 Python、Node.js、repository 或另外下載歷史資料包。
+Windows 不需要系統管理員權限，預設安裝到 `%LOCALAPPDATA%\Programs\NanachiStockPanel`（精靈中可改）。下載 `NanachiStockPanel-Setup-x64.exe` 後雙擊安裝，安裝程式會建立開始功能表與桌面捷徑；雙擊 `Nanachi 的台股監控看板` 即可使用，不需要 Python、Node.js、repository 或另外下載歷史資料包。
 
 安裝包內含經公開資料 allowlist 與 checksum 驗證的台股 seed。第一次啟動會把 seed 原子複製到 `%LOCALAPPDATA%\NanachiStockPanel\data`，再於背景從 seed 日期增量更新到最近已確認交易日；離線時仍可使用 seed，介面會如實顯示資料過期。覆蓋安裝與預設解除安裝都會保留使用者資料。
 
@@ -138,7 +141,7 @@ cp .env.example .env
 
 ### 方式 D:Windows 正式桌面入口
 
-日常使用請安裝並雙擊桌面的 `Nanachi 台股看板`。它會以 pywebview 直接顯示 React 介面，重用已在 3018 運行的本專案 backend，或自行啟動 backend；關閉視窗時只停止本次自行啟動的服務。正式桌面入口使用既有 `frontend/dist`，不啟動 Vite、不需要 3011，也不依賴 `dev.ps1`。若尚未建立 production frontend，先在 `frontend` 執行一次 `pnpm build`。
+日常使用請安裝並雙擊桌面的 `Nanachi 台股看板`。它會以 pywebview 直接顯示 React 介面，重用已在 3018 執行的本專案 backend，或自行啟動 backend；關閉視窗時只停止本次自行啟動的服務。正式桌面入口使用既有 `frontend/dist`，不啟動 Vite、不需要 3011，也不依賴 `dev.ps1`。若尚未建立 production frontend，先在 `frontend` 執行一次 `pnpm build`。
 
 ```powershell
 .\scripts\install-desktop-shortcut.ps1
@@ -162,7 +165,7 @@ Windows / PowerShell 的本機驗證統一使用：
 ### 跑起來後的第一次使用
 
 1. 面板要對外開放時,第一次會要求**設定存取密碼**。
-2. 走完引導(使用須知 → 歡迎 → 台股資料狀態 → 完成),過程不需要填任何金鑰。
+2. 走完引導(四步:使用須知 → 歡迎 → 台股資料狀態 → 完成),過程不需要填任何金鑰。
 3. 直接回到**看板**查看 seed 市場資料；程式會在背景增量補到最近已確認交易日。
 4. 到**台股選股**掃出候選,加進**自選股**,在**監控中心**建規則。
 
@@ -185,7 +188,7 @@ Windows 安裝包已內含啟動與一般研究功能需要的公開 seed，第�
 | Release tag | `data-daily-2026-11-02` |
 | 資料範圍 | 2024-01-02 ～ 2026-11-02 |
 | 大小 | 約 57 MB |
-| 校驗 | 下載後自動比對 SHA256 |
+| 驗證 | 下載後自動比對 SHA256 |
 
 在「設定 → 資料來源 → 台股歷史日 K 資料庫」可手動下載；流程會驗證 SHA256、解壓與匯入，再補上資料包結束日之後到最近交易日的缺口。它不是 Windows 安裝版首次使用的必要步驟。
 
@@ -205,7 +208,7 @@ Windows 安裝包已內含啟動與一般研究功能需要的公開 seed，第�
 PORT=3018                      # 後端服務連接埠
 HOST=0.0.0.0                   # 監聽位址;只給本機用可設 127.0.0.1
 DATA_DIR=./data                # 資料存放目錄
-AUTH_PASSWORD=''               # 首次啟動預置存取密碼(選填)
+AUTH_PASSWORD=''               # 首次啟動預先設定存取密碼(選填)
 AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
 ```
 
@@ -223,7 +226,7 @@ AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
 | **AI**(選配) | OpenAI 或任何 OpenAI 相容介面 |
 | **前端** | React 18 · Vite · TypeScript · Tailwind · TanStack Query · Lightweight Charts · ECharts · dnd-kit |
 | **桌面版** | PyInstaller · pywebview · Inno Setup(Windows 安裝包) |
-| **部署** | Docker 兩階段建置,前端 dist 拷進後端映像檔,**單容器** |
+| **部署** | Docker 兩階段建置,前端 dist 複製進後端映像檔,**單容器** |
 
 ---
 
@@ -253,4 +256,4 @@ AI_API_KEY=                    # 選配;留空 = 關閉 AI 功能
 
 [MIT](./LICENSE) © Nanachi 的台股監控看板 contributors
 
-本專案由 [tick-stock-panel](https://github.com/shy3130/tick-stock-panel) 改作而來,原專案為 A 股面板,本分支已改為台股定位。
+本專案改作自 [tick-stock-panel](https://github.com/shy3130/tick-stock-panel)(MIT 授權),現為台股專用。

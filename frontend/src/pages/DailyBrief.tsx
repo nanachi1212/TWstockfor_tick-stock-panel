@@ -169,23 +169,23 @@ export function DailyBrief() {
     },
   })
 
-  // 5. 保存日報到歷史 Mutation
+  // 5. 儲存日報到歷史 Mutation
   const saveHistoryMutation = useMutation({
     mutationFn: (payload: SavedDailyBrief) => api.dailyBrief.saveDailyBrief(payload),
     onSuccess: () => {
-      toast.success('已保存至日報歷史')
+      toast.success('已儲存至日報歷史')
       qc.invalidateQueries({ queryKey: QK.dailyBriefHistory() })
     },
     onError: (err: any) => {
-      toast.error('保存失敗: ' + (err.message || '未知錯誤'))
+      toast.error('儲存失敗: ' + (err.message || '未知錯誤'))
     },
   })
 
-  // 6. 保存候選股為研究快照；正式前瞻批次走獨立流程。
+  // 6. 儲存候選股為研究快照；正式前瞻批次走獨立流程。
   const saveSnapshotMutation = useMutation({
     mutationFn: (candidates: CandidateItem[]) => {
       if (!strategyComplete || candidates.length === 0 || candidates.some(c => !Number.isFinite(c.close) || c.close! <= 0)) {
-        throw new Error('候選資料尚未完整或缺少有效價格，無法保存研究快照。')
+        throw new Error('候選資料尚未完整或缺少有效價格，無法儲存研究快照。')
       }
       const today = briefQuery.data?.brief_date || new Date().toISOString().slice(0, 10)
       return api.selectionReview.saveSnapshot({
@@ -208,12 +208,12 @@ export function DailyBrief() {
       })
     },
     onSuccess: () => {
-      toast.success('已將候選股保存為選股快照！')
+      toast.success('已將候選股儲存為選股快照！')
       qc.invalidateQueries({ queryKey: ['selection-snapshots'] })
       navigate('/selection-review')
     },
     onError: (err: any) => {
-      toast.error('保存快照失敗: ' + (err.message || '未知錯誤'))
+      toast.error('儲存快照失敗: ' + (err.message || '未知錯誤'))
     },
   })
 
@@ -236,7 +236,7 @@ export function DailyBrief() {
   const strategyMessage = strategyPending
     ? '策略候選載入中；市場與持股資料已可先閱讀。'
     : brief?.candidates.strategy_status_message || (brief && (!brief.candidates.strategy_status || brief.candidates.strategy_status === 'unknown')
-      ? '策略候選完整性未知；可分析已知資料，但無法保存完整研究快照。' : null)
+      ? '策略候選完整性未知；可分析已知資料，但無法儲存完整研究快照。' : null)
 
   const [includePortfolioInCopy, setIncludePortfolioInCopy] = useState<boolean>(false)
 
@@ -513,7 +513,7 @@ export function DailyBrief() {
             )}
           </button>
 
-          {/* 保存當前摘要 */}
+          {/* 儲存當前摘要 */}
           {aiSummary && !activeHistoryBrief && (
             <button
               onClick={handleSaveToHistory}
@@ -521,7 +521,7 @@ export function DailyBrief() {
               className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2 rounded-lg border border-border/60 transition-colors"
             >
               <BookmarkPlus className="h-4 w-4" />
-              <span>保存此份</span>
+              <span>儲存此份</span>
             </button>
           )}
 
@@ -545,7 +545,7 @@ export function DailyBrief() {
       <ExternalContextCard />
 
       {briefQuery.isLoading ? (
-        <div className="text-center py-20 text-sm text-muted-foreground">彙整今日客觀數據中...</div>
+        <div className="text-center py-20 text-sm text-muted-foreground">彙整今日客觀資料中...</div>
       ) : !brief ? (
         <div className="text-center py-20 border border-dashed rounded-xl p-8 bg-card">
           <Info className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
@@ -827,14 +827,14 @@ export function DailyBrief() {
                     className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-border/60 px-3 py-1.5 rounded-lg transition-colors"
                   >
                     <BookmarkPlus className="h-3.5 w-3.5" />
-                    <span>保存本次為研究快照</span>
+                    <span>儲存本次為研究快照</span>
                   </button>
                 )}
               </div>
             </div>
 
             {allCandidates.some(c => !Number.isFinite(c.close) || c.close! <= 0) && (
-              <p className="text-xs text-muted-foreground">候選股缺少有效價格，暫時無法保存研究快照。</p>
+              <p className="text-xs text-muted-foreground">候選股缺少有效價格，暫時無法儲存研究快照。</p>
             )}
             {latestForwardBatchQuery.data?.[0] && (
               <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
@@ -1025,7 +1025,7 @@ export function DailyBrief() {
             <div className="flex items-center justify-between border-b border-border/60 pb-3">
               <h3 className="font-bold text-base flex items-center gap-2">
                 <History className="h-4 w-4 text-primary" />
-                已保存的每日摘要歷史
+                已儲存的每日摘要歷史
               </h3>
               <button
                 onClick={() => setShowHistoryModal(false)}
@@ -1036,7 +1036,7 @@ export function DailyBrief() {
             </div>
 
             {!historyQuery.data || historyQuery.data.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-6 text-center">暫無已保存的日報歷史紀錄</p>
+              <p className="text-xs text-muted-foreground py-6 text-center">尚無已儲存的日報歷史紀錄</p>
             ) : (
               <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
                 {historyQuery.data.map((h) => (

@@ -118,7 +118,7 @@ def create_group(req: GroupNameRequest):
 
 @router.put("/groups/reorder")
 def reorder_groups(req: GroupReorderRequest):
-    """重排分組前後順序 (json 陣列順序即定義順序, 側邊欄/標籤欄/分組視圖共用)。"""
+    """重排分組前後順序 (json 陣列順序即定義順序, 側邊欄/標籤欄/分組檢視表共用)。"""
     try:
         groups = watchlist.reorder_groups(req.ordered_ids)
     except ValueError as e:

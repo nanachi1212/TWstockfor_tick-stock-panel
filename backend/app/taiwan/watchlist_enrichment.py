@@ -33,8 +33,8 @@ import polars as pl
 
 logger = logging.getLogger(__name__)
 
-# 與 api/watchlist.py 的 _WATCHLIST_COLS 保持同名字段, 缺失的技術指標列一律不寫
-# (下游 concat 用 diagonal_relaxed 補 null, 前端沿用既有 "—" 渲染, 不新造字段名)。
+# 與 api/watchlist.py 的 _WATCHLIST_COLS 保持同名欄位, 缺失的技術指標欄一律不寫
+# (下游 concat 用 diagonal_relaxed 補 null, 前端沿用既有 "—" 渲染, 不新造欄位名)。
 _TAIWAN_ROW_FIELDS = (
     "symbol", "name", "asset_type",
     "close", "open", "high", "low", "prev_close",
@@ -43,7 +43,7 @@ _TAIWAN_ROW_FIELDS = (
 
 
 def _sanitize_float(value: Any) -> float | None:
-    """NaN/Inf -> None; 其餘原樣返回 (與 api/watchlist.py 對 A 股列的處理口徑一致)。"""
+    """NaN/Inf -> None; 其餘原樣回傳 (與 api/watchlist.py 對舊版 enriched 列的處理口徑一致)。"""
     if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
         return None
     return value
@@ -54,7 +54,7 @@ def _to_fraction_pct(value: Any) -> float | None:
 
     TaiwanRealtimeQuote.change_pct 在 mis_provider / yahoo_provider /
     enrichment.quote 三處 provider 裡統一是 round(change/prev_close*100, N)
-    (即 0.21 代表 0.21%); 但 A 股 enriched 管線的 change_pct 列是純小數
+    (即 0.21 代表 0.21%); 但舊版 enriched 管線的 change_pct 欄是純小數
     (pipeline.py: change_pct = close/prev_close - 1, 0.05 代表 5%), 前端
     fmtPct() 也是按小數 * 100 來渲染 (frontend/src/lib/format.ts)。兩邊單位
     不同, 直接透傳會讓 Watchlist 顯示成 100 倍的漲跌幅 —— 這裡做單位換算,
@@ -67,10 +67,10 @@ def _to_fraction_pct(value: Any) -> float | None:
 
 
 def _taiwan_daily_fallback_map(symbols: list[str], daily_store: Any) -> dict[str, dict]:
-    """一次性批量讀取最近窗口的台股日K, 算出「最新收盤 + 前收盤 + 漲跌」映射。
+    """一次性批次讀取最近視窗的台股日K, 算出「最新收盤 + 前收盤 + 漲跌」映射。
 
     只讀一次 (最近 14 個日曆天的分區, 足夠跨過連假拿到 >= 2 個交易日), 不對每個
-    symbol 各自打開 parquet —— 避免 N+1。返回的 dict 直接餵給
+    symbol 各自打開 parquet —— 避免 N+1。回傳的 dict 直接餵給
     TaiwanRealtimeService.get_quotes(..., daily_kline_fallback_fn=...), 該函式
     對每個 symbol 只是一次 dict.get, 沒有額外 IO。
     """
@@ -105,14 +105,14 @@ def _taiwan_daily_fallback_map(symbols: list[str], daily_store: Any) -> dict[str
 
 
 def _taiwan_indicator_map(symbols: list[str], daily_store: Any) -> dict[str, dict]:
-    """一次性批量讀取足夠回看窗口的台股日K, 算出技術指標映射 (symbol -> 指標 dict)。
+    """一次性批次讀取足夠回看視窗的台股日K, 算出技術指標映射 (symbol -> 指標 dict)。
 
     只讀一次 (最近 150 個可用交易日分區, 足夠 MA60/MACD(12,26,9) 穩定暖機),
     不對每個 symbol 各自打開 parquet。與 _taiwan_daily_fallback_map 是各自
-    獨立的批量讀取 (窗口大小不同: 14 天 vs 150 個交易日), 兩者都是 O(1) 次
+    獨立的批次讀取 (視窗大小不同: 14 天 vs 150 個交易日), 兩者都是 O(1) 次
     IO, 不隨 symbol 數量增長 —— 沒有合併成一次讀取, 是刻意的最小改動: 價格
-    fallback 的窗口需求(2 個交易日)遠小於指標需求, 合併會讓 fallback 路徑
-    平白多掃一個大得多的窗口。
+    fallback 的視窗需求(2 個交易日)遠小於指標需求, 合併會讓 fallback 路徑
+    平白多掃一個大得多的視窗。
     """
     from app.taiwan.technical_indicators import compute_taiwan_daily_indicators
 
@@ -136,12 +136,12 @@ def enrich_taiwan_watchlist_rows(
     realtime_service: Any | None = None,
     daily_store: Any | None = None,
 ) -> list[dict]:
-    """返回 canonical Taiwan symbol 的自選股 enriched 行, 字段對齊 legacy A 股口徑。
+    """回傳 canonical Taiwan symbol 的自選股 enriched 行, 欄位對齊舊版 enriched 口徑。
 
     單一批次呼叫 realtime_service.get_quotes(symbols, ...) —— 不逐 symbol 各打
     一次 provider, 由既有 TaiwanRealtimeService 自己的批次/快取機制處理。
-    某個 symbol 若查無任何來源(未知/下市/尚無本地資料), 該行仍會返回, 除
-    symbol/name/asset_type 外全部字段為 None —— 與既有 A 股 LEFT JOIN 語義
+    某個 symbol 若查無任何來源(未知/下市/尚無本地資料), 該行仍會回傳, 除
+    symbol/name/asset_type 外全部欄位為 None —— 與既有 LEFT JOIN 語意
     (find nothing -> null, 不丟行) 一致, 不讓整個端點因單一標的失敗而 500。
     """
     if not symbols:
@@ -164,7 +164,7 @@ def enrich_taiwan_watchlist_rows(
         quote_map = rt_service.get_quotes(symbols, daily_kline_fallback_fn=_daily_fallback)
     except Exception as e:  # noqa: BLE001
         # 任何 provider 層異常都不該讓整個 /enriched 端點 500 —— 降級為全部標的
-        # 缺行情, 名稱/資產類型仍照常返回 (見下方 inst 查詢, 與行情來源獨立)。
+        # 缺行情, 名稱/資產類型仍照常回傳 (見下方 inst 查詢, 與行情來源獨立)。
         logger.warning("taiwan watchlist realtime quote fetch failed: %s", e)
         quote_map = {}
 
@@ -206,7 +206,7 @@ def enrich_taiwan_watchlist_rows(
             # TaiwanRealtimeQuote 的 provenance/staleness metadata, 不新造 schema —
             # source_meta 直接重用 SourceMeta.to_dict()（Monitor /api/intraday/quotes
             # 與 StockDetail 已經在用同一份資料, 這裡之前漏掉了透傳）。quote_time 額外
-            # 攤平出來方便前端直接讀, 不需要為了一個字段解一層 source_meta。
+            # 攤平出來方便前端直接讀, 不需要為了一個欄位解一層 source_meta。
             # quote 查無(q is None)時兩者都是 None, 不偽造新鮮度狀態。
             "quote_time": q.quote_time.isoformat() if q and q.quote_time else None,
             "source_meta": q.source_meta.to_dict() if q and q.source_meta else None,

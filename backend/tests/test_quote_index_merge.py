@@ -28,13 +28,13 @@ def test_merge_live_enriched_preserves_full_index_partition(tmp_path):
     ])
     repo.flush_live_enriched_asset("index", full_df)
 
-    # 模擬即時刷新: 只 merge 核心指數 1 只 (價格更新)
+    # 模擬即時重新整理: 只 merge 核心指數 1 只 (價格更新)
     partial_df = pl.DataFrame([
         _enriched_row("000001.SH", 3001.0, dt),
     ])
     repo.merge_live_enriched_asset("index", partial_df)
 
-    # 驗證: 分區文件仍有 3 只指數, 000001.SH 價格已更新, 其他指數未丟失
+    # 驗證: 分區檔案仍有 3 只指數, 000001.SH 價格已更新, 其他指數未丟失
     out = tmp_path / "kline_index_enriched" / f"date={dt.isoformat()}" / "part.parquet"
     result = pl.read_parquet(out)
     assert len(result) == 3, f"merge 後分區應有 3 只指數, 實際 {len(result)}"

@@ -1,7 +1,7 @@
 /**
- * 自選列表自定義列配置。
+ * 自選列表自定義列設定。
  *
- * 自選頁只保留業務內置列、分組和偏好持久化；通用列模型/合併/擴展列參數
+ * 自選頁只保留業務內建列、分組和偏好持久化；通用列模型/合併/擴展列參數
  * 來自 list-columns，策略頁等其它股票列表可複用同一底座。
  */
 
@@ -20,7 +20,7 @@ import {
 
 export type { ColumnConfig, ColumnGroup, ColumnSource, ExtColumnDisplayConfig, CandleColumnConfig }
 
-// ===== 內置列註冊表（與當前硬編碼一一對應） =====
+// ===== 內建列註冊表（與當前硬編碼一一對應） =====
 
 export const BUILTIN_COLUMNS: ColumnConfig[] = [
   // 固定列
@@ -31,7 +31,7 @@ export const BUILTIN_COLUMNS: ColumnConfig[] = [
   { id: 'builtin:change_amount', source: { type: 'builtin', key: 'change_amount' }, label: '漲跌額', visible: false, align: 'center' },
   { id: 'builtin:amplitude', source: { type: 'builtin', key: 'amplitude' }, label: '振幅', visible: false, align: 'center' },
   // 成交
-  { id: 'builtin:turnover', source: { type: 'builtin', key: 'turnover' }, label: '換手率', visible: true, align: 'center' },
+  { id: 'builtin:turnover', source: { type: 'builtin', key: 'turnover' }, label: '週轉率', visible: true, align: 'center' },
   { id: 'builtin:amount', source: { type: 'builtin', key: 'amount' }, label: '成交額', visible: false, align: 'center' },
   { id: 'builtin:float_val', source: { type: 'builtin', key: 'float_val' }, label: '流通值', visible: false, align: 'center' },
   { id: 'builtin:vol_ratio', source: { type: 'builtin', key: 'vol_ratio' }, label: '量比', visible: true, align: 'center' },
@@ -69,7 +69,7 @@ export const BUILTIN_COLUMNS: ColumnConfig[] = [
   { id: 'builtin:signals', source: { type: 'builtin', key: 'signals' }, label: '訊號', visible: true, align: 'center' },
   { id: 'builtin:candle', source: { type: 'builtin', key: 'candle' }, label: '日 K', visible: false, align: 'center' },
   { id: 'builtin:intraday', source: { type: 'builtin', key: 'intraday' }, label: '分時', visible: false, align: 'center' },
-  // 財務指標 (需財務數據能力 financial, 列預設隱藏)
+  // 財務指標 (需財務資料能力 financial, 列預設隱藏)
   { id: 'builtin:eps', source: { type: 'builtin', key: 'eps' }, label: 'EPS', visible: false, align: 'center' },
   { id: 'builtin:bps', source: { type: 'builtin', key: 'bps' }, label: 'BPS', visible: false, align: 'center' },
   { id: 'builtin:roe', source: { type: 'builtin', key: 'roe' }, label: 'ROE', visible: false, align: 'center' },
@@ -98,12 +98,12 @@ export const ACTION_COLUMN_ID = 'builtin:action'
 
 // ===== localStorage 持久化 =====
 
-/** 序列化列配置（只保存用戶可自定義的列，排除 pinned 和 action） */
+/** 序列化列設定（只儲存使用者可自定義的列，排除 pinned 和 action） */
 export function serializeColumns(columns: ColumnConfig[]): ColumnConfig[] {
   return serializeColumnsBase(columns, ACTION_COLUMN_ID)
 }
 
-/** 序列化並保存到後端 + localStorage */
+/** 序列化並儲存到後端 + localStorage */
 export async function saveColumnConfig(columns: ColumnConfig[]): Promise<void> {
   const saveable = serializeColumns(columns)
   // 同時寫 localStorage（即時）和後端（持久化）
@@ -116,9 +116,9 @@ export async function saveColumnConfig(columns: ColumnConfig[]): Promise<void> {
   }
 }
 
-/** 加載列配置：優先後端，回退 localStorage，最終用默認值 */
+/** 載入列設定：優先後端，回退 localStorage，最終用預設值 */
 export async function loadColumnConfig(): Promise<ColumnConfig[]> {
-  // 1. 嘗試從後端加載
+  // 1. 嘗試從後端載入
   try {
     const { api } = await import('@/lib/api')
     const res = await api.watchlistColumns()
@@ -132,27 +132,27 @@ export async function loadColumnConfig(): Promise<ColumnConfig[]> {
     // 後端不可用，繼續嘗試 localStorage
   }
 
-  // 2. 嘗試從 localStorage 加載
+  // 2. 嘗試從 localStorage 載入
   const saved = storage.watchlistColumns.get([]) as ColumnConfig[]
   if (saved.length > 0) {
     return mergeColumns(saved, BUILTIN_COLUMNS)
   }
 
-  // 3. 默認值
+  // 3. 預設值
   return [...BUILTIN_COLUMNS]
 }
 
-/** 合併用戶保存的列與默認列 */
+/** 合併使用者儲存的列與預設列 */
 function mergeColumns(saved: ColumnConfig[], defaults: ColumnConfig[]): ColumnConfig[] {
   return mergeColumnsBase(saved, defaults, { actionColumnId: ACTION_COLUMN_ID })
 }
 
-/** 從列配置中提取 ext 列參數，用於後端 enriched 接口 */
+/** 從列設定中提取 ext 列參數，用於後端 enriched 介面 */
 export function buildExtColumnsParam(columns: ColumnConfig[]): string {
   return buildExtColumnsParamBase(columns)
 }
 
-/** 根據 ext schema 數據創建 ext 列配置 */
+/** 根據 ext schema 資料創建 ext 列設定 */
 export function createExtColumn(
   configId: string,
   configLabel: string,

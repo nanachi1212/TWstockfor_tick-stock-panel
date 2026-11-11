@@ -29,7 +29,7 @@ function Register-SocialSentimentTask {
     $arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Runner`" -Trigger $Trigger"
     $action = New-ScheduledTaskAction -Execute $PowerShellPath -Argument $arguments -WorkingDirectory $RepositoryRoot
     $daily = New-ScheduledTaskTrigger -Daily -At $At
-    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $daily -Settings $settings -Principal $principal -Description "TickStock Social Sentiment $Trigger refresh" -Force | Out-Null
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $daily -Settings $settings -Principal $principal -Description "Nanachi Stock Panel Social Sentiment $Trigger refresh" -Force | Out-Null
 }
 
 Register-SocialSentimentTask -TaskName $PreOpenTaskName -At '08:30' -Trigger PreOpen

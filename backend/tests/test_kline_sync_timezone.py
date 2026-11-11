@@ -13,7 +13,7 @@ def test_fetch_minute_single_window_is_taipei_wall_clock(monkeypatch):
     def _fake_try_custom_minute(symbols, start_time, end_time, asset_type, freq="1m", **kwargs):
         captured["start"] = start_time
         captured["end"] = end_time
-        return (None, True)  # 未配自定義源 → 繼續後續分支
+        return (None, True)  # 未配自訂源 → 繼續後續分支
 
     monkeypatch.setattr(kline_sync, "_try_custom_minute", _fake_try_custom_minute)
 

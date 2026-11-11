@@ -1,8 +1,8 @@
 """get_enriched_range 的預熱守衛測試 — 預熱期間不得觸發同步全量重算。
 
-啟動後台預熱執行緒正在 _refresh_enriched (300 天 scan + compute, 低配機 50s+)
-時, 請求執行緒進入 get_enriched_range 應返回 None (快取不覆蓋語義),
-不能在請求執行緒裡併發跑第二次全量重算。與 get_enriched_latest 守衛對齊。
+啟動背景預熱執行緒正在 _refresh_enriched (300 天 scan + compute, 低配機 50s+)
+時, 請求執行緒進入 get_enriched_range 應回傳 None (快取不覆蓋語意),
+不能在請求執行緒裡並行跑第二次全量重算。與 get_enriched_latest 守衛對齊。
 """
 from __future__ import annotations
 

@@ -95,7 +95,7 @@ export async function loadFrontendExtensions(
     let extension: FrontendExtension | undefined
     try {
       extension = (await modules[source]()).default
-      if (!extension) throw new Error('模塊必須 default export FrontendExtension')
+      if (!extension) throw new Error('模組必須 default export FrontendExtension')
       registerExtension(extension)
     } catch (error) {
       loadErrors.push({
@@ -113,7 +113,7 @@ export function finalizeFrontendExtensions(reservedPaths: ReadonlySet<string>) {
     try {
       for (const route of extension.routes ?? []) {
         if (route.path.includes(':') || route.path.includes('*')) {
-          throw new Error(`擴展路由首版只支持靜態路徑: ${route.path}`)
+          throw new Error(`擴展路由首版只支援靜態路徑: ${route.path}`)
         }
         if ([...reservedPaths].some(corePath => coreRouteMatches(corePath, route.path))) {
           throw new Error(`試圖覆蓋核心路由 ${route.path}`)
@@ -174,7 +174,7 @@ export function getFrontendExtensionNavigation() {
 
 export function getFrontendSlotRegistrations<K extends FrontendSlotName>(name: K) {
   if (!frozen) throw new Error('讀取擴展插槽前必須凍結註冊表')
-  // 存儲按槽位名分桶, 桶內註冊項的 name 必與鍵一致, 斷言安全
+  // 儲存按槽位名分桶, 桶內註冊項的 name 必與鍵一致, 斷言安全
   return (slots.get(name) ?? []) as unknown as Array<FrontendSlotRegistration<K> & { extensionId: string }>
 }
 

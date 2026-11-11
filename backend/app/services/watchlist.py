@@ -1,6 +1,6 @@
 """自選股與分組服務。
 
-自選存儲於 ``data/user_data/watchlist.parquet``，分組定義存儲於同目錄的
+自選儲存於 ``data/user_data/watchlist.parquet``，分組定義儲存於同目錄的
 ``watchlist_groups.json``。
 
 成員關係為多值 (M:N): 每條自選帶 ``group_ids: list[str]``, 同一標的可同時
@@ -27,8 +27,8 @@ from app.tickflow.capabilities import CapabilitySet
 logger = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
-# 資料版本號: 每次寫盤 +1 (在 _LOCK 內遞增, 讀取免鎖)。供監控引擎等進程內
-# 消費方做快取失效判斷 —— 版本沒變就不必重讀文件, 版本一變立即拿到新成員。
+# 資料版本號: 每次寫盤 +1 (在 _LOCK 內遞增, 讀取免鎖)。供監控引擎等行程內
+# 消費方做快取失效判斷 —— 版本沒變就不必重讀檔案, 版本一變立即拿到新成員。
 _REVISION = 0
 
 
@@ -107,7 +107,7 @@ def _read_entries() -> pl.DataFrame:
 def _write_entries(df: pl.DataFrame) -> None:
     global _REVISION
     p = _path()
-    # 首次從舊 schema 遷移到 group_ids 前, 備份原文件(一次性)
+    # 首次從舊 schema 遷移到 group_ids 前, 備份原檔案(一次性)
     if p.exists():
         try:
             if "group_ids" not in pl.read_parquet_schema(p).names():
@@ -127,9 +127,9 @@ def _read_groups() -> list[dict]:
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError("自選分組配置損壞，請檢查 watchlist_groups.json") from exc
+        raise ValueError("自選分組設定損壞，請檢查 watchlist_groups.json") from exc
     if not isinstance(raw, list):
-        raise ValueError("自選分組配置格式不正確")
+        raise ValueError("自選分組設定格式不正確")
     groups = []
     for item in raw:
         if not isinstance(item, dict) or not item.get("id") or not item.get("name"):
@@ -164,7 +164,7 @@ def _normalize_group_name(name: str) -> str:
 def _normalize_group_color(color: str | None) -> str:
     normalized = (color or DEFAULT_GROUP_COLOR).strip().lower()
     if normalized not in GROUP_COLORS:
-        raise ValueError("不支持的分組顏色")
+        raise ValueError("不支援的分組顏色")
     return normalized
 
 
@@ -189,7 +189,7 @@ def add_batch(
     note: str = "",
     group_id: str | None = None,
 ) -> tuple[list[dict], int]:
-    """批量添加並保持既有語義：每個新處理的標的移動到列表最前面。
+    """批次添加並保持既有語意：每個新處理的標的移動到列表最前面。
 
     group_id 為可選的初始分組(如從某分組頁添加時); 重複添加的標的保留
     既有全部分組, 僅在顯式傳入 group_id 且尚未屬於該組時併入。
@@ -238,7 +238,7 @@ def move_to_top(symbol: str) -> list[dict]:
 
 
 def clear() -> int:
-    """清空自選列表。返回移除的數量。"""
+    """清空自選列表。回傳移除的數量。"""
     with _LOCK:
         df = _read_entries()
         count = df.height

@@ -27,7 +27,7 @@ def get_job(job_id: str) -> dict:
 
 @router.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: str) -> dict:
-    """手動取消一個 running 的 job(協作式: 拉取執行緒在當前分塊完成後自行退出)。"""
+    """手動取消一個 running 的 job(協作式: 取得執行緒在當前分塊完成後自行退出)。"""
     j = job_store.get(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="job not found")

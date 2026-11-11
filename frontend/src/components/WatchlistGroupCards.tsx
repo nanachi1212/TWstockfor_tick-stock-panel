@@ -24,9 +24,9 @@ import { GroupStatsSettings } from '@/components/GroupStatsSettings'
 
 /**
  * 自選「分組卡片」視圖 — 每個分組一張卡, 組內按漲跌幅降序排列,
- * 默認展示前 N 名 (N 在設置彈層可調), 可展開查看全部。卡片自身順序、
- * 頭部數值與顯示條數跟隨「指標 + 排序」配置 (與分組統計條共享,
- * 由自選頁統一持有並持久化)。數據全部來自自選頁既有查詢
+ * 預設展示前 N 名 (N 在設定彈層可調), 可展開查看全部。卡片自身順序、
+ * 頭部數值與顯示條數跟隨「指標 + 排序」設定 (與分組統計條共享,
+ * 由自選頁統一持有並持久化)。資料全部來自自選頁既有查詢
  * (enriched 行 + 分組歸屬), 不產生額外請求。
  */
 
@@ -54,11 +54,11 @@ const GroupCard = React.memo(function GroupCard({
   data: GroupCardData
   pctInfo?: GroupPctInfo
   metric: GroupMetric
-  /** 默認展示的成員條數 (來自持久化配置) */
+  /** 預設展示的成員條數 (來自持久化設定) */
   topN: number
-  /** 頭部是否顯示分組顏色底條 (來自持久化配置) */
+  /** 頭部是否顯示分組顏色底條 (來自持久化設定) */
   showColorBar: boolean
-  /** 成員行是否顯示序號 (來自持久化配置) */
+  /** 成員行是否顯示序號 (來自持久化設定) */
   showRank: boolean
   expanded: boolean
   onToggle: (key: string) => void
@@ -172,7 +172,7 @@ interface WatchlistGroupCardsProps {
   groups: WatchlistGroup[]
   /** enriched 全量行 (未經過分組/板塊篩選) */
   rows: any[]
-  /** symbol -> 所屬分組 id 列表 (空數組 = 未分組), 來自自選列表查詢 */
+  /** symbol -> 所屬分組 id 列表 (空陣列 = 未分組), 來自自選列表查詢 */
   groupBySymbol: Map<string, string[]>
   /** 分組等權漲跌幅統計 */
   pcts: GroupPctMap
@@ -205,7 +205,7 @@ export function WatchlistGroupCards({
   }, [])
 
   // 分桶 + 組內按漲跌幅降序: 僅在 enriched 行或分組歸屬變化時重算,
-  // 每組數組引用穩定, 配合 GroupCard memo 避免無關卡片重渲染。
+  // 每組陣列引用穩定, 配合 GroupCard memo 避免無關卡片重渲染。
   const cards = useMemo<GroupCardData[]>(() => {
     const buckets = new Map<string, any[]>()
     for (const group of groups) buckets.set(group.id, [])
@@ -244,7 +244,7 @@ export function WatchlistGroupCards({
     return result
   }, [groups, rows, groupBySymbol])
 
-  // 卡片順序跟隨「指標 + 排序」配置 (與分組統計條同源)
+  // 卡片順序跟隨「指標 + 排序」設定 (與分組統計條同源)
   const ordered = useMemo(
     () => sortGroupKeys(cards, c => c.key, pcts, config),
     [cards, pcts, config],

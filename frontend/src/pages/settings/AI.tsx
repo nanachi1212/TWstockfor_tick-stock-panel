@@ -9,7 +9,7 @@ import { api, type SettingsState } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { AiKeyProfilesPanel } from './AiKeyProfiles'
 
-// 統一的輸入框樣式(與項目其他設置頁一致)
+// 統一的輸入框樣式(與項目其他設定頁一致)
 const INPUT_CLS =
   'w-full h-9 px-2.5 rounded-lg bg-base border-0 ring-1 ring-border/30 text-xs font-mono text-foreground placeholder:text-muted/30 focus:outline-none focus:ring-2 focus:ring-accent/30 transition-shadow'
 
@@ -69,7 +69,7 @@ export function SettingsAIPanel() {
 
   useEffect(() => {
     if (!s) return
-    // 未配置過 AI (無 api_key): Base URL 預設指向本機 llama-server, 模型留空, 默認選中"自定義"預設
+    // 未設定過 AI (無 api_key): Base URL 預設指向本機 llama-server, 模型留空, 預設選中"自定義"預設
     const unconfigured = !s.has_ai_key && !s.ai_configured
     // ponytail: legacy/unknown providers remain persisted, but the current UI only exposes generic custom or OpenAI.
     const savedProvider = s.ai_provider === OPENAI_PROVIDER ? OPENAI_PROVIDER : OPENAI_COMPAT_PROVIDER
@@ -559,7 +559,7 @@ function AutoAiExplainCard() {
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">盤後自動產生 AI 說明</p>
-          <p className="text-xs text-muted">每日資料更新完成後，自動為今日選股前 5 檔產生 AI 白話說明並保存；同一份資料不重複產生。需要本機或雲端 AI 已可用，後端沒開時不會執行。</p>
+          <p className="text-xs text-muted">每日資料更新完成後，自動為今日選股前 5 檔產生 AI 白話說明並儲存；同一份資料不重複產生。需要本機或雲端 AI 已可用，後端沒開時不會執行。</p>
         </div>
         <Toggle checked={enabled} onChange={() => !toggle.isPending && toggle.mutate()} />
       </div>
@@ -603,7 +603,7 @@ function Card({ icon: Icon, title, right, children }: CardProps) {
   )
 }
 
-// ===== 表單字段(統一 label + 輸入框樣式) =====
+// ===== 表單欄位(統一 label + 輸入框樣式) =====
 
 function Field({ label, hint, inline, children }: {
   label: string

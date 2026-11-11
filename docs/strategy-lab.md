@@ -1,18 +1,18 @@
 # 策略實驗室 v1
 
-以 `e2d03f7` 為開發基線，將已保存的 forward observations 整合到 `/strategy-lab`。屬 L3 的小範圍產品接線：複用 Selection Review 的評估器、Daily recommendation 的 LiveLedger，以及既有 API client、查詢鍵與導覽；沒有新增回測引擎。PR 保留 draft，待 A / B merge 後才吸收 main；不 merge、不要求 Codex Review，不依賴或修改 PR #33。
+以 `e2d03f7` 為開發基線，將已保存的 forward observations 整合到 `/strategy-lab`。屬 L3 的小範圍產品接線：重用 Selection Review 的評估器、Daily recommendation 的 LiveLedger，以及既有 API client、查詢鍵與導覽；沒有新增回測引擎。PR 保留 draft，待 A / B merge 後才吸收 main；不 merge、不要求 Codex Review，不依賴或修改 PR #33。
 
 ## 資料與資格
 
 - Selection：只讀取正式 `forward_batch`。檢查來源日期、策略版本、規則、行情覆蓋、風險來源、公司行動摘要，以及收盤後、下一個預定交易日開盤前的保存與鎖定時間。收益沿用 Selection Review 的下一交易日紙上開盤進場與 1D / 5D / 20D 收盤。一般 research snapshots 不納入。
-- A13 Buy Point：後續由既有伺服器保存動作附上 `a13_server_observed` 與策略定義 SHA-256；保留訊號日原始參考收盤基準與既有收益口徑。設定條件、風險過濾等定義不同時分開統計。舊快照缺少該證據，或保存時間已超過前瞻窗口，全部 horizon 列 unavailable，不補寫舊快照。新增的正式觀察不可刪除。
+- A13 Buy Point：後續由既有伺服器保存動作附上 `a13_server_observed` 與策略定義 SHA-256；保留訊號日原始參考收盤基準與既有收益定義。設定條件、風險過濾等定義不同時分開統計。舊快照缺少該證據，或保存時間已超過前瞻窗口，全部 horizon 列 unavailable，不補寫舊快照。新增的正式觀察不可刪除。
 - Daily recommendation：只讀 LiveLedger 的 immutable signals 與已 append 的 outcomes，檢查快照內容摘要、live contract、訊號日、audit、有限報酬及 outcome 日期。`verified` 投影為 matured，`pending` 保留 pending，資料不足、衝突或 recheck unavailable 投影為 unavailable。使用 SQLite read-only 連線，缺少 outcomes 檔案時不建檔。
 - Strategy identity 保留來源、strategy id、version、設定摘要、entry basis、價格語意與成本假設。consensus、breakout、trend、Daily recommendation、A13 不混合。策略名稱變更不改變 identity。
 - 同一 snapshot id 的相同內容只計一次，內容衝突整份排除。同一 identity、signal date、symbol 的重存觀察也只計一次；內容衝突列 unavailable，provenance 保留重複 snapshot ids。
 
 所有結果標示 `Forward / OOS observed`，此處 OOS 是保存訊號後的前瞻觀察，不表示已通過 primary historical OOS 驗證。頁面固定顯示 `Historical PIT research：未完全可用`，不讀取未驗證 historical PIT 評估或聲稱 historical backtest performance。
 
-## 統計口徑
+## 統計定義
 
 | 項目 | 定義 |
 | --- | --- |
@@ -38,7 +38,7 @@ Selection provenance 包含 snapshot 內容摘要、鎖定證據、公司行動�
 
 既有快照僅新增可選欄位，不 migration、不重新寫入 immutable snapshots。SnapshotReviewDetail 新增 outcome date 與原始 benchmark / excess，既有四捨五入顯示不變。Selection Review 的共享評估快取增加 pending 結果，於市場收盤階段、交易日、價格或證據版本變更時失效；公司行動 window 快取綁定本機證據版本。前端篩選載入期間保留選項，隱藏上一條件統計。
 
-不加入價格同步、signal reconstruction、SSE 寫入或新的持久化資料流。回滾可 revert 此功能 commit，既有快照欄位向後相容，不需刪除使用者資料。
+不加入價格同步、signal reconstruction、SSE 寫入或新的持久化資料流。還原可 revert 此功能 commit，既有快照欄位向後相容，不需刪除使用者資料。
 
 ## 畫面驗證
 

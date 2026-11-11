@@ -51,11 +51,11 @@ logger = logging.getLogger(__name__)
 for _handler in logging.getLogger().handlers:
     _handler.setFormatter(SanitizingFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 
-# 追加文件日誌: uvicorn (含 --reload 開發模式) 預設只有 StreamHandler, 同步/管道等
+# 追加檔案日誌: uvicorn (含 --reload 開發模式) 預設只有 StreamHandler, 同步/管道等
 # 執行時日誌僅出現在 dev 終端, 關掉或滾屏後即丟失, 排查「同步後日志沒落」時無處可查。
-# 落盤到 data/backend.log 與桌面版 (desktop.py:_setup_logging → desktop.log) 行為對齊,
-# 事後可查。桌面版 (frozen) 已由 desktop.py 寫 desktop.log, 此處跳過避免重複落盤。
-# RotatingFileHandler 防止長期執行/頻繁 reload 導致文件無限增長。
+# 寫入磁碟到 data/backend.log 與桌面版 (desktop.py:_setup_logging → desktop.log) 行為對齊,
+# 事後可查。桌面版 (frozen) 已由 desktop.py 寫 desktop.log, 此處跳過避免重複寫入磁碟。
+# RotatingFileHandler 防止長期執行/頻繁 reload 導致檔案無限增長。
 if not getattr(sys, "frozen", False):
     try:
         from logging.handlers import RotatingFileHandler
@@ -71,7 +71,7 @@ if not getattr(sys, "frozen", False):
         )
         logging.getLogger().addHandler(_file_handler)
     except Exception as _e:
-        logger.warning("文件日誌初始化失敗, 僅輸出到終端: %s", _e)
+        logger.warning("檔案日誌初始化失敗, 僅輸出到終端: %s", _e)
 
 
 @asynccontextmanager
@@ -81,8 +81,8 @@ async def _application_lifespan(app: FastAPI):
         __version__, "official",
     )
 
-    # 首次啟動: 若配置了 AUTH_PASSWORD 環境變數且未設過密碼, 用它初始化。
-    # 公網部署免 SSH 端口轉發; 已設過密碼則不覆蓋 (改密碼走 UI)。
+    # 首次啟動: 若設定了 AUTH_PASSWORD 環境變數且未設過密碼, 用它初始化。
+    # 公開網路部署免 SSH 端口轉發; 已設過密碼則不覆蓋 (改密碼走 UI)。
     try:
         from app.services import auth as auth_service
         auth_service.bootstrap_from_env()
@@ -94,15 +94,15 @@ async def _application_lifespan(app: FastAPI):
     repo = KlineRepository(store)
     app.state.datastore = store
     app.state.repo = repo
-    # 指標非同步預熱標誌: enriched 快取在後台執行緒構建, 完成後置 True
+    # 指標非同步預熱標誌: enriched 快取在背景執行緒構建, 完成後置 True
     app.state.indicators_ready = False
     repo._on_warmup_done = lambda: setattr(app.state, "indicators_ready", True)
 
-    # Polars 快取預熱 — enriched 的重計算 (107萬行 compute_indicators) 推後台,
+    # Polars 快取預熱 — enriched 的重計算 (107萬行 compute_indicators) 推背景,
     # instruments/index/ETF 仍同步 (毫秒級)。應用立即 ready, 指標算完後自動替換。
     repo.refresh_cache(background=True)
 
-    # 自定義資料來源配置(可選): 失敗只記錄錯誤, 不影響台股官方資料來源。
+    # 自訂資料來源設定(可選): 失敗只記錄錯誤, 不影響台股官方資料來源。
     try:
         from app.data_providers import custom as custom_sources
         custom_sources.load_all()
@@ -195,7 +195,7 @@ app = FastAPI(
 # ================================================================
 # 攔截所有 /api/ 請求, 三種狀態:
 #   1. 未設密碼 + 本機/內網 → 放行(讓本機使用者訪問面板 + 調 /api/auth/setup 設密碼)
-#   2. 未設密碼 + 公網       → 拒絕(403, 防裸奔也防搶佔; 引導本機設密碼)
+#   2. 未設密碼 + 公開網路       → 拒絕(403, 防裸奔也防搶佔; 引導本機設密碼)
 #   3. 已設密碼              → 檢查 session, 無效則 401(前端跳登入)
 # 白名單: /api/auth/* (設密碼/登入本身)、/health 等探活。
 _AUTH_WHITELIST_PREFIX = ("/api/auth/",)
@@ -229,7 +229,7 @@ async def auth_middleware(request: Request, call_next):
         # 本機/內網 → 放行(伺服器主人可訪問, 並去 /login 設密碼)
         if auth_api._is_local_request(request):
             return await call_next(request)
-        # 公網 → 拒絕。不裸奔, 也不給公網設密碼的機會(防搶佔)
+        # 公開網路 → 拒絕。不裸奔, 也不給公開網路設密碼的機會(防搶佔)
         return JSONResponse(
             status_code=403,
             content={
@@ -272,7 +272,7 @@ app.state.extension_load_errors = extension_load_errors
 
 # 能力門控異常 → 403(而非預設 500)
 # 業務代碼用 capset.require(Cap.X) 斷言能力,缺失時拋 CapabilityDenied;
-# 若不註冊 handler 會冒泡成 500 Internal Server Error,對前端不友好且語義錯誤。
+# 若不註冊 handler 會冒泡成 500 Internal Server Error,對前端不友好且語意錯誤。
 @app.exception_handler(CapabilityDenied)
 async def capability_denied_handler(request: Request, exc: CapabilityDenied) -> JSONResponse:
     return JSONResponse(
@@ -280,7 +280,7 @@ async def capability_denied_handler(request: Request, exc: CapabilityDenied) -> 
         content={"detail": str(exc), "suggestion": exc.suggestion},
     )
 
-# index.html 禁止緩存, 確保瀏覽器每次拿到最新版本引用的 JS/CSS 文件名 (assets 帶 hash, 可長緩存);
+# index.html 禁止快取, 確保瀏覽器每次拿到最新版本引用的 JS/CSS 檔案名 (assets 帶 hash, 可長快取);
 # sw.js 與 manifest 每次重新驗證, 瀏覽器才會及時發現新版 PWA 殼。
 _STATIC_CACHE_CONTROL = {
     "index.html": "no-store, must-revalidate",
@@ -322,7 +322,7 @@ def _mount_frontend(app: FastAPI, static_root: Path) -> None:
         )
 
 
-# 生產期靜態文件(前端 dist)
+# 生產期靜態檔案(前端 dist)
 _static = Path(settings.static_dir)
 if _static.exists():
     _mount_frontend(app, _static)

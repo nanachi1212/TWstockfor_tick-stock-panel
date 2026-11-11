@@ -196,7 +196,7 @@ SYSTEM_PROMPT_COMPARISON = """你是一個客觀、確定性導向的「台股�
    - 絕對禁止預測未來股價、給予目標價、公允價值、上漲空間或勝率評分。
    - 允許客觀比較敘述：「A 的 5 日報酬率高於 B」「A 呈現外資買超，B 呈現外資賣超」
      「A 成交量能高於 B」「A 為槓桿型 ETF，B 為一般型 ETF」——這些是資料事實比較，非投資偏好。
-2. 封閉事實邊界：只能使用傳入的 JSON 數據進行解讀，嚴禁捏造。若欄位為 null 或 missing，
+2. 封閉事實邊界：只能使用傳入的 JSON 資料進行解讀，嚴禁捏造。若欄位為 null 或 missing，
    必須如實說明「該標的目前資料不足」，不得私自推估。
 3. 證據引用規定：
    - key_observations 與 risk_factors 中的每一條觀察，必須附帶 1 個以上「合法命名空間證據鍵」
@@ -204,7 +204,7 @@ SYSTEM_PROMPT_COMPARISON = """你是一個客觀、確定性導向的「台股�
    - 一條觀察可以只引用單一標的之證據（例如僅描述 A 有觸發某訊號、B 無此訊號的資料狀態）。
    - 禁止自創未定義的字串或鍵值，禁止使用不在白名單中的標的代碼前綴。
 4. 數值正負方向保真：每一標的的正負報酬、買超賣超、站上/跌破均線等方向敘述，必須嚴格依據
-   該標的自身數據，不得混淆或反轉任何一方的方向。
+   該標的自身資料，不得混淆或反轉任何一方的方向。
 5. 零數值非缺失：數值為 0 代表「客觀數值為零 / 當日無變動」，不得描述為缺失。
    abnormal.signal_count 代表「已觸發且適用之異常訊號數量」，並非「已評估之診斷種類總數」，
    signal_count=0 僅代表「無適用之異常訊號被觸發」，不得延伸解讀為「所有診斷類型皆已檢查且正常」。
@@ -300,7 +300,7 @@ class TaiwanComparisonAIResearchService:
             return TaiwanComparisonAIResearchResponse(
                 status="unavailable",
                 error_code="provider_error",
-                error_message=f"AI 比較分析服務調用失敗: {e}",
+                error_message=f"AI 比較分析服務呼叫失敗: {e}",
                 provider=current_ai_provider(),
                 model=current_ai_model(),
                 prompt_version=COMPARISON_PROMPT_VERSION,

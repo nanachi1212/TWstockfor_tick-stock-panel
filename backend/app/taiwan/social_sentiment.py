@@ -1,8 +1,8 @@
 """PTT Stock 台股社群聲量、情緒 MVP。
 
 這個模組刻意保持獨立：collector 只負責來源讀取，股票辨識只使用既有
-TaiwanSecurityMaster，AI 與檔案輸出則由 service 編排。排程快照只保存聚合
-結果；手動快照另外保存有上限的文章節錄與代表留言，供單次執行頁查閱。
+TaiwanSecurityMaster，AI 與檔案輸出則由 service 編排。排程快照只儲存聚合
+結果；手動快照另外儲存有上限的文章節錄與代表留言，供單次執行頁查閱。
 """
 from __future__ import annotations
 

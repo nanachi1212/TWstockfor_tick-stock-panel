@@ -8,7 +8,7 @@ vi.mock('@/lib/api', () => ({ api: { klineMinute: vi.fn().mockResolvedValue({ ro
 describe('Taiwan data diagnostics', () => {
   it('keeps read-only Taiwan minute probing without legacy sample or ladder mutations', async () => {
     render(<Dev />)
-    expect(screen.queryByText('演示數據')).not.toBeInTheDocument()
+    expect(screen.queryByText('演示資料')).not.toBeInTheDocument()
     expect(screen.queryByText('封單監控')).not.toBeInTheDocument()
     expect(screen.queryByText('生成演示規則')).not.toBeInTheDocument()
     expect(screen.getByPlaceholderText('2330.TWSE')).toHaveValue('2330.TWSE')

@@ -1,21 +1,21 @@
 ; ===========================================================================
-; Tick Stock Panel — Inno Setup 安裝包腳本
+; Nanachi 的台股監控看板 — Inno Setup 安裝包腳本
 ; ===========================================================================
-; 用途: 把 PyInstaller 產出的 dist/NanachiStockPanel/ 文件夾封裝成
-;       單個 Setup.exe 安裝程序 (雙擊→安裝精靈→快捷方式→可卸載)。
+; 用途: 把 PyInstaller 產出的 dist/NanachiStockPanel/ 資料夾封裝成
+;       單個 Setup.exe 安裝程式 (雙擊→安裝精靈→捷徑→可解除安裝)。
 ;
-; 構建 (本地):
+; 建置 (本機):
 ;   1. 先跑 PyInstaller: cd backend && uv run pyinstaller ../packaging/tickflow.spec
 ;   2. 再跑 Inno Setup:   ISCC.exe packaging\tickflow.iss
 ;   3. 產物: packaging\Output\NanachiStockPanel-Setup-x.x.x.exe
 ;
 ; 設計決策:
-;   - 裝到用戶目錄 {localappdata}\Programs\ (不彈 UAC, 不需管理員)
-;   - 用戶數據存在 {localappdata}\NanachiStockPanel\data\，與程式隔離
-;   - 卸載時可選擇刪除用戶數據，預設不刪
+;   - 裝到使用者目錄 {localappdata}\Programs\ (不彈 UAC, 不需管理員)
+;   - 使用者資料存在 {localappdata}\NanachiStockPanel\data\，與程式隔離
+;   - 解除安裝時可選擇刪除使用者資料，預設不刪
 ;   - 覆蓋安裝(升級)不動 per-user data
-;   - 桌面 + 開始菜單快捷方式
-;   - 卸載入口 (控制面板可見)
+;   - 桌面 + 開始功能表捷徑
+;   - 解除安裝入口 (控制台可見)
 ; ===========================================================================
 
 #define MyAppName          "Nanachi 的台股監控看板"
@@ -30,7 +30,7 @@
 #endif
 
 [Setup]
-; 基本信息
+; 基本資訊
 AppName={#MyAppName}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppVersion={#MyAppVersion}
@@ -44,7 +44,7 @@ OutputBaseFilename=NanachiStockPanel-Setup-x64
 
 ; 關鍵: 不需要管理員權限, 永不彈 UAC
 PrivilegesRequired=lowest
-; 允許用戶在精靈中自由選擇安裝目錄
+; 允許使用者在精靈中自由選擇安裝目錄
 DisableDirPage=no
 
 ; 壓縮
@@ -52,14 +52,14 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
 
-; 界面
+; 介面
 WizardStyle=modern
 DisableWelcomePage=no
 DisableReadyPage=no
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
-; 卸載相關
+; 解除安裝相關
 Uninstallable=yes
 CreateUninstallRegKey=yes
 CloseApplications=yes
@@ -68,7 +68,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
-; 繁中語言包 ChineseTraditional.isl 內置在 packaging/ 下, 由本倉庫曾使用的
+; 繁中語言包 ChineseTraditional.isl 內建在 packaging/ 下, 由本儲存庫曾使用的
 ; 簡中翻譯以 OpenCC s2tw 轉換、並改用台灣用語而來 (訊息鍵與 placeholder 未變)。
 ; 不依賴安裝目錄是否含該檔案 (CI 友好)。
 Name: "chinesetrad"; MessagesFile: "ChineseTraditional.isl"
@@ -78,12 +78,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: checkedonce
 
 [Files]
-; 把 PyInstaller 產出的整個文件夾搬進安裝目錄
-; Source 路徑相對於 .iss 文件所在目錄
+; 把 PyInstaller 產出的整個資料夾搬進安裝目錄
+; Source 路徑相對於 .iss 檔案所在目錄
 Source: "..\backend\dist\NanachiStockPanel\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-; 開始菜單
+; 開始功能表
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\解除安裝 {#MyAppName}"; Filename: "{uninstallexe}"
 
@@ -98,8 +98,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 
 [Code]
 // ── 輔助函數: 判斷目錄是否為空 ─────────────────────────────────
-// Inno Setup 內置無 IsDirEmpty, 用 FindFirst/FindNext 自行實現。
-// 用於卸載後清理空的 {app} 殼目錄。
+// Inno Setup 內建無 IsDirEmpty, 用 FindFirst/FindNext 自行實作。
+// 用於解除安裝後清理空的 {app} 殼目錄。
 function IsDirEmpty(const Dir: String): Boolean;
 var
   FindRec: TFindRec;
@@ -126,8 +126,8 @@ begin
   Result := True;
 end;
 
-// ── 卸載時詢問是否刪除用戶數據 ─────────────────────────────────
-// 用戶數據在 {localappdata}\NanachiStockPanel\data\，不屬於安裝清單。
+// ── 解除安裝時詢問是否刪除使用者資料 ─────────────────────────────────
+// 使用者資料在 {localappdata}\NanachiStockPanel\data\，不屬於安裝清單。
 // 這裡僅在使用者明確選擇「是」時清理，預設按鈕為「否」。
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
@@ -148,7 +148,7 @@ begin
         DelTree(DataDir, True, True, True);
       end;
     end;
-    // 清理可能殘留的空 {app} 殼目錄 (程序文件已被 Inno Setup 刪除)
+    // 清理可能殘留的空 {app} 殼目錄 (程式檔案已被 Inno Setup 刪除)
     AppDir := ExpandConstant('{app}');
     if DirExists(AppDir) and IsDirEmpty(AppDir) then
     begin

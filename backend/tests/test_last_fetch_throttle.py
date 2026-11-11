@@ -1,4 +1,4 @@
-"""last_fetch 落盤節流測試 — 30s 內只寫一次盤, 記憶體值路徑不受影響。"""
+"""last_fetch 寫入磁碟節流測試 — 30s 內只寫一次盤, 記憶體值路徑不受影響。"""
 from __future__ import annotations
 
 import pytest

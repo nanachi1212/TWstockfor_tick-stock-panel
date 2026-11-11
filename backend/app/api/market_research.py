@@ -62,7 +62,7 @@ def chip_ranking(target_date: Annotated[str | None, Query(alias="date")] = None)
 
     if target_date is not None:
         # Reject old bookmarks instead of returning today's ranking under a past date.
-        raise HTTPException(status_code=422, detail="籌碼排行只提供最新已入庫交易日 不支援 date 參數")
+        raise HTTPException(status_code=422, detail="籌碼排行只提供最新已寫入交易日 不支援 date 參數")
 
     return TaiwanChipRankingService().snapshot()
 
@@ -73,7 +73,7 @@ def big_holder_ranking(target_date: Annotated[str | None, Query(alias="date")] =
     from app.taiwan.big_holder_ranking import TaiwanBigHolderRankingService
 
     if target_date is not None:
-        raise HTTPException(status_code=422, detail="大戶集中度只提供最新已入庫集保週 不支援 date 參數")
+        raise HTTPException(status_code=422, detail="大戶集中度只提供最新已寫入集保週 不支援 date 參數")
 
     return TaiwanBigHolderRankingService().snapshot()
 

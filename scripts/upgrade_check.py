@@ -66,14 +66,14 @@ def _print_paths(title: str, paths: list[str]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="只讀檢查當前二開分支升級到目標 Git ref 時的源碼重疊與文本衝突",
+        description="只讀檢查目前二開分支升級到目標 Git ref 時的原始碼重疊與文本衝突",
     )
     parser.add_argument("target", help="目標 Tag/分支/commit, 例如 v0.3.1")
     parser.add_argument(
         "--repo",
         type=Path,
         default=Path.cwd(),
-        help="倉庫路徑, 預設當前目錄",
+        help="儲存庫路徑, 預設目前目錄",
     )
     args = parser.parse_args(argv)
 
@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         target = _resolve_commit(root, args.target)
         base = _git(root, "merge-base", current, target).stdout.strip()
         if not base:
-            raise RuntimeError("當前分支與目標版本沒有共同基線")
+            raise RuntimeError("目前分支與目標版本沒有共同基線")
 
         current_paths = _lines(_git(root, "diff", "--name-only", f"{base}..{current}"))
         target_paths = _lines(_git(root, "diff", "--name-only", f"{base}..{target}"))
@@ -92,12 +92,12 @@ def main(argv: list[str] | None = None) -> int:
         dirty = sorted(_lines(_git(root, "status", "--short")))
 
         print("Nanachi 的台股監控看板 二開升級預檢")
-        print(f"倉庫: {root}")
-        print(f"當前: {current[:12]}")
+        print(f"儲存庫: {root}")
+        print(f"目前: {current[:12]}")
         print(f"目標: {args.target} ({target[:12]})")
         print(f"共同基線: {base[:12]}")
-        print(f"當前分支修改文件: {len(current_paths)}")
-        print(f"目標版本修改文件: {len(target_paths)}")
+        print(f"目前分支修改檔案: {len(current_paths)}")
+        print(f"目標版本修改檔案: {len(target_paths)}")
         _print_paths("雙方修改的同一文件", overlap)
         _print_paths("Git 三方預演識別的文本衝突", conflicts)
 
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         if overlap:
             print("\n結論: Git 未發現文本衝突, 但重疊文件需要檢查語義相容和測試。")
             return 0
-        print("\n結論: 未發現源碼重疊; 仍需執行目標版本的驗證矩陣。")
+        print("\n結論: 未發現原始碼重疊; 仍需執行目標版本的驗證矩陣。")
         return 0
     except (OSError, RuntimeError) as exc:
         print(f"升級預檢失敗: {exc}", file=sys.stderr)

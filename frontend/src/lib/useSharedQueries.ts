@@ -1,8 +1,8 @@
 /**
- * 共享 query hooks — 消除多頁面重複的 useQuery 調用。
+ * 共享 query hooks — 消除多頁面重複的 useQuery 呼叫。
  *
- * 實時數據走 SSE invalidation，無需前端輪詢。
- * 只有管線進度等非 SSE 數據才用 refetchInterval。
+ * 即時資料走 SSE invalidation，無需前端輪詢。
+ * 只有管線進度等非 SSE 資料才用 refetchInterval。
  */
 import { useQuery } from '@tanstack/react-query'
 import { api } from './api'
@@ -18,7 +18,7 @@ export function useCapabilities() {
   })
 }
 
-/** 設置狀態 — Layout / Data / Keys 共用 */
+/** 設定狀態 — Layout / Data / Keys 共用 */
 export function useSettings() {
   return useQuery({
     queryKey: QK.settings,
@@ -26,7 +26,7 @@ export function useSettings() {
   })
 }
 
-/** 用戶偏好 — Layout / Data / Intraday 共用 */
+/** 使用者偏好 — Layout / Data / Intraday 共用 */
 export function usePreferences() {
   return useQuery({
     queryKey: QK.preferences,
@@ -34,13 +34,13 @@ export function usePreferences() {
   })
 }
 
-/** 行情狀態 — SSE quotes_updated 自動刷新。
+/** 行情狀態 — SSE quotes_updated 自動重新整理。
 
- * poll=true 時啟用 60s 狀態輪詢兜底, 用於在交易時段邊界
+ * poll=true 時啟用 60s 狀態輪詢備援, 用於在交易時段邊界
  * (11:30午休 / 13:00開盤 / 15:00收盤) 同步 quote status。
- * SSE 會在行情更新時即時刷新, 輪詢負責沒有 SSE 的休盤邊界。
+ * SSE 會在行情更新時即時重新整理, 輪詢負責沒有 SSE 的休盤邊界。
  * 只應在全局唯一掛載處 (Layout) 傳 poll=true, 避免多頁面重複輪詢;
- * 其他調用方共享同一 queryKey 緩存, 無需自行輪詢。
+ * 其他呼叫方共享同一 queryKey 快取, 無需自行輪詢。
  */
 export function useQuoteStatus(opts?: { enabled?: boolean; poll?: boolean }) {
   return useQuery({
@@ -68,7 +68,7 @@ export function useVersion() {
   })
 }
 
-/** 數據狀態 — Data / Screener 共用 */
+/** 資料狀態 — Data / Screener 共用 */
 export function useDataStatus(opts?: {
   staleTime?: number
   refetchInterval?: number | false | ((query: any) => number | false | undefined)

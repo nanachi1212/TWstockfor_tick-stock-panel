@@ -1,6 +1,6 @@
 """日 K 同步服務(§7.7 Step 1)。
 
-調度器在 capability 允許下,把符號集合的日 K 批量同步到本地 Parquet。
+調度器在 capability 允許下,把符號集合的日 K 批次同步到本地 Parquet。
 策略:
   - 日 K 僅使用 `kline.daily.batch`
   - 除權因子僅使用 `adj_factor`
@@ -26,16 +26,16 @@ logger = logging.getLogger(__name__)
 
 def _reject_ashare_symbols(symbols: list[str]) -> None:
     if any(str(symbol).upper().endswith((".SH", ".SZ", ".BJ")) for symbol in symbols):
-        raise ValueError("A 股行情功能已移除")
+        raise ValueError("不支援 .SH/.SZ/.BJ 代碼, 本系統僅提供台股行情")
 
 
 def _atomic_write_parquet(df: pl.DataFrame, out) -> None:
-    """先寫臨時文件再原子替換, 避免進程中斷留下損壞的 parquet。
+    """先寫臨時檔案再原子替換, 避免行程中斷留下損壞的 parquet。
 
-    與 repository._atomic_write_parquet 同語義。adj_factor 的 all.parquet 是全市場
-    單文件、每次「讀→concat→原地寫」, 直接 write_parquet(out) 在進程被 kill
-    (dev.sh 清端口用 kill -9)、reap 超時或斷電時會留下半截文件, 之後復權視圖
-    scan_parquet 整條鏈路報錯、enriched 全市場重算不出。臨時文件後綴 .tmp 不匹配
+    與 repository._atomic_write_parquet 同語意。adj_factor 的 all.parquet 是全市場
+    單檔案、每次「讀→concat→原地寫」, 直接 write_parquet(out) 在行程被 kill
+    (dev.sh 清端口用 kill -9)、reap 超時或斷電時會留下半截檔案, 之後復權檢視表
+    scan_parquet 整條鏈路出錯、enriched 全市場重算不出。臨時檔案後綴 .tmp 不匹配
     *.parquet glob, 不會被掃描誤讀。
     """
     tmp = out.with_name(out.name + ".tmp")
@@ -43,14 +43,14 @@ def _atomic_write_parquet(df: pl.DataFrame, out) -> None:
     tmp.replace(out)  # 同目錄 rename, POSIX/NTFS 均為原子操作
 
 
-# 標準列(無論 SDK 返回什麼形狀,我們把它規範成這套)
+# 標準欄(無論 SDK 回傳什麼形狀,我們把它規範成這套)
 CANONICAL_DAILY_COLS = [
     "symbol", "date", "open", "high", "low", "close", "volume", "amount",
 ]
 
 
 def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
-    """把 SDK 返回的 pandas/任意 DataFrame 規範成 canonical 列。"""
+    """把 SDK 回傳的 pandas/任意 DataFrame 規範成 canonical 欄。"""
     if df_in is None or len(df_in) == 0:
         return pl.DataFrame()
 
@@ -59,7 +59,7 @@ def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     else:
         df = df_in
 
-    # 兼容字段名差异
+    # 相容欄位名差异
     rename_map = {
         "ts_code": "symbol",
         "trade_date": "date",
@@ -86,7 +86,7 @@ def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     # 過濾停牌日 (open/high 為 0; close 可能被填充為前收盤價, 不能用全零判斷)
     df = filter_halt_days(df)
 
-    # 只保留 canonical 列
+    # 只保留 canonical 欄
     keep = [c for c in CANONICAL_DAILY_COLS if c in df.columns]
     return df.select(keep)
 
@@ -245,8 +245,8 @@ def _normalize_adj_factor(raw) -> pl.DataFrame:
     if df.is_empty():
         return df
     # rename: timestamp/date → trade_date, adj_factor → ex_factor
-    # 注意: 新版 SDK 可能同時返回 timestamp 和 trade_date (或 adj_factor 和 ex_factor),
-    # 直接 rename 會產生重複列報錯。僅當目標列不存在時才 rename。
+    # 注意: 新版 SDK 可能同時回傳 timestamp 和 trade_date (或 adj_factor 和 ex_factor),
+    # 直接 rename 會產生重複欄出錯。僅當目標欄不存在時才 rename。
     rename_map: dict[str, str] = {}
     for src, dst in (("timestamp", "trade_date"), ("date", "trade_date"), ("adj_factor", "ex_factor")):
         if src in df.columns and dst not in df.columns:
@@ -313,7 +313,7 @@ CANONICAL_MINUTE_COLS = [
 
 
 def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
-    """把 SDK 返回的分鐘 K 資料規範成 canonical 列。"""
+    """把 SDK 回傳的分鐘 K 資料規範成 canonical 欄。"""
     if df_in is None or len(df_in) == 0:
         return pl.DataFrame()
 
@@ -329,7 +329,7 @@ def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     }
     df = df.rename({k: v for k, v in rename_map.items() if k in df.columns})
 
-    # datetime 列:優先用 timestamp(毫秒精度),其次 trade_time
+    # datetime 欄:優先用 timestamp(毫秒精度),其次 trade_time
     if "timestamp" in df.columns:
         df = df.with_columns(
             pl.from_epoch("timestamp", time_unit="ms").alias("datetime"),
@@ -370,9 +370,9 @@ def _datetime_to_ms(dt: datetime) -> int:
 
 
 def _write_minute_partition(df: pl.DataFrame, minute_dir) -> int:
-    """按 _trade_date 分區落盤分鐘 K (讀舊→concat→unique→原子寫)。返回寫入行數。
+    """按 _trade_date 分區寫入磁碟分鐘 K (讀舊→concat→unique→原子寫)。回傳寫入列數。
 
-    抽自原 sync_and_persist_minute 末尾的循環, 供流式落盤 (每段一次) 與一次性遷移共用。
+    抽自原 sync_and_persist_minute 末尾的循環, 供流式寫入磁碟 (每段一次) 與一次性遷移共用。
     """
     if df.is_empty():
         return 0
@@ -479,7 +479,7 @@ def intraday_monitor_support(capset: CapabilitySet | None) -> dict[str, object]:
         "available": not unavailable,
         "source": None if unavailable else "custom_minute",
         "max_symbols": 0 if unavailable else 100,
-        "reason": "尚未配置分鐘資料來源" if unavailable else "使用已配置的分鐘資料來源",
+        "reason": "尚未設定分鐘資料來源" if unavailable else "使用已設定的分鐘資料來源",
     }
 
 
@@ -655,10 +655,10 @@ def sync_and_persist_minute(
     extend_backward: bool = False,
     force_full_days: bool = False,
 ) -> int:
-    """同步分鐘 K 並存到 Parquet(前復權價格, SDK 端 adjust=qfq)。返回寫入行數。
+    """同步分鐘 K 並存到 Parquet(前復權價格, SDK 端 adjust=qfq)。回傳寫入列數。
 
-    使用 start_time / end_time 區間拉取, 確保所有標的覆蓋同一時間段。
-    on_chunk_done(current, total) 每個 chunk 完成後回調。
+    使用 start_time / end_time 區間取得, 確保所有標的覆蓋同一時間段。
+    on_chunk_done(current, total) 每個 chunk 完成後回呼。
     force_full_days=True 時強制回溯 days 自然日 (不增量補, 用於個股補齊歷史)。
     """
     minute_provider = preferences.get_minute_data_provider()
@@ -697,7 +697,7 @@ def sync_and_persist_minute(
             start_time = now - timedelta(days=calendar_days)
             end_time = now
     else:
-        # 預設增量模式: 首次拉取回溯 N 天, 已有資料則從最新時間增量補到今天
+        # 預設增量模式: 首次取得回溯 N 天, 已有資料則從最新時間增量補到今天
         # force_full_days=True: 強制回溯 days 自然日 (個股補齊歷史, 不增量)
         last_dt = _latest_minute_datetime(repo)
         if force_full_days:
@@ -718,14 +718,14 @@ def sync_and_persist_minute(
         default_rpm_when_unset=False,
     )
 
-    # 流式落盤: 每段拉完立即寫盤, 記憶體峰值 = 單段 (而非全量)。
+    # 流式寫入磁碟: 每段拉完立即寫盤, 記憶體峰值 = 單段 (而非全量)。
     # 全量攢記憶體曾導致 1 年全市場分鐘 K OOM 卡死 (3 億行 / 數十 GB)。
     minute_dir = repo.store.data_dir / "kline_minute"
     written_box = [0]  # list 閉包, 繞過 Python 閉包外層賦值
 
     def _persist(seg_df: pl.DataFrame) -> None:
         # 單股自動補齊可能與另一個補齊請求同時寫同一日期分區。Windows 不允許
-        # 替換仍被另一寫入佔用的臨時文件,因此讀-改-寫必須複用倉庫寫鎖。
+        # 替換仍被另一寫入佔用的臨時檔案,因此讀-改-寫必須重用倉庫寫鎖。
         with repo._write_lock:
             written_box[0] += _write_minute_partition(seg_df, minute_dir)
 
@@ -743,7 +743,7 @@ def sync_and_persist_minute(
         return 0
     written = written_box[0]
 
-    # 刷新視圖
+    # 重新整理檢視表
     try:
         d = repo.store.data_dir.as_posix()
         repo.db.execute(

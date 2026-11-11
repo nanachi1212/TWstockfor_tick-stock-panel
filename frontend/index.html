@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // 預渲染主題腳本: 首屏前設置 html.dark, 避免亮暗閃爍 (FOUC)。
-      // 默認暗色; 用戶切過亮色後 (localStorage tf-theme=light) 保持亮色。
+      // 預渲染主題腳本: 首屏前設定 html.dark, 避免亮暗閃爍 (FOUC)。
+      // 預設暗色; 使用者切過亮色後 (localStorage tf-theme=light) 保持亮色。
       (function () {
         try {
           if (localStorage.getItem('tf-theme') !== 'light') {

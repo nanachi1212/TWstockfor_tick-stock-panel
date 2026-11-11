@@ -1,15 +1,15 @@
 """全域即時行情服務。
 
-集中管理全市場行情拉取 + enriched 快取，供盤中選股、自選股等所有模組複用。
+集中管理全市場行情取得 + enriched 快取，供盤中選股、自選股等所有模組重用。
 
 架構:
   - 台股官方模式輪詢監控規則; 自訂來源依 realtime 能力取數
-  - 拉取行情 → 寫 kline_daily (不復權) + 增量計算 enriched → 寫盤 + 更新快取
+  - 取得行情 → 寫 kline_daily (不復權) + 增量計算 enriched → 寫盤 + 更新快取
   - _enriched_cache 是唯一的盤中資料來源 (OHLCV + 全套技術指標)
   - _live_agg_cache 是遞推狀態 (只載入一次, 盤中不變)
 
 資料流 (每輪 ~15s):
-  1. API 拉取 → raw_records (臨時變數)
+  1. API 取得 → raw_records (臨時變數)
   2. raw_records → 寫 kline_daily (不復權原始價格)
   3. raw_records → 更新 _enriched_cache 的 OHLCV
   4. 增量計算 enriched 指標 (~50ms)
@@ -32,9 +32,8 @@ from datetime import date
 
 import polars as pl
 
-from app.market_time import cn_today
 from app.parquet import scan_daily_parquet
-from app.taiwan.realtime.calendar import get_market_status, taipei_now
+from app.taiwan.realtime.calendar import get_market_status, taipei_now, taipei_today
 from app.taiwan.realtime.models import MarketStatus
 
 logger = logging.getLogger(__name__)
@@ -62,8 +61,8 @@ def _claim_external_delivery(event_id: str, channel: str) -> bool:
 class QuoteSubscriber:
     """一個 SSE 連接對應一個訂閱者: 獨立事件 + 獨立佇列。
 
-    此前四個通道共用服務級 Event + pending 列表, pop 是「取走」語義:
-    多客戶端 (多標籤頁/多設備) 時告警只會被先醒來的連接消費, 其餘永遠
+    此前四個通道共用服務級 Event + pending 列表, pop 是「取走」語意:
+    多客戶端 (多標籤頁/多裝置) 時告警只會被先醒來的連接消費, 其餘永遠
     收不到; 共享 Event 的 clear/wait 也存在互相吞信號的競態。
     改為每連接獨立訂閱者後, 事件對所有客戶端廣播。
     """
@@ -153,17 +152,17 @@ class QuoteSubscriber:
             self._event.set()
 
 
-# 落盤節流間隔: last_fetch_ms 僅在進程重啟後用於顯示"最後獲取時間"(執行中讀記憶體值),
-# 每 30s 持久化一次足夠, 避免 expert 檔每秒一輪的全量 preferences 重寫磁盤。
+# 寫入磁碟節流間隔: last_fetch_ms 僅在行程重啟後用於顯示"最後取得時間"(執行中讀記憶體值),
+# 每 30s 持久化一次足夠, 避免 expert 檔每秒一輪的全量 preferences 重寫磁碟。
 _LAST_FETCH_WRITE_INTERVAL_MS = 30_000.0
 _last_fetch_written_at_ms: float = 0.0
 
 
 def _persist_last_fetch(fetched_at_ms: float) -> None:
-    """把"最後獲取"時間戳持久化到 preferences, 使進程重啟後仍可顯示。
+    """把"最後取得"時間戳持久化到 preferences, 使行程重啟後仍可顯示。
 
     放在鎖外呼叫 (IO); 失敗不影響主流程 (記憶體值已更新, 下次 fetch 再寫)。
-    距上次成功落盤不足 30s 時跳過 (節流只影響落盤頻率, 記憶體值不受影響)。
+    距上次成功寫入磁碟不足 30s 時跳過 (節流只影響寫入磁碟頻率, 記憶體值不受影響)。
     """
     global _last_fetch_written_at_ms
     if (fetched_at_ms - _last_fetch_written_at_ms) < _LAST_FETCH_WRITE_INTERVAL_MS:
@@ -187,14 +186,14 @@ class QuoteService:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        # 串行化行情拉取: 手動 POST /refresh 與後台輪詢執行緒可能併發呼叫
+        # 串行化行情取得: 手動 POST /refresh 與背景輪詢執行緒可能並行呼叫
         # _fetch_quotes, 兩者同時寫同一批 parquet/快取會互相覆蓋
         self._fetch_lock = threading.Lock()
         self._running = False
         self._enabled = False      # 全域開關 (持久化到 preferences)
         # 暫停態: 盤後管道/資料修正執行期間臨時暫停取數, 防止與管道寫同一批 parquet 競態。
         # 與 _enabled 不同 — pause 不改 preferences、不 stop 執行緒, 僅讓輪詢循環跳過取數;
-        # 進程重啟後 _paused 歸零, 從 preferences 恢復真實開關態, 無"假關閉"副作用。
+        # 行程重啟後 _paused 歸零, 從 preferences 恢復真實開關態, 無"假關閉"副作用。
         self._paused = False
         self._interval = self.DEFAULT_INTERVAL
         self._thread: threading.Thread | None = None
@@ -203,16 +202,16 @@ class QuoteService:
         self._subscribers: set[QuoteSubscriber] = set()
         self._app_state = None                   # 延遲注入 (FastAPI app.state)
 
-        # 拉取元資訊 (給 SSE / status 用)
+        # 取得元資訊 (給 SSE / status 用)
         self._fetch_time: float = 0.0       # perf_counter (用於計算 quote_age_ms)
-        self._fetch_ms: float = 0.0         # 拉取耗時 (毫秒)
-        # _fetched_at 持久化到 preferences: 進程重啟後仍能顯示"最後獲取"時間,
-        # 不因關閉開關/重啟而歸零 (資料頁卡片常駐顯示, 方便判斷上次拉取時刻)。
+        self._fetch_ms: float = 0.0         # 取得耗時 (毫秒)
+        # _fetched_at 持久化到 preferences: 行程重啟後仍能顯示"最後取得"時間,
+        # 不因關閉開關/重啟而歸零 (資料頁卡片常駐顯示, 方便判斷上次取得時刻)。
         try:
             from app.services import preferences as _prefs
             self._fetched_at: float = float(_prefs.load().get("last_fetch_ms", 0.0))
         except Exception:  # noqa: BLE001
-            self._fetched_at = 0.0      # 拉取完成的 Unix 時間戳 (毫秒)
+            self._fetched_at = 0.0      # 取得完成的 Unix 時間戳 (毫秒)
         self._symbol_count: int = 0
         self._index_symbol_count: int = 0
         self._etf_symbol_count: int = 0
@@ -223,7 +222,7 @@ class QuoteService:
     # ================================================================
 
     def start(self, interval: float = 0.0) -> None:
-        """啟動後台行情輪詢執行緒。"""
+        """啟動背景行情輪詢執行緒。"""
         if self._running:
             return
         if interval <= 0:
@@ -238,7 +237,7 @@ class QuoteService:
         logger.info("行情服務已啟動, 輪詢間隔 %.1fs", self._interval)
 
     def stop(self) -> None:
-        """停止後台行情輪詢執行緒。"""
+        """停止背景行情輪詢執行緒。"""
         self._running = False
         self._enabled = False
         if self._thread:
@@ -250,8 +249,8 @@ class QuoteService:
     def enable(self) -> bool:
         """開啟自動行情 (不立即啟動執行緒，等下一個交易時段)。
 
-        none 檔無即時行情權限,拒絕開啟並返回 False;
-        free 檔開啟自選股即時,starter+ 開啟全市場即時。返回值表示是否真正開啟。
+        none 檔無即時行情權限,拒絕開啟並回傳 False;
+        free 檔開啟自選股即時,starter+ 開啟全市場即時。回傳值表示是否真正開啟。
         """
         if not self.is_realtime_allowed():
             logger.warning("即時行情開啟被拒:當前檔位(none)無即時行情權限")
@@ -299,10 +298,10 @@ class QuoteService:
     def paused(self):
         """上下文管理器: 進入時暫停輪詢取數, 退出時(含異常)自動恢復。
 
-        供盤後管道/資料修正複用:
+        供盤後管道/資料修正重用:
             with quote_service.paused():
                 run_pipeline(...)
-        無論正常結束還是異常/crash, finally 都會 resume (除非進程直接被 kill)。
+        無論正常結束還是異常/crash, finally 都會 resume (除非行程直接被 kill)。
         """
         self.pause()
         try:
@@ -326,7 +325,7 @@ class QuoteService:
             self.start()
 
     def set_repo(self, repo) -> None:
-        """注入 KlineRepository, 用於即時落盤。"""
+        """注入 KlineRepository, 用於即時寫入磁碟。"""
         self._repo = repo
 
     def set_app_state(self, app_state) -> None:
@@ -343,7 +342,7 @@ class QuoteService:
         return clamped
 
     def get_min_interval(self) -> float:
-        """返回當前檔位允許的最小間隔。"""
+        """回傳當前檔位允許的最小間隔。"""
         return self._tier_min_interval()
 
     # ================================================================
@@ -371,20 +370,20 @@ class QuoteService:
             sub.notify_quote()
 
     def notify_strategy_results_updated(self) -> None:
-        """策略監控完成即時結果更新後呼叫，僅刷新策略頁結果快取。"""
+        """策略監控完成即時結果更新後呼叫，僅重新整理策略頁結果快取。"""
         for sub in self._snapshot_subscribers():
             sub.notify_strategy_results()
 
     def notify_depth_updated(self) -> None:
-        """五檔盤口修正完成後呼叫: 通知 SSE 推送 depth_updated, 觸發連板梯隊刷新。
+        """五檔盤口修正完成後呼叫: 通知 SSE 推送 depth_updated, 觸發連板梯隊重新整理。
 
-        與行情/告警通道獨立 — 只刷新連板梯隊, 不連帶刷新 watchlist 等。
+        與行情/告警通道獨立 — 只重新整理連板梯隊, 不連帶重新整理 watchlist 等。
         """
         for sub in self._snapshot_subscribers():
             sub.notify_depth()
 
     def notify_daily_data_updated(self) -> None:
-        """盤後日線/法人/融資/集保寫入後呼叫: 前端刷新依賴日線的查詢 (含持股分析)。"""
+        """盤後日線/法人/融資/集保寫入後呼叫: 前端重新整理依賴日線的查詢 (含持股分析)。"""
         for sub in self._snapshot_subscribers():
             sub.notify_daily_data()
 
@@ -435,25 +434,25 @@ class QuoteService:
     # ================================================================
 
     def get_enriched_today(self) -> tuple[pl.DataFrame, date | None]:
-        """返回今天 enriched 資料 + 日期 (執行緒安全)。
+        """回傳今天 enriched 資料 + 日期 (執行緒安全)。
 
-        所有頁面統一通過此方法獲取即時行情 + 技術指標。
+        所有頁面統一通過此方法取得即時行情 + 技術指標。
         """
         if not self._repo:
             return pl.DataFrame(), None
         return self._repo.get_enriched_latest()
 
     def get_quotes_compat(self) -> pl.DataFrame:
-        """相容接口: 返回行情 DataFrame (用於盤中選股等需要 last_price/prev_close 的場景)。
+        """相容介面: 回傳行情 DataFrame (用於盤中選股等需要 last_price/prev_close 的場景)。
 
-        從 _enriched_cache 取 today 的資料, 只選行情基礎列, 補上 last_price 別名。
-        不返回指標列, 避免 JOIN live_agg 時列名衝突。
+        從 _enriched_cache 取 today 的資料, 只選行情基礎欄, 補上 last_price 別名。
+        不回傳指標欄, 避免 JOIN live_agg 時欄名衝突。
         """
         df, _ = self.get_enriched_today()
         if df.is_empty():
             return df
 
-        # 只取盤中選股需要的行情基礎列
+        # 只取盤中選股需要的行情基礎欄
         keep = [c for c in [
             "symbol", "close", "open", "high", "low", "volume", "amount",
             "prev_close", "change_pct", "change_amount", "amplitude", "turnover_rate",
@@ -466,7 +465,7 @@ class QuoteService:
         return df
 
     def get_index_quotes(self, symbols: list[str] | None = None) -> pl.DataFrame:
-        """返回即時指數行情快取。不會觸發外部請求。"""
+        """回傳即時指數行情快取。不會觸發外部請求。"""
         with self._lock:
             df = self._index_quotes_cache.clone() if self._index_quotes_cache is not None else pl.DataFrame()
         if df.is_empty():
@@ -476,7 +475,7 @@ class QuoteService:
         return df
 
     def status(self) -> dict:
-        """返回行情服務狀態。"""
+        """回傳行情服務狀態。"""
         from app.services import preferences
         age = (time.perf_counter() - self._fetch_time) * 1000 if self._fetch_time else -1
         mode = self.realtime_mode()
@@ -501,12 +500,12 @@ class QuoteService:
         }
 
     def refresh(self) -> dict:
-        """手動觸發一次行情拉取。"""
+        """手動觸發一次行情取得。"""
         self._fetch_quotes()
         return self.status()
 
     # ================================================================
-    # 後台輪詢
+    # 背景輪詢
     # ================================================================
 
     def _poll_loop(self) -> None:
@@ -528,12 +527,12 @@ class QuoteService:
                 waited += 0.5
 
     def _fetch_quotes(self) -> None:
-        """按當前檔位拉取行情。加鎖串行化 (後台輪詢 vs 手動 refresh)。"""
+        """按當前檔位取得行情。加鎖串行化 (背景輪詢 vs 手動 refresh)。"""
         with self._fetch_lock:
             self._fetch_full_market_quotes()
 
     def _fetch_full_market_quotes(self) -> None:
-        """拉取全市場行情 → 寫 daily + 計算 enriched + 更新快取。"""
+        """取得全市場行情 → 寫 daily + 計算 enriched + 更新快取。"""
         from app.services import preferences
 
         provider_name = preferences.get_realtime_data_provider()
@@ -552,7 +551,7 @@ class QuoteService:
                 self._process_full_market_records(records, t0=t0, now_ts=now_ts)
                 return
             except Exception as e:  # noqa: BLE001
-                logger.warning("自定義即時行情拉取失敗: %s", e)
+                logger.warning("自訂即時行情取得失敗: %s", e)
                 return
         logger.warning("即時資料來源 %s 未提供 realtime 資料集, 略過行情更新", provider_name)
 
@@ -586,7 +585,7 @@ class QuoteService:
         fetch_ms = (time.perf_counter() - t0) * 1000
         fetched_at = time.time() * 1000
 
-        # ---- 更新元信息 ----
+        # ---- 更新元資訊 ----
         with self._lock:
             self._fetch_time = now_ts
             self._fetch_ms = fetch_ms
@@ -597,7 +596,7 @@ class QuoteService:
             self._index_quotes_cache = self._build_index_quotes(index_records)
 
         _persist_last_fetch(fetched_at)
-        logger.info("行情刷新: %d 只股票, %d 只ETF, %d 只指數, 耗時 %.0fms", len(stock_records), len(etf_records), len(index_records), fetch_ms)
+        logger.info("行情重新整理: %d 只股票, %d 只ETF, %d 只指數, 耗時 %.0fms", len(stock_records), len(etf_records), len(index_records), fetch_ms)
 
         # ---- 寫 kline_daily (不復權原始價格, 只有 OHLCV) ----
         daily_df = self._build_daily(stock_records)
@@ -676,9 +675,9 @@ class QuoteService:
         if not select_exprs:
             return pl.DataFrame()
         result = df.select(select_exprs).with_columns(
-            pl.lit(cn_today()).cast(pl.Date).alias("date"),
+            pl.lit(taipei_today()).cast(pl.Date).alias("date"),
         )
-        # 修復: API 在非交易時段可能返回 open/high/low=0 或 null,
+        # 修復: API 在非交易時段可能回傳 open/high/low=0 或 null,
         # 導致蠟燭從 0 開始。用 close 填充這些異常值。
         for col in ("open", "high", "low"):
             if col in result.columns:
@@ -692,7 +691,7 @@ class QuoteService:
 
     @staticmethod
     def _build_quote_extra(records: list[dict]) -> pl.DataFrame:
-        """構建 API 直接提供的補充字段 (不寫 daily, 只傳給 enriched 計算)。
+        """構建 API 直接提供的補充欄位 (不寫 daily, 只傳給 enriched 計算)。
 
         包含: prev_close, change_pct, change_amount, amplitude, turnover_rate。
         """
@@ -716,7 +715,7 @@ class QuoteService:
     def _build_index_quotes(records: list[dict]) -> pl.DataFrame:
         """構建指數即時行情快取，不落股票 parquet。
 
-        注意: API 返回的 change_pct/amplitude 是小數 (0.0366 = 3.66%),
+        注意: API 回傳的 change_pct/amplitude 是小數 (0.0366 = 3.66%),
         統一轉成百分比輸出, 與 _fallback_index_quotes_from_daily 口徑一致
         (前端指數側不×100, 直接 toFixed(2)% 展示)。
         """
@@ -730,7 +729,7 @@ class QuoteService:
         if not keep or "symbol" not in keep:
             return pl.DataFrame()
         df = df.select(keep)
-        # 自定義源可能不提供 change_pct/change_amount, 按 last_price/prev_close 補算
+        # 自訂源可能不提供 change_pct/change_amount, 按 last_price/prev_close 補算
         # (資料源可能已計算漲跌幅, 此處只補缺失值)
         if "change_pct" not in df.columns and "last_price" in df.columns and "prev_close" in df.columns:
             # prev_close=0 → inf (非合法 JSON), prev_close=null → null; 用 when 守護
@@ -757,7 +756,7 @@ class QuoteService:
         """台股市場時段 (Asia/Taipei), 回傳 MarketStatus 值; 時段規則唯一來源是 taiwan.realtime.calendar。
 
         不要求「已確認交易日」: 颱風假/國定假日由 monitor_engine 的報價品質閘門
-        (MIS 無今日新鮮成交 → scheduled_open_unverified → 不告警) fail-closed 兜底。
+        (MIS 無今日新鮮成交 → scheduled_open_unverified → 不告警) fail-closed 保底。
         """
         return get_market_status(taipei_now()).value
 
@@ -776,7 +775,7 @@ class QuoteService:
     # ================================================================
 
     def _evaluate_monitors(self) -> None:
-        """行情更新後評估台股即時監控規則, 落盤、SSE 廣播並送外部提醒。"""
+        """行情更新後評估台股即時監控規則, 寫入磁碟、SSE 廣播並送外部提醒。"""
         try:
             # 僅在「交易日 + 連續競價時段」評估監控, 避開集合競價與盤後緩衝。
             if not self._is_continuous_trading():
@@ -938,10 +937,10 @@ class QuoteService:
     def _maybe_send_system_notifications(self, all_alerts: list[dict]) -> None:
         """把告警轉發到操作系統通知中心 (由 preferences 開關控制)。
 
-        - 開關關閉: 直接返回
+        - 開關關閉: 直接回傳
         - 開關開啟: 逐條發系統通知; 失敗靜默, 不阻斷主流程
-        - 去重: 複用 MonitorRuleEngine 的 cooldown, 此處不重複去重
-        - 批量策略事件 (symbol="") 聚合為一條通知, 避免刷屏
+        - 去重: 重用 MonitorRuleEngine 的 cooldown, 此處不重複去重
+        - 批次策略事件 (symbol="") 聚合為一條通知, 避免刷屏
         """
         try:
             from app.services import preferences
@@ -980,11 +979,11 @@ class QuoteService:
     def _flush_live_enriched(self, daily_df: pl.DataFrame, quote_extra: pl.DataFrame = None, asset_type: str = "stock", merge: bool = False) -> None:
         """增量計算今天的 enriched: 用昨天的遞推狀態 + 今天 OHLCV → 只算今天 5500 行。
 
-        quote_extra: API 直接提供的補充字段 (prev_close, change_pct 等),
+        quote_extra: API 直接提供的補充欄位 (prev_close, change_pct 等),
                      不寫 daily, 直接傳給 compute_enriched_today 避免重複計算。
         """
         try:
-            today = cn_today()
+            today = taipei_today()
             t0 = time.perf_counter()
 
             # ---- 嘗試增量路徑 ----
@@ -1006,11 +1005,11 @@ class QuoteService:
                 from app.indicators.pipeline import compute_enriched_today
                 from app.market_time import trading_minutes_elapsed_from_ts, trading_minutes_elapsed
                 instruments = self._repo.get_instruments()
-                # 將 API 直接提供的補充字段 JOIN 到 daily_df
+                # 將 API 直接提供的補充欄位 JOIN 到 daily_df
                 today_ohlcv = daily_df
                 if quote_extra is not None and not quote_extra.is_empty():
                     today_ohlcv = daily_df.join(quote_extra, on="symbol", how="left")
-                # 量比時間折算: 優先用行情 quote_ts (真實成交時間), 缺失則兜底服務端時間
+                # 量比時間折算: 優先用行情 quote_ts (真實成交時間), 缺失則保底服務端時間
                 elapsed_minutes: float | None = None
                 if "quote_ts" in daily_df.columns and not daily_df.is_empty():
                     valid_ts = daily_df["quote_ts"].drop_nulls()
@@ -1085,7 +1084,7 @@ class QuoteService:
             if enriched_today.is_empty():
                 return
 
-            # 異動偏離列: 盤中路徑不經過 _refresh_enriched 冷刷新,
+            # 異動偏離欄: 盤中路徑不經過 _refresh_enriched 冷重新整理,
             # 需在此附著 (基準 = 歷史幀 + 指數即時外推), 否則盤中異動列表為空
             if asset_type == "stock":
                 from app.indicators.pipeline import attach_deviation_columns_today

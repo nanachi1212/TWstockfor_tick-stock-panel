@@ -1,6 +1,6 @@
 """Capability 定義(§5.1)。
 
-業務代碼只依賴 CapabilitySet 與已配置的資料來源能力。
+業務代碼只依賴 CapabilitySet 與已設定的資料來源能力。
 """
 from __future__ import annotations
 
@@ -77,5 +77,5 @@ class CapabilityDenied(Exception):
 
     def __init__(self, cap: Cap, suggestion: str | None = None) -> None:
         self.cap = cap
-        self.suggestion = suggestion or f"目前資料源未提供『{cap}』, 請配置支援此資料集的來源"
+        self.suggestion = suggestion or f"目前資料源未提供『{cap}』, 請設定支援此資料集的來源"
         super().__init__(f"capability not available: {cap}; {self.suggestion}")

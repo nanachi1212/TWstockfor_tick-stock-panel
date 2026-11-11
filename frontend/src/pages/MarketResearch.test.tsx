@@ -56,7 +56,7 @@ describe('Market research product UI', () => {
     mount('/market-research?date=2026-09-30&window=5')
     await screen.findByRole('link', { name: /台積電/ })
     for (const window of [10, 20, 45, 60]) {
-      fireEvent.change(screen.getByLabelText('交易日窗口'), { target: { value: String(window) } })
+      fireEvent.change(screen.getByLabelText('交易日視窗'), { target: { value: String(window) } })
       await waitFor(() => expect(api.taiwanInstitutionalStatistics).toHaveBeenLastCalledWith('2026-09-30', window))
     }
     fireEvent.change(screen.getByLabelText('交易日'), { target: { value: '2026-09-29' } })

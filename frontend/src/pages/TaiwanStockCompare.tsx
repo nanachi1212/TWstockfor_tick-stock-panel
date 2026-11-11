@@ -126,7 +126,7 @@ export function TaiwanStockCompare() {
       }
     } catch (e: any) {
       if (activeAiRequestKey.current !== requestKey) return // 標的或日期已變更，捨棄過期錯誤
-      setAiError(e?.message || 'AI 服務調用失敗，請稍後重試')
+      setAiError(e?.message || 'AI 服務呼叫失敗，請稍後重試')
     } finally {
       if (activeAiRequestKey.current === requestKey) setIsAiLoading(false)
     }
@@ -536,7 +536,7 @@ export function TaiwanStockCompare() {
 
                 {aiComparison.risk_factors.length > 0 && (
                   <div className="bg-base/40 p-3.5 rounded-lg border border-border/40 space-y-2">
-                    <span className="text-xs font-semibold text-amber-400 block">【數據揭示之風險特徵】</span>
+                    <span className="text-xs font-semibold text-amber-400 block">【資料揭示之風險特徵】</span>
                     <div className="space-y-2">
                       {aiComparison.risk_factors.map((rsk, idx) => (
                         <div key={idx} className="flex flex-col gap-1 bg-surface/60 p-2 rounded border border-border/30">
@@ -556,7 +556,7 @@ export function TaiwanStockCompare() {
 
                 {aiComparison.missing_information.length > 0 && (
                   <div className="bg-base/30 p-2.5 rounded-lg border border-border/30 text-xs text-muted">
-                    <span className="font-semibold text-zinc-400 block mb-1">【系統數據覆蓋度說明】:</span>
+                    <span className="font-semibold text-zinc-400 block mb-1">【系統資料覆蓋度說明】:</span>
                     <ul className="list-disc list-inside space-y-0.5 font-mono text-xs">
                       {aiComparison.missing_information.map((item, idx) => (
                         <li key={idx} className="text-zinc-400">{item}</li>

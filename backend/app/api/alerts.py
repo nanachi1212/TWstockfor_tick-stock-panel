@@ -25,7 +25,7 @@ def list_alerts(
 ):
     """查詢觸發記錄 (時間倒序)。
 
-    ext_columns: 逗號分隔的 "configId.fieldName", 傳入後按 symbol 富化行業/概念等 ext 字段,
+    ext_columns: 逗號分隔的 "configId.fieldName", 傳入後按 symbol 富化行業/概念等 ext 欄位,
     每條記錄附帶 {configId}__{fieldName} 鍵 (與 watchlist/screener 一致)。
     """
     events = alert_store.list_recent(

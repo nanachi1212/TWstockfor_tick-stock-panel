@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$LlamaServer = "$env:USERPROFILE\.lmstudio\extensions\backends\llama.cpp-win-x86_64-nvidia-cuda12-avx2-2.50.0\llama-server.exe",
     # GGUF 模型檔完整路徑，例如 -Model "D:\models\Qwen3.5-9B-Q4_K_M.gguf"
     [Parameter(Mandatory = $true)][string]$Model,

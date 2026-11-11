@@ -20,7 +20,7 @@ export interface FrontendSlotContextMap {
     symbols: string[]
     viewMode: 'table' | 'card'
     selectedGroup: string
-    /** 刷新自選增強數據 (擴展修改數據後調用) */
+    /** 重新整理自選增強資料 (擴展修改資料後呼叫) */
     refresh: () => void
   }
 }

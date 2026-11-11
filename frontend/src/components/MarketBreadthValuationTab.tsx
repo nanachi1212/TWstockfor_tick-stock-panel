@@ -18,7 +18,7 @@ const labels: Record<string, string> = {
 const reasons: Record<string, string> = {
   insufficient_history: '新上市或歷史不足', missing_session_price: '交易日日 K 缺漏',
   missing_target_session: '查詢交易日缺漏', invalid_price: '價格無法比較',
-  calendar_unverified: '交易日窗口尚未確認', not_ordinary_stock: '已驗證非普通股',
+  calendar_unverified: '交易日視窗尚未確認', not_ordinary_stock: '已驗證非普通股',
   corporate_action_coverage_unavailable: '公司行動涵蓋證據不足',
   incomparable_corporate_action: '公司行動調整無法可靠比較', missing_valuation_record: '缺少估值紀錄',
   missing_value: '估值缺值', nonpositive_pe: '本益比非正值（不可當 0）',
@@ -83,10 +83,10 @@ export function MarketBreadthValuationTab({ asOf, market: controlledMarket, view
       {query.isFetching && !query.isLoading && <span role="status" className="text-sm text-secondary">更新中…</span>}
     </div>
     <p className="text-sm text-secondary">{view === 'valuation'
-      ? '以目前保存的官方個股估值計算描述性統計。'
+      ? '以目前儲存的官方個股估值計算描述性統計。'
       : '依可觀測日 K 計算的研究統計。涵蓋率為可觀測樣本的可計算比例，完整歷史普通股 universe 涵蓋率未知。'}</p>
     {refresh.isError && <p role="alert">估值更新失敗，請稍後重試。</p>}
-    {refresh.data && <p role="status">估值更新：{statuses[refresh.data.status]}，保存 {refresh.data.records_saved} 筆。
+    {refresh.data && <p role="status">估值更新：{statuses[refresh.data.status]}，儲存 {refresh.data.records_saved} 筆。
       {refresh.data.failed.length > 0 && ` ${refresh.data.failed.map(f => f.market).join('、')} 官方來源未成功，保留原有資料。`}</p>}
     {query.isLoading && <p role="status">載入大盤研究資料中…</p>}
     {query.isError && <div role="alert">大盤研究資料讀取失敗。
@@ -98,7 +98,7 @@ export function MarketBreadthValuationTab({ asOf, market: controlledMarket, view
         {data.warnings.map(text => <p key={text}>{text}</p>)}
       </div>
       {view !== 'valuation' && !data.latest && <p>尚無可觀測日 K，請先完成台股資料更新。</p>}
-      {view === 'valuation' && !data.valuation && <p>尚無保存的官方估值，請更新官方估值。</p>}
+      {view === 'valuation' && !data.valuation && <p>尚無儲存的官方估值，請更新官方估值。</p>}
       {view !== 'valuation' && data.latest && <>
         {!!data.latest.missing_markets.length && <p className="text-sm">尚無 {data.latest.missing_markets.join('、')} 可觀測樣本，合併市場涵蓋不完整。</p>}
         <p className="text-sm">歷史普通股資格已驗證 {data.latest.eligibility_verified_count} 家，尚未驗證 {data.latest.eligibility_unknown_count} 家。
@@ -107,13 +107,13 @@ export function MarketBreadthValuationTab({ asOf, market: controlledMarket, view
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {Object.entries(data.latest.metrics).map(([name, value]) => <MetricCard key={name} name={name} data={value} />)}
         </div>
-        <p className="text-sm text-secondary">價格來源：本地台股日 K，舊日 K 未保存可驗證的來源抓取時間。
+        <p className="text-sm text-secondary">價格來源：本地台股日 K，舊日 K 未儲存可驗證的來源抓取時間。
           歷史資格證據抓取時間：{data.latest.eligibility_retrieved_at ?? '未知'}。</p>
       </>}
       {view !== 'breadth' && data.valuation && <>
-        {selectedDate && <p className="text-sm text-secondary">歷史日期估值使用目前保存的最新 revision，非 Historical PIT。</p>}
+        {selectedDate && <p className="text-sm text-secondary">歷史日期估值使用目前儲存的最新 revision，非 Historical PIT。</p>}
         <h3 className="font-semibold">同交易日個股估值中位數</h3>
-        <p className="text-sm text-secondary">缺失與非正本益比排除，不當成 0；合併市場需同日兩個交易所資料。Percentile 至少需要 20 個先前保存交易日，採相同口徑中位數的 ties midrank。</p>
+        <p className="text-sm text-secondary">缺失與非正本益比排除，不當成 0；合併市場需同日兩個交易所資料。Percentile 至少需要 20 個先前儲存交易日，採相同口徑中位數的 ties midrank。</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {Object.entries(data.valuation.metrics).map(([name, value]) => <MetricCard key={name} name={name} data={value} valuation />)}
         </div>

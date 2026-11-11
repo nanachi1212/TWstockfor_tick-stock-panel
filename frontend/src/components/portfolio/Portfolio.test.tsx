@@ -22,8 +22,8 @@ async function fillTrade({ shares, price }: { shares: string; price: string }) {
   fireEvent.change(screen.getByLabelText('成交價'), { target: { value: price } })
   fireEvent.change(screen.getByLabelText('日期'), { target: { value: '2026-09-24' } })
   fireEvent.change(screen.getByLabelText('成交時間（台北）'), { target: { value: '10:00' } })
-  await waitFor(() => expect(screen.getByRole('button', { name: '保存成交' })).toBeEnabled())
-  fireEvent.click(screen.getByRole('button', { name: '保存成交' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: '儲存成交' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '儲存成交' }))
 }
 
 beforeEach(() => {
@@ -298,7 +298,7 @@ describe('Portfolio UI', () => {
     fireEvent.change(screen.getByLabelText('股數'), { target: { value: '6' } })
     fireEvent.change(screen.getByLabelText('成交價'), { target: { value: '110' } })
     expect(await screen.findByText(/預估證交稅/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '保存成交' }))
+    fireEvent.click(screen.getByRole('button', { name: '儲存成交' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('最多可賣出 5 股')
     expect(screen.getByText('5')).toBeInTheDocument()

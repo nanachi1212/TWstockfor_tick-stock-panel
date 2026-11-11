@@ -2,7 +2,7 @@
 
 maskable 版縮到 80% 置中: Android 遮罩只保證中央安全區可見。
 邊距填原圖外緣平均色, 圖示本身是滿版深藍底, 遮罩邊緣才不會多一圈色框。
-運行: cd backend; uv run python ../packaging/generate_pwa_icons.py
+執行: cd backend; uv run python ../packaging/generate_pwa_icons.py
 """
 from __future__ import annotations
 

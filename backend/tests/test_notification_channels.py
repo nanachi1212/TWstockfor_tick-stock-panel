@@ -15,9 +15,9 @@ from app.api import settings as settings_api
 from app.services import preferences, webhook_adapter
 from app.services.quote_service import QuoteService
 
-_SYSTEM_SIMPLIFIED_TERMS = (
-    "測試", "買入", "賣出", "信號", "觸發", "當前", "價格", "規則", "監控",
-    "資料", "狀態", "設定", "刪除", "新增", "預設", "刷新",
+_SYSTEM_SIMPLIFIED_TERMS = (  # 簡體詞 (以 unicode 跳脫寫出, 避免被簡繁轉換工具改回繁體)
+    "\u6d4b\u8bd5", "\u4e70\u5165", "\u5356\u51fa", "\u4fe1\u53f7", "\u89e6\u53d1", "\u5f53\u524d", "\u4ef7\u683c", "\u89c4\u5219", "\u76d1\u63a7",
+    "\u6570\u636e", "\u72b6\u6001", "\u8bbe\u7f6e", "\u5220\u9664", "\u65b0\u589e", "\u9ed8\u8ba4", "\u5237\u65b0",
 )
 
 
@@ -384,7 +384,7 @@ def test_buy_point_alert_is_concise_and_lists_reasons_and_risks():
 
 
 def test_user_authored_message_is_not_force_converted():
-    custom_message = "使用者自定義買入信號"
+    custom_message = "使用者自訂買入信號"
     message = webhook_adapter.alert_message({
         "source": "signal",
         "symbol": "A",

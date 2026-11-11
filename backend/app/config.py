@@ -1,4 +1,4 @@
-"""全域配置 — 從環境變數 / .env 讀取。"""
+"""全域設定 — 從環境變數 / .env 讀取。"""
 from __future__ import annotations
 
 import os
@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # PyInstaller 打包後: __file__ 指向臨時解壓目錄 _MEIPASS, 不能作為路徑基準。
 # 此時:
 #   - 只讀資源 (tiers.yaml / 前端 dist) 放在 _MEIPASS 內
-#   - 可寫使用者資料 (data_dir) 放在可執行文件旁的使用者目錄
+#   - 可寫使用者資料 (data_dir) 放在可執行檔案旁的使用者目錄
 # 非 frozen 模式 (開發/Docker): 保持原有 __file__ 推導, 行為完全不變。
 _IS_FROZEN = getattr(sys, "frozen", False)
 
@@ -24,7 +24,7 @@ def _user_data_root() -> Path:
     定位策略 (按優先級):
       1. 環境變數 DATA_DIR (pydantic-settings 自動注入到 settings.data_dir, 不在此處理)
       2. 打包桌面版: %LOCALAPPDATA%/NanachiStockPanel/data
-         - 與程序安裝目錄隔離, 升級與解除安裝預設不觸碰使用者資料。
+         - 與程式安裝目錄隔離, 升級與解除安裝預設不觸碰使用者資料。
       3. 非 frozen (開發模式): 項目根 data/
 
     舊版本安裝目錄內的 data/ 會由 DataStore._migrate_legacy_data_dir() 保守複製到
@@ -91,9 +91,9 @@ class Settings(BaseSettings):
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36"
     )
-    # AI 輸出上限 (max_tokens) 與輸入上下文窗口上限 (約 token)。
-    # 任務級 max_tokens 會被鉗制到 ai_max_output_tokens; 輸入估算超出上下文窗口時給出明確報錯。
-    # 預設 8192 高於所有現有任務 (最多 4500), 避免預設配置反而截斷長報告; 可在 AI 設定裡調整。
+    # AI 輸出上限 (max_tokens) 與輸入上下文視窗上限 (約 token)。
+    # 任務級 max_tokens 會被限制到 ai_max_output_tokens; 輸入估算超出上下文視窗時給出明確的錯誤訊息。
+    # 預設 8192 高於所有現有任務 (最多 4500), 避免預設設定反而截斷長報告; 可在 AI 設定裡調整。
     ai_max_output_tokens: int = 8192
     ai_context_window: int = 32768
     # 單次 AI 請求逾時秒數；本機小顯卡較慢時調大 (環境變數 AI_REQUEST_TIMEOUT 或 secrets.json 的 ai_request_timeout)。
@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Auth — 首次啟動時預置訪問密碼(明文, 僅用於初始化, 詳見 services/auth.bootstrap_from_env)
-    # 公網伺服器部署時免去 SSH 端口轉發設密碼的麻煩。寫入 auth.json(哈希)後即不再讀取。
+    # 公開網路伺服器部署時免去 SSH 端口轉發設密碼的麻煩。寫入 auth.json(雜湊)後即不再讀取。
     auth_password: str = ""
 
     # Data — frozen: exe 同級 data/ 子目錄; 非 frozen: 項目根 data/
@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     data_dir: Path = _user_data_root()
 
 
-    # 靜態文件(前端 dist) — frozen: 資源目錄的 static/; 非 frozen: frontend/dist
+    # 靜態檔案(前端 dist) — frozen: 資源目錄的 static/; 非 frozen: frontend/dist
     static_dir: Path = (
         _RESOURCE_ROOT / "static"
         if _IS_FROZEN

@@ -422,7 +422,7 @@ class StrategyLabService:
             sample_count=len({(row.snapshot_id, row.symbol) for row in filtered}),
             strategies=strategies, filter_options=options,
             strategy_options=[ident for ident, _ in catalog.values()],
-            slice_availability={field: "persisted" if options[field] else "未保存可驗證背景，無法切片"
+            slice_availability={field: "persisted" if options[field] else "未儲存可驗證背景，無法切片"
                                 for field in SLICES},
             duplicate_snapshots=audit["duplicate_snapshots"],
             duplicate_samples=audit["duplicate_samples"],

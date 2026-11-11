@@ -1,5 +1,5 @@
-# 構建 Docker 鏡像時排除的文件 / 目錄。
-# 與 .gitignore 思路一致: 只把 Dockerfile 真正需要的送進構建上下文,
+# 建置 Docker 映像檔時排除的文件 / 目錄。
+# 與 .gitignore 思路一致: 只把 Dockerfile 真正需要的送進建置上下文,
 # 減小上下文體積、加速上傳、避免快取誤傷。
 # 注意: .dockerignore 不識別 .gitignore 的取反(!)語法, 這裡按白名單思路直接列舉排除項。
 
@@ -8,11 +8,11 @@
 .github
 .gitignore
 
-# ===== 使用者執行時資料(絕不應進鏡像) =====
+# ===== 使用者執行時資料(絕不應進映像檔) =====
 data
 backend/data
 
-# ===== 前端構建產物 / 依賴(鏡像內會重新 build, 帶進來反而汙染) =====
+# ===== 前端建置產物 / 依賴(映像檔內會重新 build, 帶進來反而汙染) =====
 frontend/node_modules
 frontend/dist
 backend/static
@@ -33,25 +33,24 @@ backend/app/static
 .DS_Store
 **/*.swp
 
-# ===== 文件 / 截圖(鏡像不需要; README.md 除外, Dockerfile 顯式 COPY 了它) =====
+# ===== 文件(映像檔不需要; README.md 除外, Dockerfile 明確 COPY 了它) =====
 docs
-screenshots
 
-# ===== 桌面客戶端打包(PyInstaller 專用, 與 Docker 部署無關) =====
+# ===== 桌面使用者端打包(PyInstaller 專用, 與 Docker 部署無關) =====
 packaging
 backend/dist
 backend/build
 
-# ===== 開發腳本(本地啟服務用, 鏡像不用) =====
+# ===== 開發腳本(本地啟服務用, 映像檔不用) =====
 dev.sh
 dev.ps1
 scripts
 
-# ===== 密鑰(防止誤打進公開鏡像) =====
+# ===== 金鑰(防止誤打進公開映像檔) =====
 .env
 .env.*
 backend/.env
 
-# ===== 其他構建產物 =====
+# ===== 其他建置產物 =====
 **/node_modules
 *.log

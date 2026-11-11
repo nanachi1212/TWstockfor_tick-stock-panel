@@ -57,7 +57,7 @@ export function WatchlistGroupBar({
     { id: 'ungrouped', name: '未分組', count: counts.ungrouped ?? 0, color: null },
     ...groups.map(group => ({ id: group.id, name: group.name, count: counts[group.id] ?? 0, color: group.color })),
   ]
-  // 拖拽排序狀態: dragIndex = 拖動中的分組下標, dropIndex = 插入位置 (均相對 groups 數組)
+  // 拖曳排序狀態: dragIndex = 拖動中的分組下標, dropIndex = 插入位置 (均相對 groups 陣列)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const reorderable = !!onReorder && groups.length > 1
@@ -101,7 +101,7 @@ export function WatchlistGroupBar({
           {tabs.map((tab, tabIndex) => {
             const active = selected === tab.id
             const color = tab.color ? resolveWatchlistGroupColor(tab.color) : null
-            // 前兩個為固定標籤 (全部/未分組), 其後對應 groups 數組 — 可拖拽排序
+            // 前兩個為固定標籤 (全部/未分組), 其後對應 groups 陣列 — 可拖曳排序
             const groupIndex = tabIndex - 2
             const draggable = reorderable && tabIndex >= 2
             const dragging = draggable && dragIndex === groupIndex
@@ -127,7 +127,7 @@ export function WatchlistGroupBar({
                 onDrop={draggable ? e => { e.preventDefault(); handleDrop() } : undefined}
                 onDragEnd={draggable ? clearDrag : undefined}
                 onClick={() => onSelect(tab.id)}
-                title={draggable ? `${tab.name} — 可拖拽調整分組順序` : undefined}
+                title={draggable ? `${tab.name} — 可拖曳調整分組順序` : undefined}
                 className={`relative my-1.5 inline-flex shrink-0 items-center gap-1.5 rounded-btn border px-3 text-xs transition-colors ${
                   draggable ? 'cursor-grab active:cursor-grabbing' : ''
                 } ${
@@ -350,7 +350,7 @@ function GroupManagerDialog({
     })
   }
 
-  // 上移/下移: 與相鄰分組交換位置, 新順序由後端持久化 (json 數組順序即定義順序)
+  // 上移/下移: 與相鄰分組交換位置, 新順序由後端持久化 (json 陣列順序即定義順序)
   const move = async (groupId: string, dir: -1 | 1) => {
     if (!onReorder) return
     const ids = groups.map(group => group.id)
@@ -417,7 +417,7 @@ function GroupManagerDialog({
             className="inline-flex h-8 items-center gap-1.5 rounded-btn bg-accent px-3 text-xs text-white disabled:opacity-50"
           >
             <Plus className="h-3.5 w-3.5" />
-            新建
+            新增
           </button>
         </div>
         <div className="mt-2 flex items-start gap-2">
@@ -429,7 +429,7 @@ function GroupManagerDialog({
 
       <div className="max-h-[360px] overflow-y-auto border-t border-border px-4">
         {groups.length === 0 ? (
-          <div className="py-10 text-center text-xs text-muted">暫無自訂分組</div>
+          <div className="py-10 text-center text-xs text-muted">尚無自訂分組</div>
         ) : groups.map((group, index) => {
           const color = resolveWatchlistGroupColor(group.color)
           return (
@@ -650,7 +650,7 @@ export function WatchlistGroupPicker({ groups, groupIds, symbol, disabled, onTog
         >
           <div className="px-2 pb-1 pt-1.5 text-xs text-muted">加入分組（可多選）</div>
           {groups.length === 0 ? (
-            <div className="px-2 py-2 text-xs text-muted">暫無分組，請先新建</div>
+            <div className="px-2 py-2 text-xs text-muted">尚無分組，請先新增</div>
           ) : groups.map(group => {
             const color = resolveWatchlistGroupColor(group.color)
             const member = memberSet.has(group.id)

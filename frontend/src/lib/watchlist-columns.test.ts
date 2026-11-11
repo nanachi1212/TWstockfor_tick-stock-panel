@@ -54,7 +54,7 @@ describe('Watchlist BUILTIN_COLUMNS — Traditional Chinese labels (Data Freshne
     expect(findColumn('builtin:symbol').label).toBe('代碼/名稱')
     expect(findColumn('builtin:price').label).toBe('現價')
     expect(findColumn('builtin:pct').label).toBe('漲跌幅')
-    expect(findColumn('builtin:turnover').label).toBe('換手率')
+    expect(findColumn('builtin:turnover').label).toBe('週轉率')
     expect(findColumn('builtin:signals').label).toBe('訊號')
   })
 

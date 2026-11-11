@@ -1,9 +1,9 @@
-"""Key / 憑據本地存儲(§14)。
+"""Key / 憑據本地儲存(§14)。
 
-存儲位置:`data/user_data/secrets.json`,權限 0600。
+儲存位置:`data/user_data/secrets.json`,權限 0600。
 優先級:secrets.json > .env > 空。
 
-UI 改 Key 時只動這個文件,不動 .env。
+UI 改 Key 時只動這個檔案,不動 .env。
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def load() -> dict:
 
 
 def save(updates: dict) -> dict:
-    """合併寫入(不會清掉未提及的字段)。返回新內容。"""
+    """合併寫入(不會清掉未提及的欄位)。回傳新內容。"""
     current = load()
     current.update({k: v for k, v in updates.items() if v is not None})
     p = _path()
@@ -46,7 +46,7 @@ def save(updates: dict) -> dict:
 
 
 def clear(*keys: str) -> dict:
-    """清掉指定字段(留空清全部)。"""
+    """清掉指定欄位(留空清全部)。"""
     p = _path()
     if not p.exists():
         return {}
@@ -100,10 +100,10 @@ def confirm_ai_target(target: str) -> None:
 
 
 def get_ai_key() -> str:
-    """取當前 AI Key: 優先 active profile → secrets.json 單字段 → .env。
+    """取當前 AI Key: 優先 active profile → secrets.json 單欄位 → .env。
 
     多 profile 啟用時直接從 ai_key_profiles 讀取啟用 profile 的 key,
-    無需重啟; 不存在任何 profile 時回退到舊的 ai_api_key 單字段行為。
+    無需重啟; 不存在任何 profile 時回退到舊的 ai_api_key 單欄位行為。
     """
     import contextlib
     with contextlib.suppress(Exception):
@@ -126,7 +126,7 @@ def get_ai_key() -> str:
 
 
 def get_ai_config(key: str, default: str = "") -> str:
-    """取 AI 配置項:secrets.json 優先,否則 config。"""
+    """取 AI 設定項:secrets.json 優先,否則 config。"""
     val = load().get(key)
     if val:
         return val
@@ -135,7 +135,7 @@ def get_ai_config(key: str, default: str = "") -> str:
 
 
 def get_ai_config_int(key: str, default: int) -> int:
-    """取 AI 數值配置項 (如 ai_max_output_tokens): secrets.json 優先,否則 config。"""
+    """取 AI 數值設定項 (如 ai_max_output_tokens): secrets.json 優先,否則 config。"""
     val = load().get(key)
     if val is not None:
         try:
@@ -147,7 +147,7 @@ def get_ai_config_int(key: str, default: int) -> int:
 
 
 def get_env_backed_secret(field: str, env_name: str) -> str:
-    """取環境變數後備的密鑰(外掛 API Key 等):secrets.json 優先,否則環境變數。
+    """取環境變數後備的金鑰(外掛 API Key 等):secrets.json 優先,否則環境變數。
 
     UI 寫入 secrets.json 後即覆蓋 .env。
     """

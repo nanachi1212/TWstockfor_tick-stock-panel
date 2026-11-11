@@ -178,7 +178,7 @@ class TaiwanDailyBriefService:
         except Exception as e:
             logger.debug("Market sentiment lookup failed: %s", e)
             sentiment_label = "中性"
-            sentiment_desc = "市場情緒暫無數據"
+            sentiment_desc = "市場情緒暫無資料"
 
         industry_svc = TaiwanIndustryIntelligenceService(daily_store=self.daily_store, calendar=self.calendar)
         ind_snap = industry_svc.get_snapshot(effective_date)
@@ -511,11 +511,11 @@ class TaiwanDailyBriefService:
             "你是一位嚴謹客觀的台股每日市場與投資工作流分析助理。\n"
             "【嚴格紀律】：\n"
             "1. 必須嚴格根據提供的結構化客觀事實（Deterministic Daily Brief）進行解讀。\n"
-            "2. 嚴禁編造、幻想價格、數值或事件；遇到 missing 數據說明無資料，絕對不可補 0 或偽裝正常。\n"
+            "2. 嚴禁編造、幻想價格、數值或事件；遇到 missing 資料說明無資料，絕對不可補 0 或偽裝正常。\n"
             "3. 明確區分官方監管公告/重大事件與媒體新聞，不得混淆客觀事實與新聞評論。\n"
             "4. 絕對不可給出任何買賣點、目標價、合理估值或投資買賣指令。\n"
             "6. 資料日期：market.trade_date 是報告交易日。只有 market.taiex_stale 明確為 false，才可把加權指數當成報告日資料。"
-            " 若為 true，指數屬於 market.taiex_as_of 那天；若為 null，資料日期不明。兩者都不得說成今日指數或拿來解讀今日盤勢。各數據來源日期不同時須個別標示。\n"
+            " 若為 true，指數屬於 market.taiex_as_of 那天；若為 null，資料日期不明。兩者都不得說成今日指數或拿來解讀今日盤勢。各資料來源日期不同時須個別標示。\n"
             "7. 持股：portfolio.status 為 unavailable 代表持股資料未提供或讀取失敗，必須寫「持股資料暫時無法取得」，"
             "絕對不得寫成持股為 0、清單為空或無持股；只有 status 為 empty 才可說目前沒有持股。\n"
             "8. 市場廣度：上漲家數多於下跌家數時不得稱為普跌；指數下跌但上漲家數較多時，應描述為權值股拖累、市場廣度並未全面轉弱。\n"

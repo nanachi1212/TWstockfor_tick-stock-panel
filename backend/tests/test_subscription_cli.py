@@ -50,7 +50,7 @@ async def test_claude_cli_runs_isolated_on_subscription(monkeypatch):
     [
         (1, {"is_error": True, "result": "Invalid API key · Please run /login"}, "重新登入"),
         (0, {"is_error": True, "result": "model overloaded"}, "model overloaded"),
-        (0, {"is_error": False, "result": "  "}, "未返回內容"),
+        (0, {"is_error": False, "result": "  "}, "未回傳內容"),
     ],
 )
 async def test_claude_cli_errors_are_explicit(returncode, payload, message):

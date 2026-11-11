@@ -28,8 +28,8 @@ export interface WatchlistGroupMenuProps {
 }
 
 /**
- * 自選分組選擇菜單。
- * 分組僅在菜單打開時讀取，React Query 會在多個入口間共享同一份緩存。
+ * 自選分組選擇選單。
+ * 分組僅在選單開啟時讀取，React Query 會在多個入口間共享同一份快取。
  */
 export function WatchlistGroupMenu({
   children,
@@ -104,7 +104,7 @@ export function WatchlistGroupMenu({
       if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return
       setOpen(false)
     }
-    // 菜單內部分組列表可滾動 (max-h-60), 其 scroll 事件不應觸發關閉; 僅頁面/祖先容器滾動時關閉
+    // 選單內部分組列表可滾動 (max-h-60), 其 scroll 事件不應觸發關閉; 僅頁面/祖先容器滾動時關閉
     const closeOnViewportChange = (event: Event) => {
       if (event.target instanceof Node && menuRef.current?.contains(event.target)) return
       setOpen(false)
@@ -266,7 +266,7 @@ type WatchlistAddMenuProps = Omit<
   'includeAll' | 'counts' | 'total' | 'disableEmpty' | 'menuLabel'
 >
 
-/** 所有“加入自選”入口共用的目標分組菜單。 */
+/** 所有“加入自選”入口共用的目標分組選單。 */
 export function WatchlistAddMenu(props: WatchlistAddMenuProps) {
   return <WatchlistGroupMenu {...props} menuLabel="加入到自選分組" />
 }

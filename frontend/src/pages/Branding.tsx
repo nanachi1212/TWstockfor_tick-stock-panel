@@ -26,13 +26,13 @@ interface Variant {
 }
 
 // 同一個名字 "Nanachi 的台股監控看板" 在 4 種風格語言裡的呈現
-// 長字符串自動用更小字號 + 更窄字距,免得撐爆卡片;但風格語言(字體/字重/配色/圖標)保持不變
+// 長字符串自動用更小字號 + 更窄字距,免得撐爆卡片;但風格語言(字體/字重/配色/圖示)保持不變
 const VARIANTS: Variant[] = [
   {
     id: 'pulsar',
     name: 'Nanachi 的台股監控看板',
     tagline: 'TAIWAN STOCK SIGNAL TERMINAL',
-    hint: '高辨識度圖標與穩健字重',
+    hint: '高辨識度圖示與穩健字重',
     icon: RadioTower,
     iconAccent: 'text-success',
     nameClass: 'font-sans font-black text-base tracking-[0.10em]',
@@ -42,7 +42,7 @@ const VARIANTS: Variant[] = [
     id: 'vanta',
     name: 'Nanachi 的台股監控看板',
     tagline: 'MARKET INTELLIGENCE',
-    hint: '單色圖標與寬字距',
+    hint: '單色圖示與寬字距',
     icon: Square,
     iconAccent: 'text-foreground',
     nameClass: 'font-sans font-black text-base tracking-[0.18em]',
@@ -85,7 +85,7 @@ export function Branding() {
     <>
       <PageHeader
         title="視覺風格預覽"
-        subtitle="比較品牌標誌與字體配置"
+        subtitle="比較品牌標誌與字體設定"
       />
 
       <div className="px-8 py-6">
@@ -163,7 +163,7 @@ function Sample({ v }: { v: Variant }) {
           </div>
         </div>
 
-        {/* 模擬一個數據卡片,看與配色協調度 */}
+        {/* 模擬一個資料卡片,看與配色協調度 */}
         <div className="mt-5 rounded-btn bg-surface border border-border px-3 py-2 flex items-baseline justify-between">
           <span className="text-xs text-secondary">2330.TWSE</span>
           <span className="font-mono text-sm" style={{ color: v.accent }}>

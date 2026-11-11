@@ -273,7 +273,7 @@ def test_legacy_single_group_id_migration(monkeypatch, tmp_path):
     assert rows[1]["group_ids"] == []
     assert not (tmp_path / "user_data" / "watchlist.parquet.bak").exists()  # 只讀不備份
 
-    # 觸發寫入 → 備份生成, 文件落新 schema
+    # 觸發寫入 → 備份生成, 檔案落新 schema
     watchlist.add("300750.SZ")
     assert (tmp_path / "user_data" / "watchlist.parquet.bak").exists()
     df = pl.read_parquet(path)

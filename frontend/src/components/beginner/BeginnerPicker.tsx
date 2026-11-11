@@ -21,6 +21,7 @@ import { QK } from '@/lib/queryKeys'
 import { MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { cn } from '@/lib/cn'
 import { FredAttribution } from '@/components/ExternalContextCard'
+import { statusLabel } from '@/lib/evidenceLabel'
 
 export const STATE_LABEL: Record<BeginnerSelectionState, string> = {
   watch: '值得關注',
@@ -282,7 +283,7 @@ function RadarStrip({ live, plan }: { live: RadarLive; plan: BeginnerCandidate['
       </div>
       {live.note && <p className="mt-1 break-words text-xs text-muted">{live.note}</p>}
       {live.source && (
-        <p className="mt-0.5 break-all text-xs text-muted">報價來源：{live.source}{live.freshness_class && `，${live.freshness_class}`}</p>
+        <p className="mt-0.5 break-all text-xs text-muted">報價來源：{live.source}{live.freshness_class && `，${statusLabel(live.freshness_class)}`}</p>
       )}
       {plan && (
         <dl className="mt-1.5 grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-xs">
@@ -626,7 +627,7 @@ export function BeginnerStockView({
         </button>
       </div>
       {query.isLoading && <p className="mt-2 flex items-center gap-2 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 整理結論中…</p>}
-      {query.isError && <p className="mt-2 text-xs text-danger">初學者結論暫時無法讀取，可展開進階資料查看原始數據。</p>}
+      {query.isError && <p className="mt-2 text-xs text-danger">初學者結論暫時無法讀取，可展開進階資料查看原始資料。</p>}
       {candidate && panel?.live_check && <LiveCheckStrip check={panel.live_check} />}
       {candidate && panel && innerOuter && (
         <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">

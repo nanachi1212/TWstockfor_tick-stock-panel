@@ -1,15 +1,15 @@
 """系統通知適配器 — 三平台原生通知中心。
 
 職責: 把後端產生的告警事件推送到操作系統通知中心。
-     窗口最小化 / 被遮擋 / 後台執行時都能彈通知 (不依賴前端 WebView)。
+     視窗最小化 / 被遮擋 / 背景執行時都能彈通知 (不依賴前端 WebView)。
 
 平台實現:
-  - Windows: winotify (進現代操作中心, 支持圖標)
-  - macOS:   osascript (系統已內置, 無需額外依賴)
-  - Linux:   notify-send (系統已內置) / plyer 兜底
+  - Windows: winotify (進現代操作中心, 支援圖標)
+  - macOS:   osascript (系統已內建, 無需額外依賴)
+  - Linux:   notify-send (系統已內建) / plyer 保底
 
-設計: 失敗靜默降級, 絕不因通知失敗阻斷告警主流程 (落盤 / SSE 推送)。
-     通知去重不在本層做, 複用 MonitorRuleEngine 的 cooldown 邏輯。
+設計: 失敗靜默降級, 絕不因通知失敗阻斷告警主流程 (寫入磁碟 / SSE 推送)。
+     通知去重不在本層做, 重用 MonitorRuleEngine 的 cooldown 邏輯。
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# 單次通知最長字元 (避免某些平台截斷報錯)
+# 單次通知最長字元 (避免某些平台截斷出錯)
 _MAX_LEN = 200
 
 # Windows 通知中心顯示的來源名稱
@@ -55,7 +55,7 @@ def _detect_backend() -> str | None:
 
 
 def _truncate(text: str) -> str:
-    """截斷超長文本, 避免平台通知上限報錯。"""
+    """截斷超長文本, 避免平台通知上限出錯。"""
     text = (text or "").strip()
     return text[:_MAX_LEN] + ("…" if len(text) > _MAX_LEN else "")
 
@@ -66,7 +66,7 @@ def notify(title: str, message: str, icon: Path | None = None) -> bool:
     Args:
         title:   通知標題
         message: 通知正文
-        icon:    可選圖標路徑 (部分平台支持)
+        icon:    可選圖標路徑 (部分平台支援)
 
     Returns:
         True=成功送達, False=失敗或無可用後端。
