@@ -46,6 +46,28 @@ def test_event_alert_push_uses_global_channels_and_reports_only_real_delivery(tm
     assert sent == [("tg-token", "42")]
 
 
+def test_failed_event_alert_push_is_retried_without_a_duplicate_alert(tmp_path, monkeypatch):
+    from app.services import alert_store, preferences, webhook_adapter
+
+    attempts: list[bool] = []
+    ok = {"value": False}
+    monkeypatch.setattr(preferences, "load", lambda: {})
+    monkeypatch.setattr(preferences, "get_external_notification_channels", lambda: ["telegram"])
+    monkeypatch.setattr(preferences, "get_telegram_bot_token", lambda: "tg-token")
+    monkeypatch.setattr(preferences, "get_telegram_chat_id", lambda: "42")
+    monkeypatch.setattr(webhook_adapter, "send_telegram", lambda *a: attempts.append(ok["value"]) or ok["value"])
+
+    service = TaiwanEventService()
+    with patch.object(service, "get_all_regulatory_and_official_events", return_value=[_disposition()]):
+        assert len(service.trigger_event_alerts(["2330.TWSE"], data_dir=tmp_path)) == 1  # push fails
+        ok["value"] = True
+        assert service.trigger_event_alerts(["2330.TWSE"], data_dir=tmp_path) == []  # push retried
+        service.trigger_event_alerts(["2330.TWSE"], data_dir=tmp_path)  # delivered: nothing more
+    assert attempts == [False, True]
+    stored = alert_store.list_recent(tmp_path, days=7, limit=100)
+    assert [a["alert_id"] for a in stored].count("evt_alert_e_disp_wave2") == 1
+
+
 def test_disposition_period_parsing_is_shared_and_tri_state():
     assert disposition_period_active("2026-10-01~2026-10-14", "2026-10-08") is True
     assert disposition_period_active("115/10/01～115/10/14", "2026-10-08") is True

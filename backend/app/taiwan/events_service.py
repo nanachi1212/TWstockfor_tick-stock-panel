@@ -1206,7 +1206,7 @@ class TaiwanEventService:
         Reuses existing alert_store and webhook_adapter.
         """
         from app.services import alert_store, webhook_adapter
-        from app.taiwan.push_digest import send_text
+        from app.taiwan.push_digest import _channels, send_text
 
         if not symbols:
             return []
@@ -1229,9 +1229,12 @@ class TaiwanEventService:
             limit=100,
         )
 
+        # delivered_ids = pushed (or nothing to push to). An alert already stored but not in it
+        # had its push fail, so only the push is retried. 45 days covers the event window below.
         delivered_ids = _load_delivered_alert_ids(data_dir)
-        existing_alerts = alert_store.list_recent(data_dir, days=7, limit=1000)
-        existing_alert_ids = {str(a.get("alert_id")) for a in existing_alerts} | delivered_ids
+        stored_ids = {str(a.get("alert_id")) for a in alert_store.list_recent(data_dir, days=45, limit=1000)}
+        channels = _channels()
+        delivered_changed = False
 
         today = taipei_now().date()
         today_str = today.isoformat()
@@ -1250,7 +1253,7 @@ class TaiwanEventService:
                 continue  # historical event or too distant in future, skip!
 
             alert_id = f"evt_alert_{ev.id}"
-            if alert_id in existing_alert_ids:
+            if alert_id in delivered_ids:
                 continue
 
             triggered_at = taipei_now()  # same Taipei-offset stamp as the other alert sources
@@ -1269,13 +1272,15 @@ class TaiwanEventService:
                 "details": ev.details,
             }
 
-            alert_store.append(data_dir, alert_event)
-            send_text(webhook_adapter.alert_message(alert_event))
-            triggered.append(alert_event)
-            existing_alert_ids.add(alert_id)
-            delivered_ids.add(alert_id)
+            if alert_id not in stored_ids:
+                alert_store.append(data_dir, alert_event)
+                stored_ids.add(alert_id)
+                triggered.append(alert_event)
+            if not channels or send_text(webhook_adapter.alert_message(alert_event)):
+                delivered_ids.add(alert_id)
+                delivered_changed = True
 
-        if triggered:
+        if delivered_changed:
             _save_delivered_alert_ids(data_dir, delivered_ids)
 
         return triggered
