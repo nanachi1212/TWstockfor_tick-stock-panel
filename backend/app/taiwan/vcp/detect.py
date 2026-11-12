@@ -97,6 +97,8 @@ def relative_strength(percentile: int | None, weighted: float | None) -> dict[st
 def trend_template(closes: list[float], price: float, year_high: float, year_low: float,
                    rs_rank: int | None) -> dict[str, Any]:
     sma50, sma150, sma200 = _sma(closes, 50), _sma(closes, 150), _sma(closes, 200)
+    if sma50 is None or sma150 is None or sma200 is None:
+        raise ValueError("trend_template 至少需要 200 根收盤價")
     sma200_prev = _sma(closes[22:], 200)
     criteria = {
         "c1_price_above_sma150_200": price > sma150 and price > sma200,
@@ -323,7 +325,7 @@ def pivot_proximity(price: float, pivot: float | None, last_low: float | None,
     bands = ((20, 20, "OVEREXTENDED"), (10, 35, "EXTENDED - very high chase risk"),
              (5, 50, "EXTENDED - high chase risk"), (3, 65, "EXTENDED - moderate chase risk"),
              (0, 90, "ABOVE PIVOT (within 3%)"))
-    score, status = next(((s, t) for lo, s, t in bands if d > lo), (None, None))
+    score, status = next(((s, t) for lo, s, t in bands if d > lo), (None, ""))
     if score is None:
         below = ((-2, 90, "AT PIVOT"), (-5, 75, "NEAR PIVOT"), (-8, 60, "APPROACHING"),
                  (-10, 45, "DEVELOPING"), (-15, 30, "EARLY"))
@@ -387,7 +389,7 @@ def composite(scores: dict[str, float | None], valid: bool, state: str, wide_and
     if any(v is None for v in scores.values()):  # 缺分項不當 0 分，綜合分直接標不可用
         return {"composite_score": None, "quality_rating": None, "rating": None, "state_cap_applied": False,
                 "cap_reason": None, "component_scores": scores}
-    total = round(sum(scores[k] * w for k, w in WEIGHTS.items()), 1)
+    total = round(sum(float(scores[k] or 0) * w for k, w in WEIGHTS.items()), 1)  # 上面已排除 None
     rating = next(r for lo, r in ((90, "Textbook VCP"), (80, "Strong VCP"), (70, "Good VCP"),
                                   (60, "Developing VCP"), (50, "Weak VCP"), (-1, "No VCP")) if total >= lo)
     if not valid and total >= 70:

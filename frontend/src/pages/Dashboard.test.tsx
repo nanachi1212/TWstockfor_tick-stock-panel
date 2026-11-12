@@ -234,7 +234,8 @@ describe('Dashboard — Legacy A-share removal (Phase 8C-D)', () => {
 
 describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
   it('shows a compact social Top 5 card while preserving unavailable AI sentiment', async () => {
-    vi.mocked(api.taiwanSocialSentiment).mockResolvedValue({
+    // Once：clearAllMocks 不會還原實作，用 mockResolvedValue 會把台積電排行漏到後面的測試
+    vi.mocked(api.taiwanSocialSentiment).mockResolvedValueOnce({
       status: 'partial', as_of: '2026-09-29', generated_at: '2026-09-29T15:30:00+08:00', snapshot_slot: 'after_close',
       sources: { ptt: { status: 'available' }, dcard: { status: 'unavailable' } },
       rankings: [{ symbol: '2330.TWSE', code: '2330', company_name: '台積電', social_heat_score: 88, total_mentions: 42, sentiment_status: 'unavailable' }],
@@ -312,8 +313,9 @@ describe('Dashboard — Market Clarity (Phase 8C-B)', () => {
     ]) as any)
     renderDashboard()
 
-    expect(await screen.findByText('台積電')).toBeInTheDocument()
-    expect(screen.getByText('鴻海')).toBeInTheDocument()
+    const watchlist = within((await screen.findByText('我的觀察')).closest('section')!)
+    const names = (await watchlist.findAllByRole('button', { name: /^查看 .+ 走勢$/ })).map(b => b.textContent)
+    expect(names).toEqual(['鴻海2317.TWSE', '台積電2330.TWSE'])  // 漲跌幅絕對值大的在前
   })
 
   it('my observations keep unranked symbols visible and support detail/remove actions', async () => {
