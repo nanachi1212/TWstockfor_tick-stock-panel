@@ -81,3 +81,24 @@ def test_target_without_daily_partition_is_unavailable(tmp_path):
     service, _ = _service(tmp_path, _rows("2330.TWSE", vcp[:-1]))
     snap = service.snapshot(vcp[-1]["date"])
     assert snap["status"] == "unavailable" and snap["reason"] == "no_daily_data"
+
+
+def test_missing_internal_session_is_excluded_instead_of_slid_over(tmp_path):
+    vcp = _series([20, 9, 4])
+    gap = vcp[:-50] + vcp[-49:]  # 中間少一天，但另一檔那天有資料，所以不是休市；剩下仍超過 260 根
+    assert len(gap) >= MIN_BARS
+    service, _ = _service(tmp_path, _rows("2330.TWSE", gap) + _rows("6488.TPEX", vcp))
+    snap = service.snapshot(vcp[-1]["date"])
+    assert snap["excluded"]["incomplete_sessions"] == 1  # 另兩檔測試沒給資料，算目標日無資料
+    assert [i["symbol"] for i in snap["items"]] == ["6488.TPEX"]
+    assert snap["rs_universe"] == 1  # 缺日的股票也不進 RS 排名母體
+
+
+def test_zero_volume_stock_does_not_break_the_scan(tmp_path):
+    vcp = _series([20, 9, 4])
+    silent = [{**b, "volume": 0.0} for b in vcp]
+    service, _ = _service(tmp_path, _rows("2330.TWSE", silent) + _rows("6488.TPEX", vcp))
+    snap = service.snapshot(vcp[-1]["date"])
+    assert snap["status"] == "available"
+    item = next(i for i in snap["items"] if i["symbol"] == "2330.TWSE")
+    assert item["breakout_volume_ratio"] is None and item["signal"] is False

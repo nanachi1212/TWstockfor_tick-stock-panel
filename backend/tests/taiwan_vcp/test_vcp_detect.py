@@ -75,3 +75,13 @@ def test_rs_percentile_ties_and_small_population_cap():
     big = rs_percentiles({str(i): float(i) for i in range(100)})
     assert big["99"] == 100 and big["0"] == 1
 
+
+
+def test_pivot_is_tick_ceiled_from_unrounded_contraction_high():
+    bars = _series([20, 9, 4])
+    raw_pivot = vcp_pattern(list(reversed(bars)))["pivot_price"]
+    k = 100.004 / raw_pivot  # 還原價常有小數第三位；先四捨五入會把樞紐壓到 100.0
+    scaled = [{**b, **{c: b[c] * k for c in ("open", "high", "low", "close")}} for b in bars]
+    result = analyze(scaled, rs_percentile=90)
+    assert result["pivot"] == 100.5  # 100~500 元升降單位 0.5，樞紐向上對齊
+    assert result["vcp_pattern"]["contractions"][-1]["high_price"] == 100.0  # 顯示才四捨五入

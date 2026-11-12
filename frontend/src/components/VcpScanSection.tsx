@@ -30,6 +30,7 @@ const TREND_LABELS: Record<string, string> = {
 const EXCLUDED_LABELS: Record<string, string> = {
   insufficient_history: '有成交日不足 260 日',
   missing_target_session: '目標日無資料',
+  incomplete_sessions: '中間缺交易日資料',
   no_trade_on_target: '目標日無成交',
   invalid_ohlc: '價格資料異常',
   corporate_action_unverified: '除權息未驗證',

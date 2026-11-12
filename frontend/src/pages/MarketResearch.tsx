@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactECharts from 'echarts-for-react/lib/core'
 import { echarts } from '@/lib/echarts'
 import { BigHolderRankingTab } from '@/components/BigHolderRankingTab'
@@ -118,6 +118,9 @@ export function MarketResearch() {
   const rows = useMemo(() => (institutional.data?.securities || []).filter(r => (exchange === 'ALL' || r.exchange === exchange) && `${r.symbol} ${r.name}`.includes(search.trim())).sort((a, b) => (b.investors[investor].net_shares.value ?? -Infinity) - (a.investors[investor].net_shares.value ?? -Infinity) || a.symbol.localeCompare(b.symbol)), [institutional.data, search, exchange, investor])
   const currentPage = Math.min(page, Math.max(1, Math.ceil(rows.length / 50)))
   const query = tab.id === 'rotation' ? rotation : tab.id === 'heatmap' ? heatmap : tab.id === 'groups' ? groups : tab.id === 'patterns' ? patterns : institutional
+  const queryClient = useQueryClient()
+  // 型態選股頁的 VCP 區塊有自己的 query，重新讀取時要一起刷新
+  const refresh = () => { void query.refetch(); if (tab.id === 'patterns') void queryClient.refetchQueries({ queryKey: QK.vcpScan(date) }) }
   const inputClass = 'rounded-md border border-border bg-surface px-3 py-2 text-sm'
   return <div className="p-4 md:p-6 space-y-5 text-foreground">
     <div><h1 className="text-lg font-semibold">大盤研究</h1><p className="mt-1 text-sm text-muted">法人籌碼、產業輪動、資金熱浪、族群排名、大盤寬度、估值、籌碼排行、大戶集中度與型態選股</p></div>
@@ -138,7 +141,7 @@ export function MarketResearch() {
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm">交易日 <input aria-label="交易日" type="date" value={date} onChange={e => update('date', e.target.value)} className={inputClass} /></label>
           <button className={inputClass} onClick={() => update('date', '')}>最新應有交易日</button>
-          <button className={inputClass} disabled={query.isFetching} onClick={() => void query.refetch()}>重新讀取</button>
+          <button className={inputClass} disabled={query.isFetching} onClick={refresh}>重新讀取</button>
           <span className="text-xs text-muted">目標日期：{query.data?.date || date || '載入中'}</span>
           {query.isFetching && !query.isLoading && <span role="status" className="text-xs text-muted">更新中…</span>}
         </div>

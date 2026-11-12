@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 import polars as pl
@@ -18,12 +18,13 @@ from app.taiwan.daily_update import resolve_target_latest_trading_date
 from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.pattern_scan import _clean, _valid_bar
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from app.taiwan.research_metrics import research_sessions
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.vcp.detect import LOOKBACK_DAYS, MIN_BARS, analyze, rs_percentiles, weighted_return
 
 PRICE_COLUMNS = ("open", "high", "low", "close")
-# 260 個有成交的交易日約 375 個自然日；多讀一些給停牌、無成交日的股票
-READ_CALENDAR_DAYS = 450
+# 260 根有成交 K 棒，另留 40 個交易日給停牌、無成交日
+READ_SESSIONS = 300
 RULES = {"min_bars": MIN_BARS, "lookback_days": LOOKBACK_DAYS, "prefilter_min_price": 10.0,
          "prefilter_min_avg_volume_shares": 200_000, "max_above_pivot_pct": 3.0, "max_risk_pct": 15.0}
 
@@ -57,13 +58,16 @@ class TaiwanVcpScanService:
 
         結果不是 analyze() 的輸出，就是 {"status": "excluded", "reason": 原因代碼}。
         """
-        if target not in set(self.daily_store.available_dates()):
+        available = set(self.daily_store.available_dates())
+        if target not in available:
             return {}, 0, "no_daily_data"
         coverage = self.actions.read_verified_coverage()
         if coverage is None or coverage[1] < target:
             return {}, 0, "corporate_action_coverage_unavailable"
+        # 應有的交易日（只跳過確認休市日，與型態選股同一套）；個股缺任何一天就排除，不往前滑補
+        sessions = research_sessions(target, READ_SESSIONS, available, self.calendar, self.evidence_store)
         wanted = list(dict.fromkeys(universe + symbols))
-        first = target - timedelta(days=READ_CALENDAR_DAYS)
+        first = sessions[0]
         raw = self.daily_store.read_range(wanted, first, target)
         events_by_symbol: dict[str, list] = {}
         for event in coverage[2]:
@@ -72,7 +76,7 @@ class TaiwanVcpScanService:
         prepared: dict[str, dict] = {}
         for (symbol,), group in raw.sort("symbol", "date").group_by("symbol", maintain_order=True):
             prepared[str(symbol)] = self._prepare(str(symbol), group, target, coverage[0],
-                                                  events_by_symbol.get(str(symbol), []))
+                                                  events_by_symbol.get(str(symbol), []), sessions)
 
         returns = {}
         for symbol in universe:
@@ -93,17 +97,28 @@ class TaiwanVcpScanService:
         return out, len(returns), None
 
     def _prepare(self, symbol: str, group: pl.DataFrame, target: date, coverage_start: date,
-                 symbol_events: list) -> dict:
-        rows = group.select("date", *PRICE_COLUMNS, "volume").to_dicts()
-        if not rows or rows[-1]["date"] != target:
+                 symbol_events: list, sessions: list[date]) -> dict:
+        rows = {r["date"]: r for r in group.select("date", *PRICE_COLUMNS, "volume").to_dicts()}
+        if target not in rows:
             return {"reason": "missing_target_session"}
-        # 開高低收全空是正常盤無成交（交易所顯示「--」），不是 K 棒：略過，取最近 MIN_BARS 個有成交日
-        traded = [r for r in rows if not all(r[c] is None for c in PRICE_COLUMNS)]
-        if not traded or traded[-1]["date"] != target:
+        if _no_trade(rows[target]):
             return {"reason": "no_trade_on_target"}
-        window = traded[-MIN_BARS:]
-        if len(window) < MIN_BARS:
+        listed_from = min(rows)
+        window: list[dict] = []
+        skipped = 0
+        for session in reversed(sessions):
+            row = rows.get(session)
+            if row is None:  # 沒有紀錄是未知資料，不能當成無成交略過
+                return {"reason": "insufficient_history" if session < listed_from else "incomplete_sessions"}
+            if _no_trade(row):  # 正常盤無成交（交易所顯示「--」）有明確紀錄：略過，不算 K 棒
+                skipped += 1
+                continue
+            window.append(row)
+            if len(window) == MIN_BARS:
+                break
+        else:
             return {"reason": "insufficient_history"}
+        window.reverse()
         if not all(_valid_bar(b) for b in window):
             return {"reason": "invalid_ohlc"}
         start = window[0]["date"]
@@ -121,7 +136,6 @@ class TaiwanVcpScanService:
         # 量能指標只看最近 LOOKBACK_DAYS 根；這段內股數變動會讓前後成交量不可比
         volume_ok = volume_window_status(events, symbol=symbol, start_session=bars[-LOOKBACK_DAYS]["date"],
                                          end_session=target, measure="volume") == "verified"
-        skipped = sum(1 for r in rows if r["date"] >= start) - len(window)
         return {"bars": bars, "no_trade_skipped": skipped,
                 **({} if volume_ok else {"reason": "share_count_event_in_volume_window"})}
 
@@ -173,3 +187,7 @@ def _item(r: dict) -> dict:
                                             "depth_pct", "duration_days")} for c in r["vcp_pattern"]["contractions"]],
         "component_scores": r["component_scores"], "no_trade_skipped": r["no_trade_skipped"],
     }
+
+
+def _no_trade(row: dict) -> bool:
+    return all(row[c] is None for c in PRICE_COLUMNS)

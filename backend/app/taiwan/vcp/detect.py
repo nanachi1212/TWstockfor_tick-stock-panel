@@ -182,8 +182,9 @@ def _contractions_from(start: tuple[int, float], sw_highs: list, sw_lows: list,
                 break
         if out and abs(cur_val - h1_val) / h1_val * 100 > 5:  # 後續高點須在 H1 的 5% 內
             break
-        out.append({"label": f"T{len(out) + 1}", "high_idx": cur_idx, "high_price": round(cur_val, 2),
-                    "high_date": dates[cur_idx], "low_idx": low[0], "low_price": round(low[1], 2),
+        # 價格保留全精度：樞紐與停損要先依方向對齊升降單位，四捨五入只在輸出時做
+        out.append({"label": f"T{len(out) + 1}", "high_idx": cur_idx, "high_price": cur_val,
+                    "high_date": dates[cur_idx], "low_idx": low[0], "low_price": low[1],
                     "low_date": dates[low[0]], "depth_pct": round((cur_val - low[1]) / cur_val * 100, 2),
                     "duration_days": low[0] - cur_idx})
         nxt = next(((i, v) for i, v in sw_highs if i > low[0]), None)
@@ -257,11 +258,11 @@ def vcp_pattern(hist: list[dict[str, Any]]) -> dict[str, Any]:
     pivot = best[-1]["high_price"] if best else sw_highs[-1][1]
     if len(best) < MIN_CONTRACTIONS:
         return {"score": 0, "valid_vcp": False, "contractions": best, "num_contractions": len(best),
-                "pivot_price": round(pivot, 2), "wide_and_loose": False, "validation": None,
+                "pivot_price": pivot, "wide_and_loose": False, "validation": None,
                 "error": f"收縮次數少於 {MIN_CONTRACTIONS}"}
     final = best[-1]
     return {"score": best_key[1], "valid_vcp": best_v["valid"], "contractions": best,
-            "num_contractions": len(best), "pivot_price": round(pivot, 2),
+            "num_contractions": len(best), "pivot_price": pivot,
             "pattern_duration_days": final["low_idx"] - best[0]["high_idx"], "validation": best_v,
             "wide_and_loose": final["depth_pct"] > WIDE_AND_LOOSE_THRESHOLD and final["duration_days"] < 10,
             "error": None}
@@ -277,7 +278,8 @@ def volume_pattern(hist: list[dict[str, Any]], pivot: float | None,
     n = len(vols)
     avg50 = sum(vols[:min(50, n)]) / min(50, n)
     if avg50 <= 0:
-        return {"score": 0, "dry_up_ratio": None, "breakout_volume_detected": False, "error": "無成交量"}
+        return {"score": 0, "dry_up_ratio": None, "bar0_volume_ratio": None, "breakout_volume_detected": False,
+                "error": "無成交量"}
 
     def span_avg(c: dict[str, Any]) -> float | None:
         a, b = sorted((n - 1 - c["low_idx"], n - 1 - c["high_idx"]))
@@ -462,6 +464,9 @@ def analyze(bars: list[dict[str, Any]], rs_percentile: int | None = None,
     if rs["status"] != "OK":
         issues.append("RS 不可用：" + rs["reason"])
     signal = not issues and prefilter and tt["passed"] and not stale and entry_ready
+    shown = {**vcp, "pivot_price": pivot, "contractions": [
+        {**c, "high_price": round(c["high_price"], 2), "low_price": round(c["low_price"], 2)}
+        for c in vcp["contractions"]]}
     return {**base, "status": "data_unverified" if issues else "ok", "signal": signal,
             "price": round(price, 2), "composite_score": comp["composite_score"], "rating": comp["rating"],
             "quality_rating": comp["quality_rating"], "state_cap_applied": comp["state_cap_applied"],
@@ -469,7 +474,7 @@ def analyze(bars: list[dict[str, Any]], rs_percentile: int | None = None,
             "pattern_type": pattern, "valid_vcp": vcp["valid_vcp"], "entry_ready": entry_ready,
             "pivot": piv["pivot_price"], "stop": piv["stop_loss_price"], "risk_pct": risk,
             "distance_from_pivot_pct": dist, "trade_status": piv["trade_status"], "gates": gates,
-            "component_scores": comp["component_scores"], "trend_template": tt, "vcp_pattern": vcp,
+            "component_scores": comp["component_scores"], "trend_template": tt, "vcp_pattern": shown,
             "volume_pattern": vol, "relative_strength": rs,
             "year_high": round(year_high, 2), "year_low": round(year_low, 2),
             "avg_volume_50d_shares": int(avg_vol50)}
