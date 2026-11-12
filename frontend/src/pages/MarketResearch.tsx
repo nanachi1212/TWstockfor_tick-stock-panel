@@ -9,6 +9,7 @@ import { GroupRankingTab } from '@/components/GroupRankingTab'
 import { MarketBreadthValuationTab } from '@/components/MarketBreadthValuationTab'
 import { MarketHeatmap } from '@/components/MarketHeatmap'
 import { PatternScanTab } from '@/components/PatternScanTab'
+import { VcpScanSection } from '@/components/VcpScanSection'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { useChartTheme } from '@/lib/theme'
@@ -161,6 +162,7 @@ export function MarketResearch() {
         {tab.id === 'heatmap' && heatmap.data && !heatmap.isError && <MarketHeatmap data={heatmap.data} />}
         {tab.id === 'groups' && groups.data && !groups.isError && <GroupRankingTab data={groups.data} />}
         {tab.id === 'patterns' && patterns.data && !patterns.isError && <PatternScanTab data={patterns.data} />}
+        {tab.id === 'patterns' && <VcpScanSection date={date} />}
       </>}
     </div>
   </div>

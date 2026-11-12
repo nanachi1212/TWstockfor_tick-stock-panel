@@ -65,6 +65,7 @@ export const QK = {
   marketHeatmap: (date: string) => ['market-heatmap', date || 'latest'] as const,
   groupRanking: (date: string) => ['group-ranking', date || 'latest'] as const,
   patternScan: (date: string) => ['pattern-scan', date || 'latest'] as const,
+  vcpScan: (date: string) => ['vcp-scan', date || 'latest'] as const,
   chipRanking: ['chip-ranking'] as const,
   chipRankingTracking: ['chip-ranking', 'tracking'] as const,
   bigHolderRanking: ['big-holder-ranking'] as const,
