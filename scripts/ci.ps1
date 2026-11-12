@@ -231,7 +231,7 @@ function Get-FrontendTestFiles {
 
     foreach ($path in $Paths | Where-Object { $_ -match '^frontend/' }) {
         if ($path -match '^frontend/src/.+\.(test|spec)\.[cm]?[jt]sx?$') {
-            $candidate = Join-Path $RepoRoot ($path -replace '/', '\\')
+            $candidate = Join-Path $RepoRoot ($path -replace '/', '\')
             Add-PathIfExists -Target $selected -Path $candidate
             continue
         }
