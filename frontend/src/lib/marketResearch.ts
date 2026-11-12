@@ -255,7 +255,56 @@ export interface PatternScanSnapshot {
   items: PatternScanItem[]
 }
 
-export type BigHolderTone = 'concentrating' | 'dispersing' | 'flat' | 'insufficient'
+export type VcpExecutionState = 'Pre-breakout' | 'Breakout' | 'Early-post-breakout' | 'Extended' | 'Overextended' | 'Damaged' | 'Invalid'
+
+/** Prices are TWD tick-aligned on the target-date price basis; *_pct values are percent; null means not computable, never 0. */
+export interface VcpScanItem {
+  symbol: string
+  code: string
+  name: string
+  industry: string | null
+  price: number
+  signal: boolean
+  entry_ready: boolean
+  composite_score: number
+  rating: string
+  quality_rating: string
+  cap_reason: string | null
+  execution_state: VcpExecutionState
+  execution_state_reason: string
+  pattern_type: string
+  pivot: number | null
+  stop: number | null
+  risk_pct: number | null
+  distance_from_pivot_pct: number | null
+  trade_status: string
+  rs_percentile: number
+  dry_up_ratio: number | null
+  breakout_volume_ratio: number | null
+  breakout_volume_detected: boolean
+  trend_criteria: Record<string, boolean>
+  trend_passed: boolean
+  prefilter_passed: boolean
+  contractions: Array<{ label: string; high_date: string; high_price: number; low_date: string; low_price: number; depth_pct: number; duration_days: number }>
+  component_scores: Record<string, number>
+  no_trade_skipped: number
+}
+
+export interface VcpScanSnapshot {
+  date: string
+  status: 'available' | 'unavailable'
+  reason: 'no_daily_data' | 'corporate_action_coverage_unavailable' | null
+  rules: { min_bars: number; lookback_days: number; prefilter_min_price: number; prefilter_min_avg_volume_shares: number; max_above_pivot_pct: number; max_risk_pct: number }
+  universe: number
+  eligible: number
+  rs_universe: number
+  matched: number
+  signals: number
+  excluded: Record<string, number>
+  items: VcpScanItem[]
+}
+
+export type BigHolderTone ='concentrating' | 'dispersing' | 'flat' | 'insufficient'
 
 /** big_holder_pct is percent; change_*_pp are percentage points; holders_change_*_pct are percent. null means not computable, never 0. */
 export interface BigHolderRow {

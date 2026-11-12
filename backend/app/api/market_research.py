@@ -17,6 +17,7 @@ from app.taiwan.institutional_statistics import (
 )
 from app.taiwan.market_heatmap import TaiwanMarketHeatmapService
 from app.taiwan.pattern_scan import TaiwanPatternScanService
+from app.taiwan.vcp.service import TaiwanVcpScanService
 
 router = APIRouter()
 
@@ -53,6 +54,11 @@ def group_ranking(target_date: Annotated[date | None, Query(alias="date")] = Non
 @router.get("/pattern-scan")
 def pattern_scan(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
     return TaiwanPatternScanService().snapshot(target_date)
+
+
+@router.get("/vcp-scan")
+def vcp_scan(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+    return TaiwanVcpScanService().snapshot(target_date)
 
 
 @router.get("/chip-ranking")
