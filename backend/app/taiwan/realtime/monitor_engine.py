@@ -39,9 +39,11 @@ from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument
 
 logger = logging.getLogger(__name__)
 
-# Auto Watch rule name -> the live_plan_status() value that fires it.
 # The first minutes' volume is too front-loaded to project a whole session from.
 _PROJECTION_MIN_ELAPSED_MINUTES = 15.0
+# A previous-session volume not stored yet is looked up again after this long, not every tick.
+_SESSION_VOLUME_MISS_RETRY_SECONDS = 300.0
+# Auto Watch rule name -> the live_plan_status() value that fires it.
 _PLAN_ROLE_STATUS = {"進入承接區": "in_zone", "突破": "breakout", "跌破失效位": "below_stop"}
 
 if TYPE_CHECKING:
@@ -117,8 +119,8 @@ class TaiwanMonitorEngine:
         self._rules_lock = threading.RLock()
         # (as-of minute, latest completed session ISO date): one lookup per minute, not per rule.
         self._session_cache: tuple[tuple, str] | None = None
-        # (symbol, session ISO date) -> that session's volume in shares; found values only.
-        self._session_volume_cache: dict[tuple[str, str], float] = {}
+        # (symbol, session ISO date) -> (volume in shares or None when not stored, monotonic lookup time).
+        self._session_volume_cache: dict[tuple[str, str], tuple[float | None, float]] = {}
 
         # Deduplication & Cooldown runtime states
         # dedup_key -> is_currently_triggered (bool)
@@ -277,25 +279,42 @@ class TaiwanMonitorEngine:
         self._session_cache = (key, value)
         return value
 
-    def _previous_session_volume(self, symbol: str, now_dt: datetime) -> float | None:
-        """Volume (shares) of the last completed session before today; None when not stored."""
+    def _previous_session_volumes(self, symbols: Iterable[str], now_dt: datetime) -> dict[str, float | None]:
+        """Volume (shares) of the last completed session before today per symbol; None when not stored.
+
+        Reads the daily store from disk: call outside the engine locks.
+        """
+        wanted = set(symbols)
+        if not wanted:
+            return {}
         session = self._latest_session_iso(now_dt)
         if session >= now_dt.date().isoformat():
-            return None
-        key = (symbol, session)
-        if key in self._session_volume_cache:
-            return self._session_volume_cache[key]
-        from app.taiwan.daily_store import TaiwanDailyStore
+            return dict.fromkeys(wanted)
+        now_mono = time.monotonic()
+        result: dict[str, float | None] = {}
+        missing: list[str] = []
+        for symbol in wanted:
+            hit = self._session_volume_cache.get((symbol, session))
+            if hit is not None and (hit[0] is not None or now_mono - hit[1] < _SESSION_VOLUME_MISS_RETRY_SECONDS):
+                result[symbol] = hit[0]
+            else:
+                missing.append(symbol)
+        if missing:
+            from app.taiwan.daily_store import TaiwanDailyStore
 
-        day = date.fromisoformat(session)
-        rows = TaiwanDailyStore().read_range([symbol], day, day)
-        volume = rows["volume"][0] if not rows.is_empty() else None
-        if volume is None or not math.isfinite(volume) or volume <= 0:
-            return None
-        if len(self._session_volume_cache) > 2000:
-            self._session_volume_cache.clear()
-        self._session_volume_cache[key] = float(volume)
-        return float(volume)
+            day = date.fromisoformat(session)
+            rows = TaiwanDailyStore().read_range(missing, day, day)
+            found = {
+                str(symbol): float(volume)
+                for symbol, volume in zip(rows["symbol"].to_list(), rows["volume"].to_list(), strict=True)
+                if volume is not None and math.isfinite(volume) and volume > 0
+            }
+            if len(self._session_volume_cache) > 2000:
+                self._session_volume_cache.clear()
+            for symbol in missing:
+                result[symbol] = found.get(symbol)
+                self._session_volume_cache[(symbol, session)] = (result[symbol], now_mono)
+        return result
 
     def get_rule(self, rule_id: str) -> TaiwanMonitorRule | None:
         with self._rules_lock:
@@ -595,6 +614,9 @@ class TaiwanMonitorEngine:
         cur_mono = time.monotonic() if now_mono is None else now_mono
         # Read outside the locks (disk I/O); only plan rules depend on it.
         watched = _watched_plan_symbols() if any(r.source == "trade_plan" for r in active_rules) else frozenset()
+        previous_volumes = self._previous_session_volumes(
+            (r.symbol for r in active_rules if r.rule_type == TaiwanRuleType.PROJECTED_VOLUME_RATIO), taipei_now(),
+        )
 
         with self._rules_lock, self._state_lock:
             prior_states = dict(self._trigger_states)
@@ -610,7 +632,7 @@ class TaiwanMonitorEngine:
                         continue
                     quote = quotes.get(rule.symbol)
                     alert, _status, _reason = self._evaluate_single_rule_locked(
-                        rule, quote, now_mono=cur_mono, persist_state=False,
+                        rule, quote, now_mono=cur_mono, persist_state=False, previous_volumes=previous_volumes,
                     )
                     if alert:
                         alerts.append(alert)
@@ -670,10 +692,14 @@ class TaiwanMonitorEngine:
     ) -> tuple[TaiwanAlertEvent | None, EvaluationStatus, str]:
         if rule.source == "trade_plan" and rule.symbol not in _watched_plan_symbols():
             return None, EvaluationStatus.NOT_APPLICABLE, "Symbol is no longer in the watchlist"
+        previous_volumes = (self._previous_session_volumes([rule.symbol], taipei_now())
+                            if rule.rule_type == TaiwanRuleType.PROJECTED_VOLUME_RATIO else {})
         with self._rules_lock, self._state_lock:
             if rule.source == "trade_plan" and self._rules.get(rule.rule_id) is not rule:
                 return None, EvaluationStatus.SKIPPED_STALE_DATA, "Plan rule has been replaced"
-            return self._evaluate_single_rule_locked(rule, quote, now_mono, persist_state=persist_state)
+            return self._evaluate_single_rule_locked(
+                rule, quote, now_mono, persist_state=persist_state, previous_volumes=previous_volumes,
+            )
 
     def _evaluate_single_rule_locked(
         self,
@@ -682,8 +708,11 @@ class TaiwanMonitorEngine:
         now_mono: float | None = None,
         *,
         persist_state: bool = True,
+        previous_volumes: dict[str, float | None] | None = None,
     ) -> tuple[TaiwanAlertEvent | None, EvaluationStatus, str]:
         """Evaluate one rule against a quote adhering strictly to quality and status gates.
+
+        previous_volumes: previous-session volumes read before the locks were taken.
 
         Returns:
             (TaiwanAlertEvent or None, EvaluationStatus, reason_string)
@@ -784,7 +813,7 @@ class TaiwanMonitorEngine:
             elapsed = trading_minutes_elapsed_from_dt(quote.quote_time)
             if elapsed < _PROJECTION_MIN_ELAPSED_MINUTES:
                 return None, EvaluationStatus.NOT_APPLICABLE, "Too early in the session to project volume"
-            previous = self._previous_session_volume(rule.symbol, now_dt)
+            previous = (previous_volumes or {}).get(rule.symbol)
             if previous is None:
                 return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "Previous session volume unavailable"
             # Linear projection: today's volume so far scaled to the whole session.
