@@ -3,6 +3,7 @@ import { Activity, Clock3, Database, RefreshCw, ShieldCheck } from 'lucide-react
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtPct } from '@/lib/format'
+import { PageHeader } from '@/components/PageHeader'
 
 function readinessText(status: string) {
   const labels: Record<string, string> = {
@@ -32,13 +33,13 @@ export function ModelValidation() {
   })
 
   if (query.isLoading) {
-    return <main className="p-4"><p role="status" className="text-sm text-muted">正在讀取模型驗證證據…</p></main>
+    return <main className="space-y-4 p-4"><PageHeader title="模型驗證" /><p role="status" className="text-sm text-muted">正在讀取模型驗證證據…</p></main>
   }
 
   if (query.isError || !query.data) {
     return (
       <main className="space-y-4 p-4">
-        <h1 className="text-lg font-semibold">模型驗證</h1>
+        <PageHeader title="模型驗證" />
         <section role="alert" className="rounded-card border border-border bg-surface p-4">
           <p className="text-sm">目前無法讀取模型驗證狀態。缺少的成績不會用估計值代替。</p>
           <button type="button" onClick={() => void query.refetch()} className="mt-3 min-h-11 rounded-lg border border-border px-4 text-sm text-accent">
@@ -55,20 +56,19 @@ export function ModelValidation() {
 
   return (
     <main className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium tracking-wide text-muted">先看成績，再相信預測</p>
-          <h1 className="mt-1 text-lg font-semibold">模型驗證</h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-            白話：這頁是「選股模型的成績單」。模型用過去的資料學習，再拿它沒看過的期間考試（樣本外測試），看它挑的股票是不是真的比較會漲。
-            還沒到期的成績不會拿來偷改模型，避免「考完再改答案」。
-          </p>
-        </div>
-        <button type="button" onClick={() => void query.refetch()} disabled={query.isFetching} aria-label="更新模型驗證狀態" className="flex min-h-11 items-center gap-2 rounded-lg border border-border px-4 text-sm text-accent disabled:opacity-50">
-          <RefreshCw className={`h-4 w-4 ${query.isFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
-          更新狀態
-        </button>
-      </header>
+      <PageHeader
+        title="模型驗證"
+        primary={
+          <button type="button" onClick={() => void query.refetch()} disabled={query.isFetching} aria-label="更新模型驗證狀態" className="flex min-h-11 items-center gap-2 rounded-lg border border-border px-4 text-sm text-accent disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${query.isFetching ? 'animate-spin' : ''}`} aria-hidden="true" />
+            更新狀態
+          </button>
+        }
+        glossary={<>
+          白話：這頁是「選股模型的成績單」。模型用過去的資料學習，再拿它沒看過的期間考試（樣本外測試），看它挑的股票是不是真的比較會漲。
+          還沒到期的成績不會拿來偷改模型，避免「考完再改答案」。
+        </>}
+      />
 
       <section aria-labelledby="current-model-title" className="rounded-card border border-border bg-surface p-4 sm:p-5">
         <div className="flex items-center gap-2">

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDownToLine, ArrowUpFromLine, Bell, ExternalLink, FileUp, Plus, Wallet, Sparkles } from 'lucide-react'
+import { ArrowDownToLine, ArrowUpFromLine, Bell, ExternalLink, FileUp, Pause, Plus, RotateCcw, Star, Wallet, Sparkles } from 'lucide-react'
+import { MoreMenu, menuItemClass } from '@/components/PageHeader'
 import { api, type TaiwanPortfolioAnalytics, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { holdingsFileToText } from '@/lib/holdingsFile'
@@ -315,10 +316,10 @@ export function PortfolioTradeDialog({
   )
 }
 
-export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct, quoteMeta, quoteUnavailable = false, openImportOnMount = false, allocation }: {
+export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detailChange, changePct: detailChangePct, quoteMeta, quoteUnavailable = false, openImportWhenEmpty = false, allocation }: {
   symbol?: string
-  /** 「我的持股」頁：一進來就開啟匯入視窗。 */
-  openImportOnMount?: boolean
+  /** 「我的持股」頁：帳本還是空的（第一次使用）才一進來就開啟匯入視窗。 */
+  openImportWhenEmpty?: boolean
   allocation?: TaiwanPortfolioAnalytics['allocation']
   name?: string
   quote?: number | null
@@ -330,7 +331,7 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
   const { transactions, error: ledgerError } = usePortfolioTransactions()
   const [trade, setTrade] = useState<{ symbol?: string; name?: string; side: PortfolioSide; quote?: number | null } | null>(null)
   const [reminder, setReminder] = useState<{ symbol: string; name: string; price?: number | null; quote?: TaiwanRealtimeQuote } | null>(null)
-  const [importOpen, setImportOpen] = useState(openImportOnMount)
+  const [importOpen, setImportOpen] = useState(() => openImportWhenEmpty && transactions.length === 0)
   const [restoreMessage, setRestoreMessage] = useState('')
   const [restoring, setRestoring] = useState(false)
   const autoSync = usePortfolioAutoSync(!symbol)
@@ -392,48 +393,52 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
     <section id={symbol ? 'portfolio' : undefined} className="rounded-2xl border border-border bg-surface p-4 space-y-3" aria-label={symbol ? '我的持股' : '我的持倉'}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold">{symbol ? '我的持股' : '我的持倉'}</h2></div>
-        {!ledgerError && <button type="button" onClick={() => setTrade({ symbol: symbol ?? '', name: name ?? '', side: 'buy', quote: detailQuote })} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />買入</button>}
-        {!symbol && (() => {
-          const watched = new Set((watchlist.data?.symbols ?? []).map(item => item.symbol))
-          const missing = positions.map(position => position.symbol).filter(item => !watched.has(item))
-          return watchlist.data && missing.length > 0 && (
-            <button type="button" disabled={syncingWatchlist} onClick={async () => {
-              setSyncingWatchlist(true)
-              await api.watchlistBatchAdd(missing).catch(() => undefined)
-              await qc.invalidateQueries({ queryKey: QK.watchlist })
-              setSyncingWatchlist(false)
-            }} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-elevated disabled:opacity-50">持股加入自選（{missing.length}）</button>
-          )
-        })()}
-        {!symbol && <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-elevated"><FileUp className="h-3.5 w-3.5" />匯入持股</button>}
-        {!symbol && <button type="button" disabled={restoring} onClick={async () => {
-          setRestoring(true)
-          try {
-            await api.portfolioAutoSyncSet(null)
-            await withPortfolioWriteLock(() => {
-              const previous = storage.portfolioImportPrevious.get(null)
-              if (!Array.isArray(previous) || !previous.every(isPortfolioTransaction)) throw new Error('沒有有效的取代前帳本可回復')
-              buildPortfolioPositions(previous)
-              const ledger = readPortfolioLedger()
-              if (ledger.error) throw new Error(ledger.error)
-              persistPortfolioReplacement(previous, ledger.transactions, 'paused')
-              window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
-            })
-            setRestoreMessage('已回復取代前帳本並停止自動同步；再次回復可切回剛才的版本。')
-          } catch (cause) {
-            setRestoreMessage(cause instanceof Error ? cause.message : '回復失敗，原帳本已保留')
-          } finally {
-            void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] })
-            setRestoring(false)
-          }
-        }} className="text-xs text-secondary hover:underline disabled:opacity-50">回復上次取代前帳本（取代目前紀錄並停止同步）</button>}
+        <div className="flex items-center gap-2">
+          {!ledgerError && <button type="button" onClick={() => setTrade({ symbol: symbol ?? '', name: name ?? '', side: 'buy', quote: detailQuote })} className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />買入</button>}
+          {!symbol && <MoreMenu>
+          {(() => {
+            const watched = new Set((watchlist.data?.symbols ?? []).map(item => item.symbol))
+            const missing = positions.map(position => position.symbol).filter(item => !watched.has(item))
+            return watchlist.data && missing.length > 0 && (
+              <button type="button" disabled={syncingWatchlist} onClick={async () => {
+                setSyncingWatchlist(true)
+                await api.watchlistBatchAdd(missing).catch(() => undefined)
+                await qc.invalidateQueries({ queryKey: QK.watchlist })
+                setSyncingWatchlist(false)
+              }} className={menuItemClass}><Star />持股加入自選（{missing.length}）</button>
+            )
+          })()}
+          <button type="button" onClick={() => setImportOpen(true)} className={menuItemClass}><FileUp />匯入持股</button>
+          <button type="button" disabled={restoring} onClick={async () => {
+            setRestoring(true)
+            try {
+              await api.portfolioAutoSyncSet(null)
+              await withPortfolioWriteLock(() => {
+                const previous = storage.portfolioImportPrevious.get(null)
+                if (!Array.isArray(previous) || !previous.every(isPortfolioTransaction)) throw new Error('沒有有效的取代前帳本可回復')
+                buildPortfolioPositions(previous)
+                const ledger = readPortfolioLedger()
+                if (ledger.error) throw new Error(ledger.error)
+                persistPortfolioReplacement(previous, ledger.transactions, 'paused')
+                window.dispatchEvent(new Event(PORTFOLIO_CHANGED))
+              })
+              setRestoreMessage('已回復取代前帳本並停止自動同步；再次回復可切回剛才的版本。')
+            } catch (cause) {
+              setRestoreMessage(cause instanceof Error ? cause.message : '回復失敗，原帳本已保留')
+            } finally {
+              void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] })
+              setRestoring(false)
+            }
+          }} className={menuItemClass}><RotateCcw />回復上次取代前帳本（取代目前紀錄並停止同步）</button>
+          {autoSync.info?.path && <button type="button" onClick={async () => { await withPortfolioWriteLock(() => localStorage.setItem(AUTO_SYNC_MARK, 'paused')); await api.portfolioAutoSyncSet(null); void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] }) }} className={menuItemClass}><Pause />停止同步</button>}
+          </MoreMenu>}
+        </div>
       </div>
       {restoreMessage && <p role="status" className="text-xs text-warning">{restoreMessage}</p>}
       {ledgerError && <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger">{ledgerError}</p>}
       {!symbol && autoSync.info?.path && (
         <p className="text-xs text-muted">
           持股自動同步：{autoSync.info.name}{autoSync.message ? `，${autoSync.message}` : ''}
-          <button type="button" onClick={async () => { await withPortfolioWriteLock(() => localStorage.setItem(AUTO_SYNC_MARK, 'paused')); await api.portfolioAutoSyncSet(null); void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] }) }} className="ml-2 text-accent hover:underline">停止同步</button>
         </p>
       )}
       {!symbol && positions.length > 0 && (

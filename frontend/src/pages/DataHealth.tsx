@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { RefreshCw, Settings } from 'lucide-react'
 import { api, type DataHealthAction, type DataHealthStatus } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtTaipeiDateTime } from '@/lib/format'
 import { useDataHealth } from '@/lib/useDataHealth'
 import { statusLabel } from '@/lib/evidenceLabel'
+import { PageHeader, menuItemClass } from '@/components/PageHeader'
 
 // 「等待官方發布」「尚未執行」是資料正常的時間差，不是故障；只有「正常」計入健康數。
 const statuses: Record<DataHealthStatus, string> = {
@@ -65,20 +67,22 @@ export function DataHealth() {
 
   return (
     <main className="p-4 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">資料健康</h1>
-        <span className="text-sm text-muted">{health.data ? `${health.data.current_count} / ${health.data.total_count} 正常` : '讀取中…'}</span>
-      </div>
-      <p className="text-sm text-muted">聚合既有來源 metadata。未記錄的日期與時間顯示「未知」。日資料更新會一起更新日 K、法人、融資融券；社群更新沿用既有 PTT、Dcard 與 AI 流程。</p>
+      <PageHeader
+        title="資料健康"
+        titleExtra={<span className="text-sm text-muted">{health.data ? `${health.data.current_count} / ${health.data.total_count} 正常` : '讀取中…'}</span>}
+        primary={<button type="button" disabled={updatingAll || !health.data || jobs.isLoading || jobs.isError} onClick={() => void updateAll()} className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{updatingAll ? '正在送出更新…' : '一鍵全部更新'}</button>}
+        more={<>
+          <button type="button" disabled={health.isFetching} onClick={() => void health.refetch()} className={menuItemClass}><RefreshCw />重新整理健康狀態</button>
+          <Link to="/settings?tab=ai" className={menuItemClass}><Settings />AI 設定</Link>
+        </>}
+        help={<>聚合既有來源 metadata。未記錄的日期與時間顯示「未知」。日資料更新會一起更新日 K、法人、融資融券；社群更新沿用既有 PTT、Dcard 與 AI 流程。</>}
+      />
       <div className="flex flex-wrap gap-3">
         <input aria-label="搜尋資料集" value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋資料集或原因" className="min-w-0 w-full sm:w-auto rounded border border-border bg-surface px-3 py-2 text-sm" />
         <select aria-label="狀態篩選" value={filter} onChange={e => setFilter(e.target.value as DataHealthStatus | '')} className="min-w-0 w-full sm:w-auto rounded border border-border bg-surface px-3 py-2 text-sm">
           <option value="">所有狀態</option>
           {Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label} ({value})</option>)}
         </select>
-        <button type="button" disabled={updatingAll || !health.data || jobs.isLoading || jobs.isError} onClick={() => void updateAll()} className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">{updatingAll ? '正在送出更新…' : '一鍵全部更新'}</button>
-        <button type="button" disabled={health.isFetching} onClick={() => void health.refetch()} className="text-sm text-accent disabled:opacity-50">重新整理健康狀態</button>
-        <Link to="/settings?tab=ai" className="text-sm text-accent self-center">AI 設定</Link>
       </div>
       {hiddenCount > 0 && <p className="text-xs text-muted">已隱藏 {hiddenCount} 個次要或尚未設定的資料源（例如 FinBridge、借券）；要看請用上方狀態篩選。</p>}
       {health.isLoading && <p role="status">正在讀取資料健康…</p>}

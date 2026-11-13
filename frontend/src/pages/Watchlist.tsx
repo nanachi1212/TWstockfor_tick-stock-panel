@@ -9,7 +9,7 @@ import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
 import { fmtPrice, fmtPct, fmtBigNum, priceColorClass, formatExtNumber } from '@/lib/format'
 import { computeGroupPcts, loadGroupStatsConfig, type GroupStatsConfigPatch } from '@/lib/watchlistGroupStats'
-import { PageHeader } from '@/components/PageHeader'
+import { PageHeader, menuItemClass } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { WatchlistAddMenu } from '@/components/WatchlistAddMenu'
 import {
@@ -1259,105 +1259,39 @@ export function Watchlist() {
             )}
           </span>
         }
-        right={
-          <div className="flex flex-wrap items-center gap-2">
-            {/* 篩選 / 重置 / 搜尋 */}
-            <button
-              onClick={() => setFilterOpen(v => !v)}
-              className={`inline-flex items-center justify-center h-8 w-8 rounded-btn transition-colors duration-150 ease-smooth ${
-                filterOpen || hasActiveFilters
-                  ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                  : 'bg-elevated text-secondary hover:bg-elevated/80'
-              }`}
-              title={`篩選${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}`}
-            >
-              <Filter className="h-4 w-4" />
+        primary={
+          <StockSearchBox
+            onPreview={handleCardPreview}
+            existingBySymbol={groupBySymbol}
+            groups={groups}
+            onAdd={(symbol, groupId) => addMutation.mutate({ symbol, groupId })}
+            onToggleMember={handleToggleMember}
+            preferredGroupId={activeGroupId}
+            addPending={addMutation.isPending}
+            memberPending={addGroupMember.isPending || removeGroupMember.isPending}
+          />
+        }
+        more={
+          <>
+            <button onClick={() => setFilterOpen(v => !v)} className={menuItemClass}>
+              <Filter />{filterOpen ? '收起篩選' : '篩選'}{activeFilterCount > 0 && <span className="ml-auto text-xs text-accent">{activeFilterCount}</span>}
             </button>
-            {hasActiveFilters && (
-              <button
-                onClick={resetAllFilters}
-                className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated text-secondary hover:bg-danger/10 hover:text-danger transition-colors duration-150 ease-smooth"
-                title="重置全部篩選"
-                aria-label="重置全部篩選"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </button>
-            )}
-            <StockSearchBox
-              onPreview={handleCardPreview}
-              existingBySymbol={groupBySymbol}
-              groups={groups}
-              onAdd={(symbol, groupId) => addMutation.mutate({ symbol, groupId })}
-              onToggleMember={handleToggleMember}
-              preferredGroupId={activeGroupId}
-              addPending={addMutation.isPending}
-              memberPending={addGroupMember.isPending || removeGroupMember.isPending}
-            />
-            <div className="w-px h-5 bg-border" />
-            {/* 視圖 */}
-            <button
-              onClick={toggleView}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth"
-              title={viewMode === 'table' ? '卡片檢視' : '列表檢視'}
-            >
-              {viewMode === 'table' ? <LayoutGrid className="h-4 w-4" /> : <List className="h-4 w-4" />}
+            {hasActiveFilters && <button onClick={resetAllFilters} className={menuItemClass}><RotateCcw />重置全部篩選</button>}
+            <button onClick={toggleView} className={menuItemClass}>
+              {viewMode === 'table' ? <LayoutGrid /> : <List />}{viewMode === 'table' ? '卡片檢視' : '列表檢視'}
             </button>
-            {/* 分組卡片視圖 */}
-            <button
-              onClick={toggleGroupView}
-              aria-pressed={groupCardsOpen}
-              className={`inline-flex items-center justify-center h-8 w-8 rounded-btn transition-colors duration-150 ease-smooth ${
-                groupCardsOpen
-                  ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                  : 'bg-elevated text-secondary hover:bg-elevated/80 hover:text-foreground'
-              }`}
-              title={groupCardsOpen ? '退出分組卡片' : '分組卡片檢視'}
-              aria-label={groupCardsOpen ? '退出分組卡片' : '分組卡片檢視'}
-            >
-              <Rows3 className="h-4 w-4" />
+            <button onClick={toggleGroupView} aria-pressed={groupCardsOpen} className={menuItemClass}>
+              <Rows3 />{groupCardsOpen ? '退出分組卡片' : '分組卡片檢視'}
             </button>
-            {/* 分組統計條 */}
-            <button
-              onClick={toggleGroupStats}
-              aria-pressed={groupStatsOpen}
-              className={`inline-flex items-center justify-center h-8 w-8 rounded-btn transition-colors duration-150 ease-smooth ${
-                groupStatsOpen
-                  ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                  : 'bg-elevated text-secondary hover:bg-elevated/80 hover:text-foreground'
-              }`}
-              title={groupStatsOpen ? '收起分組統計' : '分組統計'}
-              aria-label={groupStatsOpen ? '收起分組統計' : '分組統計'}
-            >
-              <BarChart3 className="h-4 w-4" />
+            <button onClick={toggleGroupStats} aria-pressed={groupStatsOpen} className={menuItemClass}>
+              <BarChart3 />{groupStatsOpen ? '收起分組統計' : '分組統計'}
             </button>
-            <div className="w-px h-5 bg-border" />
-            {/* 自定義列 / 重新整理 */}
-            <button
-              onClick={() => setCustomizerOpen(true)}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth"
-              title="自訂欄位"
-            >
-              <Settings2 className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => enriched.refetch()}
-              disabled={enriched.isFetching}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth disabled:opacity-50"
-              title="重新整理"
-            >
-              <RefreshCw className={`h-4 w-4 ${enriched.isFetching ? 'animate-spin' : ''}`} />
+            <button onClick={() => setCustomizerOpen(true)} className={menuItemClass}><Settings2 />自訂欄位</button>
+            <button onClick={() => enriched.refetch()} disabled={enriched.isFetching} className={menuItemClass}>
+              <RefreshCw className={enriched.isFetching ? 'animate-spin' : ''} />重新整理
             </button>
             {allSymbols.length > 0 && (
-              <>
-                <div className="w-px h-5 bg-border" />
-                <button
-                  onClick={() => setConfirmClear(true)}
-                  className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-danger/10 text-danger hover:bg-danger/20 transition-colors duration-150 ease-smooth"
-                  title="清空自選"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </>
+              <button onClick={() => setConfirmClear(true)} className={`${menuItemClass} text-danger`}><Trash2 />清空自選</button>
             )}
             {/* 擴展插槽: 自選頁工具列擴充區 (無註冊時不渲染) */}
             <ExtensionSlot
@@ -1369,7 +1303,7 @@ export function Watchlist() {
                 refresh: () => enriched.refetch(),
               }}
             />
-          </div>
+          </>
         }
       />
 

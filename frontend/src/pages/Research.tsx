@@ -7,6 +7,7 @@ import { api, researchPromptVersion, type TaiwanAIResearchHistoryRecord } from '
 import { QK } from '@/lib/queryKeys'
 import { ResearchCompareView } from '@/components/research/ResearchCompareView'
 import { isTaiwanPortfolioSymbol } from '@/lib/portfolio'
+import { PageHeader, Help } from '@/components/PageHeader'
 
 function recordsFrom(value: unknown): TaiwanAIResearchHistoryRecord[] {
   const raw = Array.isArray(value)
@@ -39,7 +40,7 @@ function ResearchWorkflow({ record }: { record: TaiwanAIResearchHistoryRecord })
     ? `/selection-review?${new URLSearchParams({ tab: 'live', model_key: quant.model_key, session: quant.session })}` : null
   return <section aria-label="研究來源與後續追蹤" className="mt-3 space-y-2 rounded-lg border border-border p-3 text-xs">
     <h3 className="font-semibold">研究來源與後續追蹤</h3>
-    <p className="text-muted">以下為研究儲存時的快照；開啟個股、持股與提醒會顯示目前資料，不代表已成交或已設定提醒。</p>
+    <Help>以下為研究儲存時的快照；開啟個股、持股與提醒會顯示目前資料，不代表已成交或已設定提醒。</Help>
     <p>資料日期：{typeof record.evidence_as_of === 'string' ? record.evidence_as_of : '未記錄'}</p>
     <p>當時選股：{quant.status === 'available' && quant.selected === true
       ? `${typeof quant.session === 'string' ? quant.session : '日期未記錄'}，排名 ${typeof quant.rank === 'number' ? quant.rank : '未記錄'}`
@@ -159,10 +160,7 @@ export function Research() {
 
   return (
     <main className="mx-auto w-full max-w-7xl space-y-4 p-4 text-foreground">
-      <header>
-        <h1 className="text-lg font-bold">研究歷史</h1>
-        <p className="mt-1 text-xs text-muted">跨股票回看已儲存的 AI 研究；比較只讀取 API 結果，不會重新呼叫 AI。</p>
-      </header>
+      <PageHeader title="研究歷史" className="px-0 pt-0" help={<>跨股票回看已儲存的 AI 研究；比較只讀取 API 結果，不會重新呼叫 AI。</>} />
       <section className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-surface p-3" aria-label="研究歷史篩選">
         <label className="text-xs text-muted">股票代號<input aria-label="股票代號" value={symbol} onChange={e => setFilter('symbol', e.target.value.toUpperCase())} placeholder="例如 2330.TWSE" className="mt-1 block rounded-lg border border-border bg-base px-2 py-1.5 font-mono text-xs text-foreground" /></label>
         <label className="text-xs text-muted">起始日期<input type="date" aria-label="起始日期" value={from} onChange={e => setFilter('from', e.target.value)} className="mt-1 block rounded-lg border border-border bg-base px-2 py-1.5 text-xs text-foreground" /></label>

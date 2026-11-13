@@ -37,6 +37,7 @@ import {
 import { evidenceLabel, evidenceLabels, statusLabel } from '@/lib/evidenceLabel'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
+import { MoreMenu, menuItemClass } from '@/components/PageHeader'
 import { fmtBigNum, fmtLots, priceColorClass } from '@/lib/format'
 import { useQuoteStatus } from '@/lib/useSharedQueries'
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
@@ -602,17 +603,6 @@ export function TaiwanStockDetail() {
                 </WatchlistAddMenu>
               </div>
             )}
-            <button
-              onClick={() => {
-                const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol)
-                navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
-              }}
-              title="加入多標的比較"
-              className="flex items-center gap-1 rounded-lg border border-border/60 bg-base px-1.5 py-0.5 text-xs font-medium text-muted hover:border-accent/50 hover:text-accent transition-colors cursor-pointer"
-            >
-              <Scale className="h-3 w-3" />
-              加入比較
-            </button>
           </div>
         </div>
 
@@ -671,17 +661,33 @@ export function TaiwanStockDetail() {
             </div>
           )}
 
-          <button
-            onClick={() => {
-              detailQuery.refetch()
-              currentDataQuery.refetch()
-            }}
-            disabled={detailQuery.isFetching || currentDataQuery.isFetching}
-            className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2 py-1 text-xs text-muted hover:text-foreground cursor-pointer transition-colors"
-            title="手動重新整理"
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', (detailQuery.isFetching || currentDataQuery.isFetching) && 'animate-spin')} />
-          </button>
+          <MoreMenu>
+            <button
+              type="button"
+              onClick={() => {
+                const merged = mergeSymbolIntoCompare(loadLastCompareSymbols(), symbol)
+                navigate(`/stocks/compare?symbols=${encodeURIComponent(merged.join(','))}`)
+              }}
+              title="加入多標的比較"
+              className={menuItemClass}
+            >
+              <Scale />
+              加入比較
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                detailQuery.refetch()
+                currentDataQuery.refetch()
+              }}
+              disabled={detailQuery.isFetching || currentDataQuery.isFetching}
+              className={menuItemClass}
+              title="手動重新整理"
+            >
+              <RefreshCw className={cn((detailQuery.isFetching || currentDataQuery.isFetching) && 'animate-spin')} />
+              重新整理
+            </button>
+          </MoreMenu>
         </div>
       </div>
 
@@ -1865,8 +1871,8 @@ export function TaiwanStockDetail() {
               </>
             )}
           </button>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none">
+          <MoreMenu>
+            <label className={`${menuItemClass} cursor-pointer select-none`}>
               <input
                 type="checkbox"
                 checked={includePortfolioInCopy}
@@ -1875,8 +1881,8 @@ export function TaiwanStockDetail() {
               />
               <span>包含個人持股資料</span>
             </label>
-            <div className="flex gap-2">
               <CopyButton
+                className={`${menuItemClass} border-0`}
                 size="xs"
                 disabledReason={data ? undefined : (detailQuery.isError ? '個股資料載入失敗，請稍後重試後再複製' : '個股資料載入中，載入完成後才能複製')}
                 label="複製資料"
@@ -2020,6 +2026,7 @@ export function TaiwanStockDetail() {
                 }}
               />
               <CopyButton
+                className={`${menuItemClass} border-0`}
                 size="xs"
                 disabledReason={data ? undefined : (detailQuery.isError ? '個股資料載入失敗，請稍後重試後再複製' : '個股資料載入中，載入完成後才能複製')}
                 label="複製 AI 提示詞"
@@ -2163,9 +2170,7 @@ export function TaiwanStockDetail() {
                   })
                 }}
               />
-              {aiReport && <span className="text-xs text-muted">成功報告會自動儲存，稍後可在研究歷史回看</span>}
-            </div>
-          </div>
+          </MoreMenu>
         </div>
 
         <section className="rounded-lg border border-border/50 bg-base/20 p-3" aria-label="AI 研究歷史">

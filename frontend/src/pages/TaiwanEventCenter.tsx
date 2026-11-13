@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  CalendarDays,
   AlertTriangle,
   Info,
   ShieldAlert,
@@ -19,6 +18,7 @@ import { api, type MarketEventSeverity } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
+import { PageHeader, Help, menuItemClass } from '@/components/PageHeader'
 import { fmtTaipeiDateTime } from '@/lib/format'
 import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
@@ -187,42 +187,36 @@ export function TaiwanEventCenter() {
 
   return (
     <div className="mx-auto min-h-screen max-w-7xl p-3 md:p-6 space-y-4">
-      {/* Top Banner & Title */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-card border border-border bg-surface/85 p-4 shadow-sm backdrop-blur-sm">
-        <div>
-          <div className="flex items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-accent" />
-            <h1 className="text-lg font-bold text-foreground tracking-tight">台股事件中心</h1>
-            <span className="rounded bg-accent/10 px-2 py-0.5 text-xs font-semibold text-accent">
-              官方事件與 MOPS 資料
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-secondary">
-            整合官方市場事件、MOPS 重大訊息、法說會與內部人持股轉讓申報，保留來源與公告時間證據。
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title="台股事件中心"
+        className="px-0 pt-0"
+        primary={
           <button
             type="button"
             onClick={() => refreshEvents.mutate()}
             disabled={eventsQuery.isFetching || refreshEvents.isPending}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground hover:bg-elevated transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:bg-accent/90 transition-colors shadow-sm disabled:opacity-50"
           >
             <RefreshCw className={cn('h-3.5 w-3.5', (eventsQuery.isFetching || refreshEvents.isPending) && 'animate-spin')} />
             重新整理
           </button>
+        }
+        more={
           <button
             type="button"
             onClick={() => checkAlertsMutation.mutate()}
             disabled={checkAlertsMutation.isPending}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:bg-accent/90 transition-colors shadow-sm disabled:opacity-50"
+            className={menuItemClass}
           >
-            <BellRing className="h-3.5 w-3.5" />
+            <BellRing />
             檢查持股事件提醒
           </button>
-        </div>
-      </div>
+        }
+        help={<>
+          <p>資料來源：官方事件與 MOPS 資料。</p>
+          <p>整合官方市場事件、MOPS 重大訊息、法說會與內部人持股轉讓申報，保留來源與公告時間證據。</p>
+        </>}
+      />
 
       {/* Scope Navigation Tabs */}
       <div className="flex flex-wrap items-center gap-1.5 border-b border-border pb-2">
@@ -480,9 +474,9 @@ export function TaiwanEventCenter() {
               <span className="text-xs text-muted">事件驅動清單</span>
             </div>
 
-            <p className="text-xs text-secondary mb-3 leading-relaxed">
-              根據近期除權息、處置解列、注意股票與重大公司行動確定性彙整，點擊可直接深入研究個股：
-            </p>
+            <Help className="mb-3">
+              根據近期除權息、處置解列、注意股票與重大公司行動確定性彙整，點擊可直接深入研究個股。
+            </Help>
 
             {candidatesQuery.isLoading ? (
               <div className="py-6 text-center text-xs text-muted">

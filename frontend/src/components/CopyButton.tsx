@@ -35,7 +35,7 @@ export function CopyButton({
     : 'px-3 py-1.5 text-xs gap-1.5'
 
   return (
-    <div className="flex flex-col items-start gap-0.5">
+    <div data-keep-open className="flex flex-col items-start gap-0.5">
       <button
         type="button"
         onClick={handleClick}

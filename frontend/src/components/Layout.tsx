@@ -118,8 +118,8 @@ function DataSourceBadge({ providerName }: { providerName: string }) {
   )
 }
 
-function AIConfigBadge({ configured, model }: { configured?: boolean; model?: string }) {
-  // 實際連線檢查 (不花 token): 綠=可用、紅=異常 (例如本機模型沒載入)、黃=未設定
+/** 實際連線檢查 (不花 token): 綠=可用、紅=異常 (例如本機模型沒載入)、黃=未設定 */
+function useAiStatusDot(configured?: boolean, model?: string) {
   const { data: aiStatus } = useQuery({
     queryKey: ['aiStatus', model],
     queryFn: api.aiStatus,
@@ -127,10 +127,15 @@ function AIConfigBadge({ configured, model }: { configured?: boolean; model?: st
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
-  const descText = configured ? `${model || '已接入模型'}${aiStatus ? `（${aiStatus.reason}）` : ''}` : '接入策略生成模型'
   const dotClass = !configured || aiStatus?.status === 'unconfigured'
     ? 'bg-warning'
     : aiStatus?.status === 'error' ? 'bg-red-500' : aiStatus?.status === 'ok' ? 'bg-emerald-500' : 'bg-muted'
+  return { aiStatus, dotClass }
+}
+
+function AIConfigBadge({ configured, model }: { configured?: boolean; model?: string }) {
+  const { aiStatus, dotClass } = useAiStatusDot(configured, model)
+  const descText = configured ? `${model || '已接入模型'}${aiStatus ? `（${aiStatus.reason}）` : ''}` : '接入策略生成模型'
   return (
     <NavLink
       to="/settings?tab=ai"
@@ -445,6 +450,9 @@ export function Layout() {
     </button>
   )
 
+  const { dotClass: aiDotClass } = useAiStatusDot(settingsState?.ai_configured ?? settingsState?.has_ai_key, settingsState?.ai_model)
+  const footerDotClass = aiDotClass === 'bg-red-500' || aiDotClass === 'bg-warning' ? aiDotClass : realtimeIndicatorClass
+
   // 側欄內容 — 桌面 <aside> 與手機抽屜共用; 抽屜一律以展開版呈現 (collapsed=false)
   const renderNavPanel = (collapsed: boolean, onClose?: () => void) => (
     <>
@@ -488,19 +496,6 @@ export function Layout() {
             )}
           </div>
 
-          {/* 狀態卡 — 收起時隱藏 */}
-          {!collapsed && (
-            <div className="mt-2.5 border-t border-border/60 pt-1">
-              <DataSourceBadge
-                providerName={activeProviderName}
-              />
-              <div className="mx-2 border-t border-border/45" aria-hidden="true" />
-              <AIConfigBadge
-                configured={settingsState?.ai_configured ?? settingsState?.has_ai_key}
-                model={settingsState?.ai_model}
-              />
-            </div>
-          )}
         </div>
 
         <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-0.5">
@@ -654,7 +649,20 @@ export function Layout() {
             </button>
           </div>
         ) : (
-        <div className="border-t border-border px-3 py-2.5 shrink-0">
+        <details className="border-t border-border shrink-0">
+          <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3 text-sm text-foreground/75 hover:bg-elevated/70 hover:text-foreground [&::-webkit-details-marker]:hidden">
+            <Settings className="h-4 w-4 shrink-0 text-foreground/60" />
+            <span className="flex-1">設定與狀態</span>
+            <span className={`h-2 w-2 shrink-0 rounded-full ${footerDotClass}`} aria-label="系統狀態" />
+          </summary>
+          <div className="px-1 pb-1">
+            <DataSourceBadge providerName={activeProviderName} />
+            <AIConfigBadge
+              configured={settingsState?.ai_configured ?? settingsState?.has_ai_key}
+              model={settingsState?.ai_model}
+            />
+          </div>
+        <div className="border-t border-border/60 px-3 py-2.5">
           {!quoteStatus && quoteStatusFailed ? (
             // A failed status request is not the same as "this source has no realtime".
             <div role="alert" className="flex items-center justify-between">
@@ -732,8 +740,16 @@ export function Layout() {
               </div>
             )}
         </div>
+        {settingsRow(false)}
+        </details>
         )}
 
+        {collapsed && settingsRow(true)}
+    </>
+  )
+
+  function settingsRow(collapsed: boolean) {
+    return (
         <div className={cn('border-t border-border py-3 shrink-0', collapsed ? 'px-2 flex flex-col items-center gap-1' : 'px-2')}>
           <div className={collapsed ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1'}>
             <ThemeToggle />
@@ -765,8 +781,8 @@ export function Layout() {
             </NavLink>
           </div>
         </div>
-    </>
-  )
+    )
+  }
 
   return (
     <div

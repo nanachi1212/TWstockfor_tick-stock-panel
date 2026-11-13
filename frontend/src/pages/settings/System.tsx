@@ -84,7 +84,6 @@ export function SettingsSystemPanel() {
     <>
       <PageHeader
         title="系統設定"
-        subtitle="全域行為開關"
       />
 
       <section className="rounded-card border border-border bg-surface p-5">

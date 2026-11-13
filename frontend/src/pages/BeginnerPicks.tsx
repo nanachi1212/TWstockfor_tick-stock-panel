@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react'
+import { PageHeader } from '@/components/PageHeader'
 import {
   EmptyPicks,
   MarketSummaryCard,
@@ -13,10 +14,7 @@ export function BeginnerPicks() {
   return (
     <div className="min-h-full bg-base p-2 sm:p-3">
       <div className="mx-auto w-full max-w-6xl space-y-2">
-        <header>
-          <h1 className="text-lg font-semibold text-foreground">每日承接雷達</h1>
-          <p className="text-xs text-muted">今日選股加上你的持股和自選股，用固定規則分成「可觀察／等拉回／等突破／不追」，盤中自動比對現價和承接區、失效位。這不是報酬預測，AI 不參與排名。</p>
-        </header>
+        <PageHeader title="每日承接雷達" glossary="今日選股加上你的持股和自選股，用固定規則分成「可觀察／等拉回／等突破／不追」，盤中自動比對現價和承接區、失效位。這不是報酬預測，AI 不參與排名。" />
         {query.isLoading && (
           <p className="flex items-center gap-2 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在整理今天的雷達…</p>
         )}
