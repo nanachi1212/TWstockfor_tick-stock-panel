@@ -35,7 +35,7 @@ def test_agenda_filters_translates_and_keeps_last_good_data_on_failure():
     def fetch(url, **_kw):
         if "faireconomy" in url:
             return macro
-        return {"data": {"rows": rows if url.endswith("2026-11-12") else None}}
+        return {"status": {"rCode": 200}, "data": {"rows": rows if url.endswith("2026-11-12") else None}}
 
     out = week_agenda.week_agenda(now=now, fetch=fetch)
     assert out["errors"] == [] and (out["start"], out["end"]) == ("2026-11-09", "2026-11-15")
@@ -50,3 +50,23 @@ def test_agenda_filters_translates_and_keeps_last_good_data_on_failure():
     again = week_agenda.week_agenda(now=now, fetch=down)
     assert len(again["errors"]) == 2 and "顯示上次資料" in again["errors"][0]
     assert len(again["macro"]) == 3 and len(again["earnings"]) == 2
+
+
+def test_error_payloads_never_replace_good_data_with_an_empty_week():
+    now = datetime(2026, 11, 13, 9, 0, tzinfo=TAIPEI_TZ)
+    macro = [{"title": "CPI m/m", "country": "USD", "date": "2026-11-12T08:30:00-05:00", "impact": "High"}]
+    rows = [{"symbol": "NVDA", "name": "NVIDIA", "time": "time-after-hours"}]
+
+    def good(url, **_kw):
+        return macro if "faireconomy" in url else {"status": {"rCode": 200}, "data": {"rows": rows}}
+
+    def errors(url, **_kw):  # HTTP 200 bodies that are really source errors
+        if "faireconomy" in url:
+            return {"error": "rate limited"}
+        return {"status": {"rCode": 400}, "data": None}
+
+    assert len(week_agenda.week_agenda(now=now, fetch=good)["earnings"]) == 5
+    week_agenda._cache["_fetched_mono"] -= week_agenda._FRESH_SECONDS + 1
+    out = week_agenda.week_agenda(now=now, fetch=errors)
+    assert len(out["errors"]) == 2
+    assert len(out["macro"]) == 1 and len(out["earnings"]) == 5  # last good data kept, not []

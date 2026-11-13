@@ -12,7 +12,12 @@ function byDay<T extends { date: string }>(items: T[]): [string, T[]][] {
 }
 
 export function WeekAgendaCard() {
-  const query = useQuery({ queryKey: ['week-agenda'], queryFn: api.taiwanWeekAgenda, staleTime: 30 * 60_000 })
+  // Refetch while mounted: picks up the Sunday-noon week switch and, after a source error,
+  // the backend's 5-minute retry (the app disables refetch-on-focus).
+  const query = useQuery({
+    queryKey: ['week-agenda'], queryFn: api.taiwanWeekAgenda, staleTime: 5 * 60_000,
+    refetchInterval: q => (q.state.data?.errors.length ? 5 : 30) * 60_000,
+  })
   const data = query.data
   return (
     <section aria-label="本週行事曆" className="rounded-card border border-border bg-surface p-4">

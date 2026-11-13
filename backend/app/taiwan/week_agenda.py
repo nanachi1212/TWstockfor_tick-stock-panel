@@ -113,9 +113,28 @@ def zh_title(title: str) -> str | None:
     return None
 
 
-def map_macro(items: Any, start: date, end: date) -> list[dict[str, Any]]:
+def forex_factory_items(payload: Any) -> list[dict[str, Any]]:
+    """The weekly calendar is a JSON list; anything else is a source failure, not an empty week."""
+    if not isinstance(payload, list):
+        raise ValueError("unexpected Forex Factory payload")
+    return [item for item in payload if isinstance(item, dict)]
+
+
+def nasdaq_rows(payload: Any) -> list[dict[str, Any]]:
+    """Rows of one Nasdaq earnings day. A day without reports has rCode 200 and rows null;
+    an error has a non-200 rCode or data null and must not read as "no earnings"."""
+    data = payload.get("data") if isinstance(payload, dict) else None
+    status = payload.get("status") if isinstance(payload, dict) else None
+    rows = data.get("rows") if isinstance(data, dict) else None
+    if (not isinstance(data, dict) or (isinstance(status, dict) and status.get("rCode") != 200)
+            or not (rows is None or isinstance(rows, list))):
+        raise ValueError("unexpected Nasdaq earnings payload")
+    return [row for row in rows or [] if isinstance(row, dict)]
+
+
+def map_macro(items: list[dict[str, Any]], start: date, end: date) -> list[dict[str, Any]]:
     out = []
-    for item in items if isinstance(items, list) else []:
+    for item in items:
         country, impact = item.get("country"), item.get("impact")
         holiday = impact == "Holiday"
         if country not in COUNTRY or not (impact in ("High", "Medium") or (holiday and country in HOLIDAY_COUNTRIES)):
@@ -143,9 +162,9 @@ def _usd(value: Any) -> float | None:
     return n if n > 0 else None
 
 
-def map_earnings(rows: Any, day: date) -> list[dict[str, Any]]:
+def map_earnings(rows: list[dict[str, Any]], day: date) -> list[dict[str, Any]]:
     out = []
-    for row in rows if isinstance(rows, list) else []:
+    for row in rows:
         symbol = str(row.get("symbol") or "").strip()
         cap = _usd(row.get("marketCap"))
         if not symbol or not (symbol in TECH or (cap or 0) >= BIG_CAP_USD):
@@ -174,7 +193,7 @@ def week_agenda(*, now: datetime | None = None, fetch: Callable[..., Any] = fetc
         earnings = cached["earnings"] if cached else []
         keep = "，顯示上次資料" if cached else ""
         try:
-            macro = map_macro(fetch(FOREX_FACTORY_URL, headers=_HEADERS, timeout=20.0), start, end)
+            macro = map_macro(forex_factory_items(fetch(FOREX_FACTORY_URL, headers=_HEADERS, timeout=20.0)), start, end)
         except Exception as exc:
             logger.warning("Forex Factory calendar fetch failed: %s", type(exc).__name__)
             errors.append(f"經濟行事曆（Forex Factory）暫時無法連線{keep}")
@@ -183,7 +202,7 @@ def week_agenda(*, now: datetime | None = None, fetch: Callable[..., Any] = fetc
             for offset in range(5):  # Mon-Fri; US earnings are not reported on weekends
                 day = start + timedelta(days=offset)
                 payload = fetch(NASDAQ_EARNINGS_URL.format(day=day.isoformat()), headers=_HEADERS, timeout=20.0)
-                fresh.extend(map_earnings(((payload or {}).get("data") or {}).get("rows"), day))
+                fresh.extend(map_earnings(nasdaq_rows(payload), day))
             earnings = fresh
         except Exception as exc:
             logger.warning("Nasdaq earnings calendar fetch failed: %s", type(exc).__name__)

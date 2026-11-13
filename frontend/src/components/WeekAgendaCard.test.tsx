@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { api, type WeekAgendaResponse } from '@/lib/api'
 import { WeekAgendaCard } from './WeekAgendaCard'
@@ -19,6 +19,22 @@ const agenda: WeekAgendaResponse = {
 }
 
 describe('WeekAgendaCard', () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  it('refetches while mounted, sooner after a source error', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.mocked(api.taiwanWeekAgenda).mockClear().mockResolvedValue(agenda) // agenda carries an error
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><WeekAgendaCard /></QueryClientProvider>)
+    await screen.findByText('核心 CPI（月增）')
+    vi.mocked(api.taiwanWeekAgenda).mockResolvedValue({ ...agenda, errors: [] })
+    await act(async () => { await vi.advanceTimersByTimeAsync(5 * 60_000) })
+    expect(api.taiwanWeekAgenda).toHaveBeenCalledTimes(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60_000) })
+    expect(api.taiwanWeekAgenda).toHaveBeenCalledTimes(2) // healthy data: next refetch at 30 min
+    await act(async () => { await vi.advanceTimersByTimeAsync(20 * 60_000) })
+    expect(api.taiwanWeekAgenda).toHaveBeenCalledTimes(3)
+  })
+
   it('groups by day and shows forecasts, holidays, earnings timing and source errors', async () => {
     vi.mocked(api.taiwanWeekAgenda).mockResolvedValue(agenda)
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><WeekAgendaCard /></QueryClientProvider>)
