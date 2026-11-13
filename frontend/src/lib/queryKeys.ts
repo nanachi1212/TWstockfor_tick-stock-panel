@@ -69,6 +69,7 @@ export const QK = {
   chipRanking: ['chip-ranking'] as const,
   chipRankingTracking: ['chip-ranking', 'tracking'] as const,
   bigHolderRanking: ['big-holder-ranking'] as const,
+  optionsFlows: ['options-flows'] as const,
   taiwanEvents:         (scope?: string, symbols?: string, date?: string, eventType?: string) => ['taiwan-events', scope ?? 'all', symbols ?? '', date ?? '', eventType ?? 'all'] as const,
   taiwanEventCandidates:(limit?: number) => ['taiwan-event-candidates', limit ?? 10] as const,
   taiwanAIResearchHistory: (params?: { symbol?: string; from?: string; to?: string; purpose?: string; limit?: number }) =>

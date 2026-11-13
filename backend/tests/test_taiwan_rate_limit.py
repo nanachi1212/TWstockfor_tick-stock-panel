@@ -48,11 +48,12 @@ def test_hosts_map_to_namespaced_taiwan_keys() -> None:
     assert taiwan_http.rate_limit_key(FINMIND_URL) == "taiwan:finmind"
     assert taiwan_http.rate_limit_key(YAHOO_URL) == "taiwan:yahoo"
     assert taiwan_http.rate_limit_key("https://smart.tdcc.com.tw/x") == "taiwan:tdcc"
+    assert taiwan_http.rate_limit_key("https://openapi.taifex.com.tw/v1/DailyMarketReportOpt") == "taiwan:taifex"
     # The live-quote endpoint has its own bucket so it never queues behind bulk TWSE downloads.
     assert taiwan_http.rate_limit_key("https://mis.twse.com.tw/stock/api/getStockInfo.jsp") == "taiwan:mis"
     assert set(taiwan_http.SOURCE_RPM) == {
         "taiwan:twse", "taiwan:tpex", "taiwan:mops", "taiwan:mis",
-        "taiwan:tdcc", "taiwan:finmind", "taiwan:yahoo",
+        "taiwan:tdcc", "taiwan:finmind", "taiwan:yahoo", "taiwan:taifex",
     }
 
 

@@ -31,6 +31,8 @@ conservative per-host defaults below are used when no rpm is supplied:
   than the bulk hosts; it is still capped so polling cannot hammer the endpoint.
 * ``taiwan:tdcc`` = 12 rpm.  集保 distribution data is not fetched yet; it is
   registered up-front at the MOPS pace so a future adapter cannot forget to.
+* ``taiwan:taifex`` = 12 rpm.  期交所 OpenAPI publishes no quota; the options flows page
+  fetches its 4 MB daily report at most every 30 minutes, so the MOPS pace is ample.
 * ``taiwan:finmind`` = 5 rpm by default. Declared: 300 req/hour anonymous (5/min),
   600 req/hour with a verified token (10/min).
 * ``taiwan:yahoo`` = 30 rpm.  Declared in ``YAHOO_METADATA``; Yahoo publishes
@@ -62,6 +64,7 @@ MIS = "taiwan:mis"
 FINMIND = "taiwan:finmind"
 YAHOO = "taiwan:yahoo"
 TDCC = "taiwan:tdcc"
+TAIFEX = "taiwan:taifex"
 
 # Most specific host suffix first: mops.twse.com.tw must not fall into TWSE.
 _HOST_KEYS: tuple[tuple[str, str], ...] = (
@@ -73,6 +76,7 @@ _HOST_KEYS: tuple[tuple[str, str], ...] = (
     ("finmindtrade.com", FINMIND),
     ("finance.yahoo.com", YAHOO),
     ("tdcc.com.tw", TDCC),
+    ("taifex.com.tw", TAIFEX),
 )
 
 # Conservative defaults; see module docstring for the basis of each number.
@@ -82,6 +86,7 @@ SOURCE_RPM: dict[str, int] = {
     MOPS: 12,
     MIS: 30,
     TDCC: 12,
+    TAIFEX: 12,
     FINMIND: 5,
     YAHOO: 30,
 }

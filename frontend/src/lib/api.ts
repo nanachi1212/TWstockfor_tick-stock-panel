@@ -2870,6 +2870,8 @@ export const api = {
     request<import('./marketResearch').ChipRankingSnapshot>('/api/taiwan/chip-ranking'),
   taiwanChipRankingTracking: () =>
     request<import('./marketResearch').ChipRankingTracking>('/api/taiwan/chip-ranking/tracking'),
+  taiwanOptionsFlows: () =>
+    request<import('./marketResearch').OptionsFlowsSnapshot>('/api/taiwan/options-flows'),
   taiwanBigHolderRanking: () =>
     request<import('./marketResearch').BigHolderRankingSnapshot>('/api/taiwan/big-holder-ranking'),
   taiwanMarketHeatmap: (date?: string) =>
