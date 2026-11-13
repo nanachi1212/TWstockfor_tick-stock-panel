@@ -390,6 +390,9 @@ def test_recent_alerts_keep_change_pct_alert_without_price(monkeypatch):
     assert alerts[0].trigger_price is None
     assert alerts[1].trigger_price == 1000.0
 
+_BLOCK_SECONDS = 30
+
+
 def test_slow_sources_do_not_hold_the_page(monkeypatch):
     """A rate-limited source slower than the wait leaves its section pending, not the page."""
     import threading
@@ -403,11 +406,13 @@ def test_slow_sources_do_not_hold_the_page(monkeypatch):
     mock_rt.get_quotes.return_value = {"2330.TWSE": _make_sample_quote("2330.TWSE", 2420.0, 2410.0)}
     svc.realtime_service = mock_rt
     chips = MagicMock()
-    chips.get_fundamentals_bundle.side_effect = lambda *_: release.wait(5) and None
+    # The slow sources block far longer than the page may take, so finishing well before
+    # them proves the page did not wait them out, independent of how fast the runner is.
+    chips.get_fundamentals_bundle.side_effect = lambda *_: release.wait(_BLOCK_SECONDS) and None
     chips.get_extra_chips_bundle.return_value = None
     svc.fundamental_chips_service = chips
     news = MagicMock()
-    news.get_recent_news.side_effect = lambda *_args, **_kwargs: release.wait(5)
+    news.get_recent_news.side_effect = lambda *_args, **_kwargs: release.wait(_BLOCK_SECONDS)
     monkeypatch.setattr("app.taiwan.news_service.get_news_service", lambda: news)
     events = MagicMock()
     events.get_events.return_value = []
@@ -422,7 +427,8 @@ def test_slow_sources_do_not_hold_the_page(monkeypatch):
     finally:
         release.set()
 
-    assert elapsed < 2
+    # 0.2 s of waiting plus page work; a loaded CI runner took up to 2.7 s, so a 2 s bound flaked.
+    assert elapsed < _BLOCK_SECONDS / 3
     assert res.realtime.last_price == 2420.0
     assert res.fundamentals is None
     assert res.events_status == "available"
