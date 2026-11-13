@@ -3,7 +3,11 @@ from datetime import date
 import pytest
 
 from app.taiwan import options_flows
-from app.taiwan.options_flows import TxoOpenInterestStore, options_flows_snapshot, parse_txo_open_interest
+from app.taiwan.options_flows import (
+    TxoOpenInterestStore,
+    options_flows_snapshot,
+    parse_txo_open_interest,
+)
 
 
 def _row(d, contract, strike, side, oi, session="一般", product="TXO"):

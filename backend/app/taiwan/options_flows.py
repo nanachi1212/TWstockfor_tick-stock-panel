@@ -13,9 +13,10 @@ import logging
 import re
 import threading
 import time
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from app.taiwan.data_root import taiwan_data_root
 from app.taiwan.providers.http import fetch_json
