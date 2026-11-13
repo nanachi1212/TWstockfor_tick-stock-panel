@@ -1231,6 +1231,14 @@ def get_external_context(symbol: str | None = None):
 
 # ── A12: Daily Brief (每日 AI 摘要) ──────────────────────────────
 
+@router.get("/week-agenda")
+def get_week_agenda():
+    """本週重要經濟數據與美股大型／科技股財報 (Forex Factory / Nasdaq, 3 小時快取)。"""
+    from app.taiwan.week_agenda import week_agenda
+
+    return week_agenda()
+
+
 @router.get("/daily-brief")
 def get_daily_brief(target_date: str | None = None, include_strategy_matches: bool = True):
     """取得或建構今日台股客觀確定性簡報 (涵蓋大盤、強弱族群、持股與自選、新候選股、事件與新聞)。"""

@@ -32,6 +32,7 @@ import { formatDailyBriefCopy, formatDailyBriefPrompt } from '@/lib/copy-formatt
 import { buildPortfolioPositions, PORTFOLIO_CHANGED, readPortfolioLedger } from '@/lib/portfolio'
 import { taiexFreshnessNote } from '@/lib/daily-brief'
 import { ExternalContextCard } from '@/components/ExternalContextCard'
+import { WeekAgendaCard } from '@/components/WeekAgendaCard'
 
 /** 法人合計單位是股：顯示成萬張，不寫成金額。 */
 function formatLots(value: number | null | undefined): string {
@@ -541,6 +542,7 @@ export function DailyBrief() {
         </div>
       )}
       <ExternalContextCard />
+      <WeekAgendaCard />
 
       {briefQuery.isLoading ? (
         <div className="text-center py-20 text-sm text-muted-foreground">彙整今日客觀資料中...</div>

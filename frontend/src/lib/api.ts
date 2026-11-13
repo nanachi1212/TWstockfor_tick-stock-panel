@@ -2563,6 +2563,40 @@ export interface ExternalProviderResult {
   error_reason: string | null
 }
 
+/** time is Taipei ISO; forecast/previous are the source's display strings ('' when not given). */
+export interface AgendaMacro {
+  time: string
+  date: string
+  country: string
+  country_name: string
+  impact: 'High' | 'Medium' | 'Holiday'
+  holiday: boolean
+  title: string
+  title_en: string
+  forecast: string
+  previous: string
+}
+/** date is the US (Eastern) report date queried from Nasdaq. */
+export interface AgendaEarnings {
+  date: string
+  symbol: string
+  name: string
+  zh: string | null
+  tech: boolean
+  market_cap: number | null
+  timing: '盤前' | '盤後' | '時間未定'
+  eps_forecast: string
+}
+export interface WeekAgendaResponse {
+  start: string
+  end: string
+  macro: AgendaMacro[]
+  earnings: AgendaEarnings[]
+  errors: string[]
+  sources: { title: string; url: string }[]
+  fetched_at: string
+}
+
 export interface ExternalContextResponse {
   intraday_context: ExternalProviderResult
   fx_context: ExternalProviderResult
@@ -3359,6 +3393,7 @@ export const api = {
     }),
   beginnerComparison: (symbols: string[]) =>
     request<BeginnerComparisonResponse>(`/api/taiwan/beginner-selection/compare?${new URLSearchParams({ symbols: symbols.join(',') })}`),
+  taiwanWeekAgenda: () => request<WeekAgendaResponse>('/api/taiwan/week-agenda'),
   taiwanExternalContext: (symbol?: string) =>
     request<ExternalContextResponse>(`/api/taiwan/external-context${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`),
   buyPointSummary: () =>
