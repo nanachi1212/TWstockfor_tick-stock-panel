@@ -43,6 +43,17 @@ describe('OptionsFlowsTab', () => {
     expect(within(screen.getByRole('table')).getByText('41,000')).toBeInTheDocument()
   })
 
+  it('falls back to the default contract when the picked one expires on refresh', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    vi.mocked(api.taiwanOptionsFlows).mockResolvedValue(snapshot)
+    render(<QueryClientProvider client={client}><OptionsFlowsTab /></QueryClientProvider>)
+    fireEvent.change(await screen.findByLabelText('選擇權到期'), { target: { value: '202611W4' } })
+    vi.mocked(api.taiwanOptionsFlows).mockResolvedValue({ ...snapshot, contracts: [snapshot.contracts[0]] })
+    await client.refetchQueries()
+    expect(await within(screen.getByRole('table')).findByText('47,500')).toBeInTheDocument()
+    expect(screen.getByLabelText('選擇權到期')).toHaveValue('202611')
+  })
+
   it('explains when no day has been stored yet', async () => {
     renderTab({ ...snapshot, status: 'unavailable', contracts: [], default_contract: null, foreign: null, message: '尚無這一天的選擇權未平倉資料' })
     expect(await screen.findByText('尚無這一天的選擇權未平倉資料')).toBeInTheDocument()

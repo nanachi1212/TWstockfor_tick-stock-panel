@@ -30,7 +30,9 @@ _CONTRACT_RE = re.compile(r"^\d{6}([WF]\d+)?$")
 _SIDES = {"買權": "call", "賣權": "put"}
 
 _fetch_lock = threading.Lock()
-_last_fetch_mono: float | None = None
+# (monotonic time of the last attempt, its error message or None on success). The error is
+# repeated for the whole cooldown so a failed refresh never reads as fresh data.
+_last_refresh: tuple[float, str | None] | None = None
 
 
 def parse_txo_open_interest(rows: list[dict[str, Any]]) -> tuple[date, dict[str, list[list[float]]]] | None:
@@ -91,21 +93,23 @@ class TxoOpenInterestStore:
 
 def refresh_latest(store: TxoOpenInterestStore, fetch: Callable[..., Any] = fetch_json) -> str | None:
     """Fetch TAIFEX's latest day at most every 30 minutes; returns an error message on failure."""
-    global _last_fetch_mono
+    global _last_refresh
     with _fetch_lock:
         now = time.monotonic()
-        if _last_fetch_mono is not None and now - _last_fetch_mono < _REFETCH_SECONDS:
-            return None
-        _last_fetch_mono = now
+        if _last_refresh is not None and now - _last_refresh[0] < _REFETCH_SECONDS:
+            return _last_refresh[1]
+        error: str | None = None
         try:
             parsed = parse_txo_open_interest(fetch(TAIFEX_DAILY_OPTIONS_URL, timeout=60.0))
         except Exception as exc:  # network / JSON: the stored days still serve
             logger.warning("TAIFEX daily options fetch failed: %s", type(exc).__name__)
-            return f"期交所選擇權行情暫時無法取得（{type(exc).__name__}）"
+            parsed, error = None, f"期交所選擇權行情暫時無法取得（{type(exc).__name__}）"
         if parsed is None:
-            return "期交所選擇權行情沒有可用的台指選擇權資料"
-        store.write(*parsed)
-        return None
+            error = error or "期交所選擇權行情沒有可用的台指選擇權資料"
+        else:
+            store.write(*parsed)
+        _last_refresh = (now, error)
+        return error
 
 
 def _contract_view(contract: str, strikes: list[list[float]], previous: list[list[float]] | None) -> dict[str, Any]:
@@ -146,6 +150,12 @@ def _foreign_positions(day: date) -> dict[str, Any]:
     }
 
 
+def _latest_session() -> date:
+    from app.taiwan.daily_update import resolve_target_latest_trading_date
+
+    return resolve_target_latest_trading_date()
+
+
 def options_flows_snapshot(
     target: date | None = None,
     *,
@@ -161,7 +171,9 @@ def options_flows_snapshot(
     if day is None or snapshot is None:
         return {"date": day.isoformat() if day else None, "status": "unavailable", "source": SOURCE,
                 "message": message or "尚無這一天的選擇權未平倉資料（期交所只提供最新交易日，之前沒存到的日期無法回補）",
-                "previous_date": None, "contracts": [], "default_contract": None, "foreign": foreign(day) if day else None}
+                "previous_date": None, "contracts": [], "default_contract": None,
+                # FinMind positions do not depend on TAIFEX: still show them for the latest session.
+                "foreign": foreign(day or _latest_session())}
     previous_day = next((d for d in reversed(stored) if d < day), None)
     previous = store.read(previous_day) if previous_day else None
     contracts = [_contract_view(c, strikes, (previous or {}).get(c) if previous is not None else None)

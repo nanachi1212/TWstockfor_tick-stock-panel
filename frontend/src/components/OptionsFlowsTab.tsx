@@ -18,7 +18,8 @@ export function OptionsFlowsTab() {
   if (query.isLoading) return <p role="status" className="py-8 text-muted">讀取期交所選擇權資料中…</p>
   if (query.isError || !query.data) return <div role="alert" className="rounded-lg border border-danger/30 p-4 text-danger">期權籌碼讀取失敗<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>
   const data = query.data
-  const contract = data.contracts.find(c => c.contract === (picked ?? data.default_contract))
+  // A picked contract that expired out of a refreshed snapshot falls back to the default.
+  const contract = data.contracts.find(c => c.contract === picked) ?? data.contracts.find(c => c.contract === data.default_contract)
   return <div className="space-y-4">
     {data.foreign && <ForeignPanel foreign={data.foreign} />}
     {data.status !== 'available' || !contract ? <p className="text-sm text-muted">{data.message ?? '尚無選擇權未平倉資料。'}</p> : <>

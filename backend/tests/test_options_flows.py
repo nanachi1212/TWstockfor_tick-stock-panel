@@ -17,7 +17,7 @@ def _row(d, contract, strike, side, oi, session="一般", product="TXO"):
 
 @pytest.fixture(autouse=True)
 def _no_refetch_window(monkeypatch):
-    monkeypatch.setattr(options_flows, "_last_fetch_mono", None)
+    monkeypatch.setattr(options_flows, "_last_refresh", None)
 
 
 def test_snapshot_compares_with_previous_stored_day_and_finds_peaks(tmp_path):
@@ -50,3 +50,24 @@ def test_mixed_dates_or_failed_fetch_never_invent_a_day(tmp_path):
     assert out["status"] == "unavailable" and out["date"] is None and "TimeoutError" in out["message"]
     past = options_flows_snapshot(date(2026, 1, 5), store=TxoOpenInterestStore(tmp_path), foreign=lambda _d: {"ok": 1})
     assert past["status"] == "unavailable" and past["foreign"] == {"ok": 1}
+
+
+def test_refresh_failure_stays_visible_through_the_cooldown_and_foreign_is_independent(tmp_path, monkeypatch):
+    store = TxoOpenInterestStore(tmp_path)
+    store.write(*parse_txo_open_interest([_row("20261111", "202611", "20000", "買權", "100")]))
+
+    def boom(*_a, **_k):
+        raise TimeoutError
+
+    first = options_flows_snapshot(store=store, fetch=boom, foreign=lambda _d: {})
+    second = options_flows_snapshot(store=store, fetch=boom, foreign=lambda _d: {})  # within the cooldown
+    assert first["status"] == second["status"] == "available"  # stored day still served
+    assert "TimeoutError" in first["message"] and second["message"] == first["message"]
+
+    monkeypatch.setattr(options_flows, "_last_refresh", None)
+    monkeypatch.setattr(options_flows, "_latest_session", lambda: date(2026, 11, 12))
+    seen = []
+    empty = options_flows_snapshot(store=TxoOpenInterestStore(tmp_path / "empty"), fetch=boom,
+                                   foreign=lambda d: seen.append(d) or {"futures": "ok"})
+    assert empty["status"] == "unavailable" and empty["foreign"] == {"futures": "ok"}
+    assert seen == [date(2026, 11, 12)]
