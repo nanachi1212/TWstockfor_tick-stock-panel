@@ -77,7 +77,7 @@ function Rotation({ rows }: { rows: IndustryRotationRow[] }) {
     series: [{ type: 'scatter', symbolSize: 14, data: points, itemStyle: { color: RADIX.brand }, label: { show: true, formatter: '{b}', position: 'top', color: textColor }, markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: textColor }, data: [{ xAxis: 0 }, { yAxis: 0 }] } }],
   }
   return <div className="space-y-4">
-    <Help>RS＝產業等權報酬－全市場股票等權報酬，採原始收盤價，未排除除權息影響。成交值占比採每日產業成交值／全市場股票成交值，20D 為每日占比的算術平均；變化＝當日占比－20D 平均（百分點）。ETF 不納入產業輪動。</Help>
+    <Help open label="名詞說明">RS＝產業等權報酬－全市場股票等權報酬，採原始收盤價，未排除除權息影響。成交值占比採每日產業成交值／全市場股票成交值，20D 為每日占比的算術平均；變化＝當日占比－20D 平均（百分點）。ETF 不納入產業輪動。</Help>
     <div className="rounded-lg border border-border bg-surface p-3">
       <div className="grid grid-cols-2 gap-2 text-xs text-secondary"><span>左上：落後、資金增加</span><span className="text-right">右上：領先、資金增加</span></div>
       {points.length ? <ReactECharts echarts={echarts} option={option} style={{ height: 390 }} /> : <p className="py-12 text-center text-muted">完整資料不足，尚無可繪製的產業。</p>}
@@ -153,7 +153,7 @@ export function MarketResearch() {
             <label>法人 <select aria-label="法人" value={investor} onChange={e => setInvestor(e.target.value as Investor)} className={inputClass}>{Object.entries(INVESTOR_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
             <label>單位 <select aria-label="數量單位" value={unit} onChange={e => setUnit(e.target.value as 'shares' | 'lots')} className={inputClass}><option value="lots">張</option><option value="shares">股</option></select></label>
           </div>
-          <Help>彙總範圍為目前支援的上市、上櫃股票與 ETF，非交易所發布的法人買賣金額。1 張＝1,000 股，不估算金額。占比採同一標的、同一日期的淨買賣超／成交股數；部分資料只累計已取得資料。連買／連賣以視窗內連續交易日計算，缺日或市場資料不完整即中斷。點選每格狀態可查看來源與覆蓋。</Help>
+          <Help open label="名詞說明">彙總範圍為目前支援的上市、上櫃股票與 ETF，非交易所發布的法人買賣金額。1 張＝1,000 股，不估算金額。占比採同一標的、同一日期的淨買賣超／成交股數；部分資料只累計已取得資料。連買／連賣以視窗內連續交易日計算，缺日或市場資料不完整即中斷。點選每格狀態可查看來源與覆蓋。</Help>
         </>}
         {query.isLoading && <p role="status" className="py-8 text-muted">載入資料中…</p>}
         {query.isError && <div role="alert" className="rounded-lg border border-danger/30 p-4 text-danger">資料讀取失敗：{query.error instanceof Error ? query.error.message : '請稍後重試'}<button className="ml-3 underline" onClick={() => void query.refetch()}>重試</button></div>}

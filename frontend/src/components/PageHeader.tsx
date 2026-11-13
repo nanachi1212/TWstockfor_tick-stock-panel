@@ -10,13 +10,15 @@ interface Props {
   primary?: React.ReactNode
   /** Secondary actions, folded into the「⋯」menu. */
   more?: React.ReactNode
+  /** Terms, chart readings and category meanings for beginners, shown open under「名詞說明」. */
+  glossary?: React.ReactNode
   /** Units, sources and caveats, folded under「說明」. */
   help?: React.ReactNode
   className?: string
 }
 
 /** Page convention: title, one primary action, everything else folded (more / help). */
-export function PageHeader({ title, titleExtra, primary, more, help, className }: Props) {
+export function PageHeader({ title, titleExtra, primary, more, glossary, help, className }: Props) {
   return (
     <header className={cn('border-b border-border px-5 py-3', className)}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -26,6 +28,7 @@ export function PageHeader({ title, titleExtra, primary, more, help, className }
         </div>
         {(primary || more) && <div className="flex items-center gap-2">{primary}{more && <MoreMenu>{more}</MoreMenu>}</div>}
       </div>
+      {glossary && <Help open label="名詞說明" className="mt-2">{glossary}</Help>}
       {help && <Help className="mt-2">{help}</Help>}
     </header>
   )
@@ -61,11 +64,13 @@ export function MoreMenu({ children, label = '更多動作' }: { children: React
   )
 }
 
-/** Units, sources and caveats a reader may need, folded so the page reads without them. */
-export function Help({ children, className }: { children: React.ReactNode; className?: string }) {
+/** Folded text: 說明 (sources, units, caveats) starts closed; 名詞說明 (terms, charts) starts open. */
+export function Help({ children, className, open = false, label = '說明' }: {
+  children: React.ReactNode; className?: string; open?: boolean; label?: string
+}) {
   return (
-    <details className={cn('text-xs text-muted', className)}>
-      <summary className="w-fit cursor-pointer select-none hover:text-foreground">說明</summary>
+    <details open={open} className={cn('text-xs text-muted', className)}>
+      <summary className="w-fit cursor-pointer select-none hover:text-foreground">{label}</summary>
       <div className="mt-2 max-w-3xl space-y-1 leading-relaxed">{children}</div>
     </details>
   )

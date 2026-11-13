@@ -69,7 +69,7 @@ export function StrategyLab() {
   const data = overview.data
   const strategies = data?.strategies ?? []
   return <main className="mx-auto max-w-[1600px] space-y-6 px-4 py-6">
-    <PageHeader title="策略實驗室" help={<>
+    <PageHeader title="策略實驗室" glossary={<>
       <p>Forward / OOS observed，僅使用儲存的前瞻觀察，不是 historical backtest。</p>
       <p>Historical PIT research：未完全可用。各策略保留原始進場基準；觀察報酬未扣成本與滑價，並非可成交的投資組合績效。</p>
     </>} />

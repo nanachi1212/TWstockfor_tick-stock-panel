@@ -250,7 +250,7 @@ export function SelectionReview() {
     <div className="space-y-6 max-w-7xl mx-auto px-4 py-6">
       <PageHeader
         title="選股復盤與策略追蹤"
-        help={<>
+        glossary={<>
           <p>追蹤選股當下事實與後續 1D / 5D / 20D 實際交易日表現，評估策略與入選原因勝率。</p>
           <p className="font-semibold text-foreground">第一次用？三步驟看懂這頁</p>
           <ol className="list-decimal space-y-1 pl-5">
