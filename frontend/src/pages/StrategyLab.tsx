@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { FlaskConical } from 'lucide-react'
 import { api, type StrategyLabFilters, type StrategyLabHorizon, type StrategyLabObservation, type StrategyLabStats } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { STRATEGY_GUIDE } from '@/lib/strategyGuide'
 import { statusLabel } from '@/lib/evidenceLabel'
+import { PageHeader } from '@/components/PageHeader'
 
 const HORIZONS = ['1D', '5D', '20D'] as const
 const SLICES = [
@@ -69,11 +69,10 @@ export function StrategyLab() {
   const data = overview.data
   const strategies = data?.strategies ?? []
   return <main className="mx-auto max-w-[1600px] space-y-6 px-4 py-6">
-    <header className="space-y-2">
-      <h1 className="flex items-center gap-2 text-lg font-bold"><FlaskConical className="h-6 w-6 text-primary" />策略實驗室</h1>
-      <p className="text-sm text-muted-foreground">Forward / OOS observed，僅使用儲存的前瞻觀察，不是 historical backtest。</p>
-      <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">Historical PIT research：未完全可用。各策略保留原始進場基準；觀察報酬未扣成本與滑價，並非可成交的投資組合績效。</p>
-    </header>
+    <PageHeader title="策略實驗室" help={<>
+      <p>Forward / OOS observed，僅使用儲存的前瞻觀察，不是 historical backtest。</p>
+      <p>Historical PIT research：未完全可用。各策略保留原始進場基準；觀察報酬未扣成本與滑價，並非可成交的投資組合績效。</p>
+    </>} />
     <section aria-label="切片篩選" className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4">
       <label className="text-xs">Minimum sample<select aria-label="Minimum sample" value={filters.minimum_sample} onChange={e => updateFilter('minimum_sample', Number(e.target.value))} className="mt-1 block rounded border border-border bg-background p-2">{[5, 10, 20, 30, 50].map(n => <option key={n} value={n}>{n}</option>)}</select></label>
       <label className="max-w-72 text-xs">策略<select aria-label="策略篩選" value={filters.strategy_key ?? ''} onChange={e => updateFilter('strategy_key', e.target.value)} className="mt-1 block max-w-full rounded border border-border bg-background p-2"><option value="">全部策略</option>{data?.strategy_options.map(item => <option key={item.key} value={item.key}>{item.source}，{item.strategy_name}，{item.key.slice(0, 8)}</option>)}</select></label>

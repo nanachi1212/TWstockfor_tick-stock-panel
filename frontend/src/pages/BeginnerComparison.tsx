@@ -6,6 +6,7 @@ import { api, type BeginnerCandidate, type BeginnerTechnicalPanel, type Beginner
 import { QK } from '@/lib/queryKeys'
 import { MAX_COMPARE_SYMBOLS } from '@/lib/taiwanCompareSymbols'
 import { useSafeBack } from '@/lib/useSafeBack'
+import { PageHeader, menuItemClass } from '@/components/PageHeader'
 import { MarketSummaryCard, STATE_LABEL, StateBadge, STRENGTH_DISCLAIMER } from '@/components/beginner/BeginnerPicker'
 
 const strengthLabel = { strong: '強', medium: '中', weak: '弱' } as const
@@ -189,17 +190,15 @@ export function BeginnerComparison() {
   return (
     <div className="min-h-full min-w-0 bg-base p-2 sm:p-3">
       <div className="mx-auto w-full min-w-0 max-w-6xl space-y-3">
-        <header className="flex flex-wrap items-center justify-between gap-2">
-          <div><h1 className="text-lg font-semibold text-foreground">初學者股票比較</h1><p className="text-xs text-muted">比較已選股票的行動條件，沿用今日選股證據。</p></div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={goBack} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border px-3 text-xs text-foreground"><ArrowLeft className="h-3.5 w-3.5" />返回</button>
-            {valid && <button type="button" disabled={query.isFetching} onClick={() => {
-              if (refreshing.current || query.isFetching) return
-              refreshing.current = true
-              void query.refetch().finally(() => { refreshing.current = false })
-            }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border px-3 text-xs text-foreground disabled:opacity-40"><RefreshCw className="h-3.5 w-3.5" />更新比較</button>}
-          </div>
-        </header>
+        <PageHeader
+          title="初學者股票比較"
+          primary={<button type="button" onClick={goBack} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-border px-3 text-xs text-foreground"><ArrowLeft className="h-3.5 w-3.5" />返回</button>}
+          more={valid && <button type="button" disabled={query.isFetching} onClick={() => {
+            if (refreshing.current || query.isFetching) return
+            refreshing.current = true
+            void query.refetch().finally(() => { refreshing.current = false })
+          }} className={menuItemClass}><RefreshCw />更新比較</button>}
+        />
         {!valid && <div role="alert" className="rounded-card border border-border bg-surface p-4 text-sm text-warning">
           {invalid ? '股票代號無效或重複，請回今日選股重新勾選。' : symbols.length > MAX_COMPARE_SYMBOLS ? `最多比較 ${MAX_COMPARE_SYMBOLS} 檔股票，請重新勾選。` : `請先勾選 2 至 ${MAX_COMPARE_SYMBOLS} 檔股票，再開始比較。`}
           <Link to="/picks" className="mt-2 block text-accent">回今日選股</Link>

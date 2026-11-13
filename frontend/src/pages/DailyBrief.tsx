@@ -25,6 +25,7 @@ import {
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
+import { PageHeader, menuItemClass } from '@/components/PageHeader'
 import { Modal } from '@/components/Modal'
 import { fmtBigNum, fmtLots, fmtPctPoint, todayTaipei, priceColorClass } from '@/lib/format'
 import { CopyButton } from '@/components/CopyButton'
@@ -271,32 +272,50 @@ export function DailyBrief() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 py-6">
-      {/* 頂部標頭列 */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/40 pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
-              <Sparkles className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold tracking-tight">每日台股摘要與 AI 解讀</h1>
-                {brief && (
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono font-medium">
-                    {brief.brief_date}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+      <PageHeader
+        title="每日摘要"
+        className="px-0 pt-0"
+        titleExtra={<>
+          {brief && (
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-muted text-muted-foreground font-mono font-medium">
+              {brief.brief_date}
+            </span>
+          )}
+          {activeHistoryBrief && (
+            <button
+              onClick={() => setSelectedHistoryId(null)}
+              className="text-xs text-primary hover:underline px-2 py-1"
+            >
+              返回今日最新
+            </button>
+          )}
+        </>}
+        primary={<>
+          {/* 產生 AI 摘要按鈕 */}
+          <button
+            onClick={handleGenerateAi}
+            disabled={isAiLoading || !canUseBrief}
+            className="inline-flex items-center gap-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-lg shadow-sm transition-all disabled:opacity-50"
+          >
+            {isAiLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>AI 深入解讀中...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                <span>{aiSummary ? '重新產生 AI 摘要' : '產生今日 AI 摘要'}</span>
+              </>
+            )}
+          </button>
 
-        {/* 右側操作群組 */}
-        <div className="flex items-center gap-3 flex-wrap">
+        </>}
+        more={<>
           {/* 複製資料與隱私開關 */}
           {brief && (
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer select-none">
+            <>
+              <label className={`${menuItemClass} cursor-pointer select-none`}>
                 <input
                   type="checkbox"
                   checked={includePortfolioInCopy}
@@ -306,6 +325,7 @@ export function DailyBrief() {
                 <span>包含個人持股資料</span>
               </label>
               <CopyButton
+                className={`${menuItemClass} border-0`}
                 label="複製資料"
                 getText={() => formatDailyBriefCopy({
                   brief_date: brief.brief_date,
@@ -394,6 +414,7 @@ export function DailyBrief() {
                 })}
               />
               <CopyButton
+                className={`${menuItemClass} border-0`}
                 label="複製 AI 提示詞"
                 successLabel="已複製提示詞"
                 getText={() => formatDailyBriefPrompt({
@@ -482,34 +503,15 @@ export function DailyBrief() {
                   ].filter(Boolean).join('\n\n') : null,
                 })}
               />
-            </div>
+            </>
           )}
           {/* 歷史紀錄按鈕 */}
           <button
             onClick={() => setShowHistoryModal(true)}
-            className="inline-flex items-center gap-1.5 text-xs font-medium bg-muted/60 hover:bg-muted text-foreground px-3 py-2 rounded-lg border border-border/60 transition-colors"
+            className={menuItemClass}
           >
-            <History className="h-4 w-4" />
+            <History />
             <span>歷史日報 ({historyQuery.data?.length || 0})</span>
-          </button>
-
-          {/* 產生 AI 摘要按鈕 */}
-          <button
-            onClick={handleGenerateAi}
-            disabled={isAiLoading || !canUseBrief}
-            className="inline-flex items-center gap-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-lg shadow-sm transition-all disabled:opacity-50"
-          >
-            {isAiLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>AI 深入解讀中...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4" />
-                <span>{aiSummary ? '重新產生 AI 摘要' : '產生今日 AI 摘要'}</span>
-              </>
-            )}
           </button>
 
           {/* 儲存當前摘要 */}
@@ -517,23 +519,15 @@ export function DailyBrief() {
             <button
               onClick={handleSaveToHistory}
               disabled={saveHistoryMutation.isPending || !canUseBrief}
-              className="inline-flex items-center gap-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 px-3 py-2 rounded-lg border border-border/60 transition-colors"
+              className={menuItemClass}
             >
-              <BookmarkPlus className="h-4 w-4" />
+              <BookmarkPlus />
               <span>儲存此份</span>
             </button>
           )}
 
-          {activeHistoryBrief && (
-            <button
-              onClick={() => setSelectedHistoryId(null)}
-              className="text-xs text-primary hover:underline px-2 py-1"
-            >
-              返回今日最新
-            </button>
-          )}
-        </div>
-      </div>
+        </>}
+      />
 
       {brief && strategyMessage && (
         <div role="status" className="rounded-lg border border-border/60 bg-muted/20 p-3 text-sm">

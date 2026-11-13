@@ -7,12 +7,12 @@ import {
   ArrowUpRight,
   CircleAlert,
   Loader2,
-  MessageCircleMore,
   RefreshCw,
 } from 'lucide-react'
 import { api, type TaiwanSocialSentimentRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { CopyButton } from '@/components/CopyButton'
+import { PageHeader, menuItemClass } from '@/components/PageHeader'
 import { formatSocialSentimentPrompt } from '@/lib/copy-formatters'
 import { storage } from '@/lib/storage'
 import { buildPortfolioPositions, isPortfolioTransaction, type PortfolioTransaction } from '@/lib/portfolio'
@@ -134,43 +134,37 @@ export function SocialSentiment() {
   return (
     <main className="min-h-full bg-base p-3 sm:p-4">
       <div className="mx-auto max-w-7xl space-y-3">
-        <header className="rounded-card border border-border bg-surface/90 p-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <MessageCircleMore className="h-5 w-5 text-accent" />
-                <h1 className="text-lg font-bold text-foreground">社群聲量</h1>
-                {sentiment.data && (
-                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', sentiment.data.status === 'available' ? 'bg-bull/10 text-bull' : sentiment.data.status === 'partial' ? 'bg-warning/10 text-warning' : 'bg-danger/10 text-danger')}>
-                    {sentiment.data.status === 'available' ? '來源完整' : sentiment.data.status === 'partial' ? '部分來源可用' : '來源不可用'}
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-muted">社群討論與 AI 情緒分析僅供研究，可能有抽樣與群體偏誤，不代表公司基本面或買賣建議。</p>
-              {sentiment.data && (
-                <p className="mt-2 text-xs text-secondary">
-                  最後更新：{generatedAt ? fmtTaipeiDateTime(generatedAt, '不可用', true) : '不可用'}，來源：{TRIGGER_LABELS[sentiment.data.trigger] ?? '未知'}
-                </p>
-              )}
-            </div>
+        <PageHeader
+          title="社群聲量"
+          titleExtra={sentiment.data && (
+            <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', sentiment.data.status === 'available' ? 'bg-bull/10 text-bull' : sentiment.data.status === 'partial' ? 'bg-warning/10 text-warning' : 'bg-danger/10 text-danger')}>
+              {sentiment.data.status === 'available' ? '來源完整' : sentiment.data.status === 'partial' ? '部分來源可用' : '來源不可用'}
+            </span>
+          )}
+          more={sentiment.data && (
+            <CopyButton
+              label="複製社群排行榜給 AI"
+              className={`${menuItemClass} border-0`}
+              getText={() => formatSocialSentimentPrompt({
+                as_of: sentiment.data.as_of,
+                generated_at: sentiment.data.generated_at,
+                source_statuses: Object.fromEntries(Object.entries(sources).map(([source, data]) => [source, data.status])),
+                rankings: rows.slice(0, 20).map(row => ({
+                  rank: row.rank, symbol: row.symbol, name: row.company_name,
+                  mentions: row.total_mentions, heat: row.social_heat_score,
+                  sentiment: sentimentLabel(row.sentiment), score: row.sentiment_score,
+                  confidence: row.sentiment_confidence,
+                })),
+              })}
+            />
+          )}
+          help={<>
+            <p>社群討論與 AI 情緒分析僅供研究，可能有抽樣與群體偏誤，不代表公司基本面或買賣建議。</p>
             {sentiment.data && (
-              <CopyButton
-                label="複製社群排行榜給 AI"
-                getText={() => formatSocialSentimentPrompt({
-                  as_of: sentiment.data.as_of,
-                  generated_at: sentiment.data.generated_at,
-                  source_statuses: Object.fromEntries(Object.entries(sources).map(([source, data]) => [source, data.status])),
-                  rankings: rows.slice(0, 20).map(row => ({
-                    rank: row.rank, symbol: row.symbol, name: row.company_name,
-                    mentions: row.total_mentions, heat: row.social_heat_score,
-                    sentiment: sentimentLabel(row.sentiment), score: row.sentiment_score,
-                    confidence: row.sentiment_confidence,
-                  })),
-                })}
-              />
+              <p>最後更新：{generatedAt ? fmtTaipeiDateTime(generatedAt, '不可用', true) : '不可用'}，來源：{TRIGGER_LABELS[sentiment.data.trigger] ?? '未知'}</p>
             )}
-          </div>
-        </header>
+          </>}
+        />
 
         <section className="rounded-card border border-border bg-surface/85 p-3">
           <div className="flex flex-wrap items-center gap-2">

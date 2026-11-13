@@ -61,7 +61,6 @@ export function Settings() {
     <>
       <PageHeader
         title="設定"
-        subtitle="管理帳戶、資料重新整理策略與進階功能設定。"
       />
 
       <div className="px-8 py-6">

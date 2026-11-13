@@ -28,6 +28,7 @@ import { toast } from '@/components/Toast'
 import { cn } from '@/lib/cn'
 import { fmtPctPoint, priceColorClass } from '@/lib/format'
 import { CopyButton } from '@/components/CopyButton'
+import { PageHeader } from '@/components/PageHeader'
 import { formatSelectionReviewCopy, formatSelectionReviewPrompt } from '@/lib/copy-formatters'
 import { SelectionForwardPanel, type SelectionForwardBatchReviewView } from '@/components/selection/SelectionForwardPanel'
 import { SelectionHistoricalPitPanel } from '@/components/selection/SelectionHistoricalPitPanel'
@@ -247,105 +248,92 @@ export function SelectionReview() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-4 py-6">
-      {/* 頂部標題 */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/40 pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
-              <History className="h-6 w-6" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">選股復盤與策略追蹤</h1>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                追蹤選股當下事實與後續 1D / 5D / 20D 實際交易日表現，評估策略與入選原因勝率
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <details className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm">
-          <summary className="cursor-pointer font-semibold">第一次用？三步驟看懂這頁</summary>
-          <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
+      <PageHeader
+        title="選股復盤與策略追蹤"
+        help={<>
+          <p>追蹤選股當下事實與後續 1D / 5D / 20D 實際交易日表現，評估策略與入選原因勝率。</p>
+          <p className="font-semibold text-foreground">第一次用？三步驟看懂這頁</p>
+          <ol className="list-decimal space-y-1 pl-5">
             <li><span className="text-foreground">什麼都不用做也有資料</span>：「每日推薦」是系統每天收盤後自動選的股票，過幾天會自動填上 1 天／5 天／20 天後漲跌，看它準不準。</li>
             <li><span className="text-foreground">想測某個策略</span>：到「台股選股」選一個每日候選策略 → 按「乾跑預覽」看名單 → 收盤後按「鎖定正式測試名單」。之後到本頁「正式前瞻批次」看它每天的成績（系統夜間也會自動鎖定）。</li>
             <li><span className="text-foreground">想記錄自己的選股</span>：在「台股選股」篩完按「儲存本次選股快照」，成績會出現在「研究快照」；累積夠多後，「策略統計」「條件成效」會告訴你哪種策略、哪種入選理由比較常賺。</li>
           </ol>
-          <p className="mt-2 text-xs text-muted-foreground">看數字的重點：勝率＝之後上漲的比例；超額＝比同期買 0050 多賺（或少賠）多少。樣本少於 5 筆時參考就好。</p>
-        </details>
+          <p>看數字的重點：勝率＝之後上漲的比例；超額＝比同期買 0050 多賺（或少賠）多少。樣本少於 5 筆時參考就好。</p>
+        </>}
+      />
 
-        {/* 頁籤切換 */}
-        <div className="flex flex-wrap items-center bg-muted/60 p-1 rounded-lg border border-border/40 text-sm">
-          <button onClick={() => { setSearchParams({ tab: 'live' }); setSelectedSnapshotId(null) }} className={cn('px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5', activeTab === 'live' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}><ShieldCheck className="h-4 w-4" />每日推薦</button>
-          <button
-            onClick={() => {
-              setSearchParams({})
-              setSelectedSnapshotId(null)
-            }}
-            className={cn(
-              'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
-              activeTab === 'snapshots'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Layers className="h-4 w-4" />
-            研究快照
-          </button>
-          <button
-            onClick={() => {
-              setSearchParams({ tab: 'forward' })
-              setSelectedSnapshotId(null)
-            }}
-            className={cn(
-              'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
-              activeTab === 'forward'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Clock className="h-4 w-4" />
-            正式前瞻批次
-          </button>
-          <button
-            onClick={() => {
-              setSearchParams({ tab: 'historical' })
-              setSelectedSnapshotId(null)
-            }}
-            className={cn(
-              'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
-              activeTab === 'historical'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <ShieldCheck className="h-4 w-4" />
-            歷史 PIT 驗證
-          </button>
-          <button
-            onClick={() => setSearchParams({ tab: 'strategies' })}
-            className={cn(
-              'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
-              activeTab === 'strategies'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <TrendingUp className="h-4 w-4" />
-            策略統計
-          </button>
-          <button
-            onClick={() => setSearchParams({ tab: 'conditions' })}
-            className={cn(
-              'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
-              activeTab === 'conditions'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <BarChart3 className="h-4 w-4" />
-            條件成效
-          </button>
-        </div>
+      {/* 頁籤切換 */}
+      <div className="flex w-fit flex-wrap items-center bg-muted/60 p-1 rounded-lg border border-border/40 text-sm">
+        <button onClick={() => { setSearchParams({ tab: 'live' }); setSelectedSnapshotId(null) }} className={cn('px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5', activeTab === 'live' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}><ShieldCheck className="h-4 w-4" />每日推薦</button>
+        <button
+          onClick={() => {
+            setSearchParams({})
+            setSelectedSnapshotId(null)
+          }}
+          className={cn(
+            'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
+            activeTab === 'snapshots'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Layers className="h-4 w-4" />
+          研究快照
+        </button>
+        <button
+          onClick={() => {
+            setSearchParams({ tab: 'forward' })
+            setSelectedSnapshotId(null)
+          }}
+          className={cn(
+            'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
+            activeTab === 'forward'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Clock className="h-4 w-4" />
+          正式前瞻批次
+        </button>
+        <button
+          onClick={() => {
+            setSearchParams({ tab: 'historical' })
+            setSelectedSnapshotId(null)
+          }}
+          className={cn(
+            'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
+            activeTab === 'historical'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <ShieldCheck className="h-4 w-4" />
+          歷史 PIT 驗證
+        </button>
+        <button
+          onClick={() => setSearchParams({ tab: 'strategies' })}
+          className={cn(
+            'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
+            activeTab === 'strategies'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <TrendingUp className="h-4 w-4" />
+          策略統計
+        </button>
+        <button
+          onClick={() => setSearchParams({ tab: 'conditions' })}
+          className={cn(
+            'px-3.5 py-1.5 rounded-md font-medium transition-all flex items-center gap-1.5',
+            activeTab === 'conditions'
+              ? 'bg-background text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <BarChart3 className="h-4 w-4" />
+          條件成效
+        </button>
       </div>
 
       {activeTab === 'live' && <LiveRecommendationReview />}

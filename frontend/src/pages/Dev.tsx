@@ -180,7 +180,7 @@ function MinuteProbePanel() {
 export function Dev() {
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="系統工具" subtitle="台股分鐘資料診斷" />
+      <PageHeader title="系統工具" />
       <div className="flex-1 overflow-auto px-5 py-4">
         <div className="mx-auto max-w-3xl space-y-4">
           <MinuteProbePanel />

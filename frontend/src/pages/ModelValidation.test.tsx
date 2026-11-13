@@ -63,7 +63,7 @@ describe('ModelValidation', () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: '模型驗證' })).toBeInTheDocument()
-    expect(screen.getByText('40 / 63')).toBeInTheDocument()
+    expect(await screen.findByText('40 / 63')).toBeInTheDocument()
     expect(screen.getByText('尚未證明穩定 Alpha')).toBeInTheDocument()
     expect(screen.getByText('primary_v2_momentum_60d')).toBeInTheDocument()
     expect(screen.getByText('尚未啟用')).toBeInTheDocument()

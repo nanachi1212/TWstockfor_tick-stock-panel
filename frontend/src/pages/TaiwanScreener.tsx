@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Filter,
   ArrowUp,
   ArrowDown,
   RotateCcw,
@@ -43,6 +42,7 @@ import { TaiwanRuleEditorDialog } from '@/components/monitor/TaiwanRuleEditorDia
 import { loadLastCompareSymbols, mergeSymbolIntoCompare } from '@/lib/taiwanCompareSymbols'
 import { CopyButton } from '@/components/CopyButton'
 import { formatScreenerCopy, formatScreenerPrompt } from '@/lib/copy-formatters'
+import { PageHeader } from '@/components/PageHeader'
 import { SelectionForwardPanel } from '@/components/selection/SelectionForwardPanel'
 import { INVESTOR_LABELS } from '@/lib/marketResearch'
 import { ScreenerDataStatusPanel } from '@/components/screener/ScreenerDataStatusPanel'
@@ -741,32 +741,25 @@ export function TaiwanScreener() {
 
   return (
     <div className="flex-1 flex flex-col p-6 space-y-6 max-w-7xl mx-auto w-full">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-4">
-        <div>
-          <h1 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
-            <Filter className="w-6 h-6 text-purple-400" />
-            台股選股器
-          </h1>
-          <p className="text-sm text-zinc-400 mt-1">
-            從全市場台股中，依價格、成交、技術面與法人條件快速篩選標的
-          </p>
-        </div>
-
-        {/* Data Provenance Badges (Independent daily, institutional, margin dates) */}
-        {data && (
-          <div className="flex flex-wrap items-center gap-2 text-xs bg-zinc-900 border border-zinc-800 px-3 py-2 rounded-lg text-zinc-400">
-            <Database className="w-4 h-4 text-purple-400 shrink-0" />
-            <span>日線: <strong className="text-zinc-200">{data.data_dates.daily_as_of || '—'}</strong></span>
-            <span className="text-zinc-600">|</span>
-            <span>法人: <strong className="text-zinc-200">{data.data_dates.institutional_as_of || '—'}</strong></span>
-            <span className="text-zinc-600">|</span>
-            <span>資券: <strong className="text-zinc-200">{data.data_dates.margin_as_of || '—'}</strong></span>
-            <span className="text-zinc-600">|</span>
-            <span>符合: <strong className="text-purple-400">{data.total}</strong> 檔</span>
-          </div>
+      <PageHeader
+        title="台股選股器"
+        className="px-0 pt-0"
+        titleExtra={data && (
+          /* Data Provenance (Independent daily, institutional, margin dates) */
+          <span className="font-mono text-xs text-muted">
+            日線 {data.data_dates.daily_as_of || '—'}・法人 {data.data_dates.institutional_as_of || '—'}・資券 {data.data_dates.margin_as_of || '—'}・符合 {data.total} 檔
+          </span>
         )}
-      </div>
+        help={<>
+          <p>每日候選策略：固定規則、前瞻獨立追蹤；資料不足時不湊滿 Top20。</p>
+          {STRATEGY_GUIDE[activeForwardStrategy] && (
+            <p>
+              {STRATEGY_GUIDE[activeForwardStrategy].label}是什麼？{STRATEGY_GUIDE[activeForwardStrategy].plain}
+              條件：{STRATEGY_GUIDE[activeForwardStrategy].rule}。{STRATEGY_COMMON_NOTE}
+            </p>
+          )}
+        </>}
+      />
 
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-purple-900/50 bg-purple-950/20 px-4 py-3">
         <label htmlFor="selection-forward-strategy" className="text-sm font-semibold text-zinc-200">每日候選策略</label>
@@ -785,14 +778,6 @@ export function TaiwanScreener() {
           <option value="manual">一般篩選</option>
           {FORWARD_STRATEGY_OPTIONS.map(strategy => <option key={strategy.id} value={strategy.id}>{strategy.label}</option>)}
         </select>
-        <span className="text-xs text-zinc-400">固定規則、前瞻獨立追蹤；資料不足時不湊滿 Top20。</span>
-        {STRATEGY_GUIDE[activeForwardStrategy] && (
-          <div className="basis-full rounded-md bg-zinc-900/60 px-3 py-2 text-sm text-zinc-200">
-            <span className="font-semibold text-purple-300">{STRATEGY_GUIDE[activeForwardStrategy].label}是什麼？</span>{' '}
-            {STRATEGY_GUIDE[activeForwardStrategy].plain}
-            <div className="mt-1 text-xs text-zinc-400">條件：{STRATEGY_GUIDE[activeForwardStrategy].rule}。{STRATEGY_COMMON_NOTE}</div>
-          </div>
-        )}
         {data?.strategy_id && <span className="rounded bg-zinc-900 px-2 py-1 text-xs text-purple-300">{data.strategy_name}，{statusLabel(data.strategy_readiness)}</span>}
         {data?.strategy_id && data.strategy_coverage && Object.keys(data.strategy_coverage).length > 0 && (
           <span className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-400">

@@ -270,7 +270,7 @@ describe('DailyBrief Page (A12)', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText('每日台股摘要與 AI 解讀')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: '每日摘要' })).toBeInTheDocument()
       expect(screen.getByText('2026-08-28')).toBeInTheDocument()
       expect(screen.getByText('22150.80')).toBeInTheDocument()
       expect(screen.getByText('+0.55%')).toBeInTheDocument()

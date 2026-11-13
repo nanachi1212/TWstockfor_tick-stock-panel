@@ -120,7 +120,7 @@ export function BuyPointStrategies() {
 
   return (
     <div className="min-h-full bg-base px-4 py-4 text-foreground sm:px-6">
-      <PageHeader title="買點策略" titleExtra={<span className="text-xs text-muted">僅供研究提醒，不自動交易</span>} right={<button type="button" onClick={() => setCustomOpen(open => !open)} className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />建立自訂策略</button>} />
+      <PageHeader title="買點策略" help="僅供研究提醒，不自動交易。" primary={<button type="button" onClick={() => setCustomOpen(open => !open)} className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-white"><Plus className="h-3.5 w-3.5" />建立自訂策略</button>} />
 
       {(strategies.isError || summary.isError || stats.isError) && <p role="alert" className="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">部分買點資料載入失敗，下方內容可能不完整，請稍後再試。</p>}
       <section className="mb-4 rounded-2xl border border-accent/20 bg-surface/70 p-4">

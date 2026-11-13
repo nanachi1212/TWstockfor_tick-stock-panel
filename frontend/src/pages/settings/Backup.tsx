@@ -140,7 +140,7 @@ export function SettingsBackupPanel() {
 
   return (
     <>
-      <PageHeader title="備份與轉移" subtitle="用單一備份檔在家裡與辦公室電腦之間搬移個人設定與資料（不做雲端同步）" />
+      <PageHeader title="備份與轉移" help="用單一備份檔在家裡與辦公室電腦之間搬移個人設定與資料（不做雲端同步）。" />
       {optionsError && <ErrorLine msg="無法載入備份選項" />}
 
       <section className="rounded-card border border-border bg-surface p-5 mb-4">

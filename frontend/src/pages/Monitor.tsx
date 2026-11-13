@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, ListChecks, BellRing, Globe } from 'lucide-react'
+import { Plus, ListChecks, BellRing } from 'lucide-react'
+import { PageHeader } from '@/components/PageHeader'
 import { api, type TaiwanMonitorRule, type TaiwanRealtimeQuote } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { markSeen, leaveMonitorPage } from '@/lib/monitorBadge'
@@ -50,19 +51,24 @@ export function Monitor() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-3 pb-1 border-b border-border/40 bg-surface/50">
-        <div>
-          <h1 className="text-lg font-bold text-foreground flex items-center gap-2">
-            <BellRing className="h-5 w-5 text-accent" />
-            即時監控中心
-          </h1>
-          <p className="text-xs text-muted">台股盤中即時行情、深度五檔與邊緣規則觸發</p>
-        </div>
-        <div className="flex items-center gap-1.5 rounded-xl bg-elevated/60 px-3 py-1.5 border border-border/60 text-xs font-semibold text-accent">
-          <Globe className="h-3.5 w-3.5" />
-          台股即時監控 (TWSE / TPEx)
-        </div>
-      </div>
+      <PageHeader
+        title="即時監控中心"
+        titleExtra={<span className="font-mono text-xs text-muted">台股 TWSE / TPEx</span>}
+        primary={
+          <button
+            type="button"
+            onClick={() => {
+              setEditingTwRule(null)
+              setPresetTwQuote(null)
+              setTwEditorOpen(true)
+            }}
+            title="新增台股規則"
+            className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-white"
+          >
+            <Plus className="h-3.5 w-3.5" />新增規則
+          </button>
+        }
+      />
 
       <div className="flex-1 min-h-0 px-5 py-4">
         {/* ===== 台股即時監控區塊 ===== */}
@@ -107,19 +113,6 @@ export function Monitor() {
                   <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-xs font-medium text-muted">
                     {twRules.length}
                   </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      setEditingTwRule(null)
-                      setPresetTwQuote(null)
-                      setTwEditorOpen(true)
-                    }}
-                    title="新增台股規則"
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-accent/40 hover:text-accent hover:shadow-sm cursor-pointer"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </button>
                 </div>
               </div>
               <div className="min-h-0 flex-1 overflow-auto p-3.5">

@@ -103,7 +103,8 @@ describe('Portfolio UI', () => {
     vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
     vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: null, name: null, modified: null })
     vi.mocked(api.portfolioAutoSyncSet).mockResolvedValue({ path: null, name: null, modified: null })
-    renderPortfolio({ openImportOnMount: true })
+    renderPortfolio({ openImportWhenEmpty: true })
+    fireEvent.click(await screen.findByRole('button', { name: '匯入持股' }))  // has a ledger: opened from ⋯
     const dialog = await screen.findByRole('dialog', { name: '匯入持股' })
     fireEvent.change(within(dialog).getByLabelText('或直接貼上持股表格'), { target: { value: '代號,名稱,股數,均價\n2330,台積電,0,0' } })
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /匯入前清空/ }))
@@ -121,7 +122,8 @@ describe('Portfolio UI', () => {
       price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
     storage.portfolioTransactions.set(before)
     vi.spyOn(storage.portfolioImportPrevious, 'set').mockImplementation(() => { throw new Error('儲存空間不足') })
-    renderPortfolio({ openImportOnMount: true })
+    renderPortfolio({ openImportWhenEmpty: true })
+    fireEvent.click(await screen.findByRole('button', { name: '匯入持股' }))  // has a ledger: opened from ⋯
     const dialog = await screen.findByRole('dialog', { name: '匯入持股' })
     fireEvent.change(within(dialog).getByLabelText('或直接貼上持股表格'), { target: { value: '代號,名稱,股數,均價\n2330,台積電,0,0' } })
     fireEvent.click(within(dialog).getByRole('checkbox', { name: /匯入前清空/ }))
@@ -174,8 +176,16 @@ describe('Portfolio UI', () => {
     expect(screen.queryByRole('columnheader', { name: '收盤權重' })).not.toBeInTheDocument()
   })
 
-  it('opens the import dialog right away on the 我的持股 page, with file and paste options', async () => {
-    renderPortfolio({ openImportOnMount: true })
+  it('does not open the import dialog by itself once the ledger has transactions', async () => {
+    storage.portfolioTransactions.set([{ id: 'old', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }])
+    renderPortfolio({ openImportWhenEmpty: true })
+    expect(await screen.findByRole('row', { name: /台積電/ })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '匯入持股' })).not.toBeInTheDocument()
+  })
+
+  it('opens the import dialog right away on an empty 我的持股 page, with file and paste options', async () => {
+    renderPortfolio({ openImportWhenEmpty: true })
     const dialog = await screen.findByRole('dialog', { name: '匯入持股' })
     expect(within(dialog).getByLabelText('選擇持股檔案')).toBeInTheDocument()
     expect(within(dialog).getByLabelText('或直接貼上持股表格')).toBeInTheDocument()

@@ -9,6 +9,7 @@ import {
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { fmtTaipeiDateTime } from '@/lib/format'
+import { PageHeader } from '@/components/PageHeader'
 
 const PAGE_SIZE = 50
 
@@ -102,12 +103,9 @@ export function SocialFetch() {
   return (
     <main className="min-h-full bg-base p-3 sm:p-4">
       <div className="mx-auto max-w-7xl space-y-4">
-        <header className="rounded-card border border-border bg-surface/90 p-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h1 className="text-lg font-bold text-foreground">社群即時撈取</h1>
-              <p className="mt-1 text-xs text-muted">手動執行既有 PTT／Dcard pipeline，查看這一次的來源、排行與代表討論。</p>
-            </div>
+        <PageHeader
+          title="社群即時撈取"
+          primary={
             <button
               type="button"
               disabled={Boolean(isRunning)}
@@ -117,10 +115,10 @@ export function SocialFetch() {
               {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               立即撈取 PTT / Dcard
             </button>
-          </div>
-          {notice && <p className="mt-3 text-sm text-secondary" aria-live="polite">{notice}</p>}
-          {job.isError && <p className="mt-3 text-sm text-danger">無法讀取本次工作狀態。</p>}
-        </header>
+          }
+        />
+        {notice && <p className="text-sm text-secondary" aria-live="polite">{notice}</p>}
+        {job.isError && <p className="text-sm text-danger">無法讀取本次工作狀態。</p>}
 
         {job.data && <StatusCards job={job.data} />}
 
