@@ -56,14 +56,16 @@ def _lmstudio_model(origin: str, model: str) -> tuple[str, dict]:
     for item in items:
         if item.get("id") == model:
             return ("loaded" if item.get("state") == "loaded" else "not-loaded"), item
-    # Before the first load LM Studio lists the base ID and quantization separately.
+    # LM Studio lists the base ID and quantization separately, both before the first
+    # load and once loaded without a custom identifier (e.g. from the LM Studio app).
     # Match both exactly; never substitute a different model/quant or loaded alias.
     base, separator, quant = model.rpartition("@")
     variants = [item for item in items if separator and item.get("id") == base
-                and str(item.get("quantization", "")).casefold() == quant.casefold()
-                and item.get("state") == "not-loaded"]
-    if len(variants) == 1:
-        return "not-loaded", variants[0]
+                and str(item.get("quantization", "")).casefold() == quant.casefold()]
+    loaded = [item for item in variants if item.get("state") == "loaded"]
+    candidates = loaded or [item for item in variants if item.get("state") == "not-loaded"]
+    if len(candidates) == 1:
+        return ("loaded" if loaded else "not-loaded"), candidates[0]
     return "missing", {}
 
 
@@ -173,7 +175,8 @@ def ensure_local_model_loaded() -> str:
         state, item = _lmstudio_model(origin, cfg.model)
     issue = _context_issue(item, ctx)
     if issue == "small-context":
-        _reload_with_context(cfg.model, item.get("loaded_context_length"), ctx)
+        # The loaded instance's own identifier, which may lack the configured "@quant".
+        _reload_with_context(item.get("id") or cfg.model, item.get("loaded_context_length"), ctx)
     # An unsupported size keeps LM Studio's default rather than failing the load.
     load_args = ("--context-length", str(ctx)) if ctx > 0 and issue != "context-unsupported" else ()
     if state == "not-loaded":
