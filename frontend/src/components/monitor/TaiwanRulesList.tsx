@@ -28,6 +28,7 @@ const RULE_TYPE_LABELS: Record<TaiwanRuleType, { label: string; unit: string }> 
   change_pct_below: { label: '跌幅低於', unit: '%' },
   volume_above: { label: '成交量高於', unit: '股' },
   volume_spike: { label: '成交量異常放大', unit: '倍' },
+  projected_volume_ratio: { label: '預估量達昨量', unit: '倍' },
   near_upper_limit: { label: '接近漲停', unit: '%' },
   near_lower_limit: { label: '接近跌停', unit: '%' },
   quant_top10_enter: { label: '進入 Quant Top 10', unit: '' },

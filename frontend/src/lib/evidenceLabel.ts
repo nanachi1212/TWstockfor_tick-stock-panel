@@ -45,7 +45,7 @@ const SEGMENTS: Record<string, string> = {
   return_20d: '近20日報酬', return_5d: '近5日報酬', above_ma20: '站上20日均線', distance_to_ma20: '距20日均線',
   rsi14: 'RSI(14)', vol_ratio_5d: '近5日量比', not_applicable_signals: '不適用訊號', price_move: '價格異動',
   relative_strength_outlier: '相對強弱異常', signal_count: '訊號數', turnover_spike: '成交值暴增',
-  volume_spike: '成交量暴增',
+  volume_spike: '成交量暴增', projected_volume_ratio: '預估量倍昨量',
 }
 
 export function evidenceLabel(key: string): string {

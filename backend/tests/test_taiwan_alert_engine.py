@@ -304,6 +304,39 @@ class TestVolumeRules:
         assert alert.trigger_value == 2.4
 
 
+def test_projected_volume_ratio_scales_volume_to_full_session(engine, monkeypatch):
+    rule = TaiwanMonitorRule(
+        rule_id="r_proj", name="預估量 2 倍昨量",
+        symbol="2330.TWSE", rule_type=TaiwanRuleType.PROJECTED_VOLUME_RATIO, threshold=2.0,
+    )
+    engine.validate_rule(rule)
+    with pytest.raises(ValueError):
+        engine.validate_rule(TaiwanMonitorRule(
+            rule_id="r_bad", name="x", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.PROJECTED_VOLUME_RATIO, threshold=25.0))
+    monkeypatch.setattr(engine, "_previous_session_volume", lambda *_: 10_000_000.0)
+    quote = make_quote(volume=6_000_000)
+
+    # 10:30 is 90 of 270 minutes: 6M -> 18M projected = 1.8x yesterday.
+    quote.quote_time = datetime(2026, 11, 13, 10, 30, tzinfo=TAIPEI_TZ)
+    assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.NOT_TRIGGERED
+
+    # 09:54 is 54 minutes: 6M -> 30M = 3.0x.
+    quote.quote_time = datetime(2026, 11, 13, 9, 54, tzinfo=TAIPEI_TZ)
+    alert, status, _ = engine.evaluate_single_rule(rule, quote)
+    assert status == EvaluationStatus.TRIGGERED
+    assert alert.trigger_value == 3.0 and "3.0 倍" in alert.message
+
+    # The first 15 minutes are not projected.
+    quote.quote_time = datetime(2026, 11, 13, 9, 10, tzinfo=TAIPEI_TZ)
+    assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.NOT_APPLICABLE
+
+    # No stored previous-session volume fails closed instead of guessing.
+    monkeypatch.setattr(engine, "_previous_session_volume", lambda *_: None)
+    quote.quote_time = datetime(2026, 11, 13, 11, 0, tzinfo=TAIPEI_TZ)
+    assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.SKIPPED_MISSING_FIELD
+
+
 class TestDataQualityAndMarketStatusGates:
     """Verify strict rejection when data quality or market session is compromised."""
 

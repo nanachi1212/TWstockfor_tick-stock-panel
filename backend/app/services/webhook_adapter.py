@@ -179,7 +179,7 @@ def _threshold_line(event: dict, kind: str) -> str | None:
     units = {
         "price_above": "元", "price_below": "元",
         "change_pct_above": "%", "change_pct_below": "%",
-        "volume_above": _volume_unit(event), "volume_spike": "倍",
+        "volume_above": _volume_unit(event), "volume_spike": "倍", "projected_volume_ratio": "倍",
         "near_upper_limit": "%", "near_lower_limit": "%",
     }
     unit = units.get(event_type)

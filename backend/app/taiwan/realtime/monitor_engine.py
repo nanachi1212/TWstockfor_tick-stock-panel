@@ -19,10 +19,11 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.market_time import trading_minutes_elapsed_from_dt, trading_minutes_per_session
 from app.taiwan.realtime.calendar import MarketStatus, taipei_now
 from app.taiwan.realtime.models import RealtimeStatus, TaiwanRealtimeQuote
 from app.taiwan.realtime.monitor_models import (
@@ -39,6 +40,8 @@ from app.taiwan.universe.models import MarketProfileBridge, TaiwanInstrument
 logger = logging.getLogger(__name__)
 
 # Auto Watch rule name -> the live_plan_status() value that fires it.
+# The first minutes' volume is too front-loaded to project a whole session from.
+_PROJECTION_MIN_ELAPSED_MINUTES = 15.0
 _PLAN_ROLE_STATUS = {"進入承接區": "in_zone", "突破": "breakout", "跌破失效位": "below_stop"}
 
 if TYPE_CHECKING:
@@ -114,6 +117,8 @@ class TaiwanMonitorEngine:
         self._rules_lock = threading.RLock()
         # (as-of minute, latest completed session ISO date): one lookup per minute, not per rule.
         self._session_cache: tuple[tuple, str] | None = None
+        # (symbol, session ISO date) -> that session's volume in shares; found values only.
+        self._session_volume_cache: dict[tuple[str, str], float] = {}
 
         # Deduplication & Cooldown runtime states
         # dedup_key -> is_currently_triggered (bool)
@@ -271,6 +276,26 @@ class TaiwanMonitorEngine:
         value = resolve_target_latest_trading_date(as_of_dt=now_dt).isoformat()
         self._session_cache = (key, value)
         return value
+
+    def _previous_session_volume(self, symbol: str, now_dt: datetime) -> float | None:
+        """Volume (shares) of the last completed session before today; None when not stored."""
+        session = self._latest_session_iso(now_dt)
+        if session >= now_dt.date().isoformat():
+            return None
+        key = (symbol, session)
+        if key in self._session_volume_cache:
+            return self._session_volume_cache[key]
+        from app.taiwan.daily_store import TaiwanDailyStore
+
+        day = date.fromisoformat(session)
+        rows = TaiwanDailyStore().read_range([symbol], day, day)
+        volume = rows["volume"][0] if not rows.is_empty() else None
+        if volume is None or not math.isfinite(volume) or volume <= 0:
+            return None
+        if len(self._session_volume_cache) > 2000:
+            self._session_volume_cache.clear()
+        self._session_volume_cache[key] = float(volume)
+        return float(volume)
 
     def get_rule(self, rule_id: str) -> TaiwanMonitorRule | None:
         with self._rules_lock:
@@ -522,6 +547,9 @@ class TaiwanMonitorEngine:
                 raise ValueError(f"volume_spike threshold multiple must be positive (got {rule.threshold})")
             if rule.reference_volume is None or rule.reference_volume <= 0:
                 raise ValueError("volume_spike requires a strictly positive reference_volume in shares")
+        elif rtype == TaiwanRuleType.PROJECTED_VOLUME_RATIO:
+            if not 1 <= rule.threshold <= 20:
+                raise ValueError(f"projected_volume_ratio multiple must be between 1 and 20 (got {rule.threshold})")
         elif rtype in (TaiwanRuleType.NEAR_UPPER_LIMIT, TaiwanRuleType.NEAR_LOWER_LIMIT):
             if rule.threshold <= 0 or rule.threshold > 100:
                 raise ValueError(f"{rtype.value} distance_pct threshold must be between 0 and 100% (got {rule.threshold})")
@@ -749,6 +777,20 @@ class TaiwanMonitorEngine:
             trigger_value = multiple
             is_condition_met = trigger_value >= rule.threshold
 
+        elif rtype == TaiwanRuleType.PROJECTED_VOLUME_RATIO:
+            field_name = "projected_volume_ratio"
+            if quote.volume is None or quote.quote_time is None:
+                return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "volume or quote_time missing"
+            elapsed = trading_minutes_elapsed_from_dt(quote.quote_time)
+            if elapsed < _PROJECTION_MIN_ELAPSED_MINUTES:
+                return None, EvaluationStatus.NOT_APPLICABLE, "Too early in the session to project volume"
+            previous = self._previous_session_volume(rule.symbol, now_dt)
+            if previous is None:
+                return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "Previous session volume unavailable"
+            # Linear projection: today's volume so far scaled to the whole session.
+            trigger_value = round(quote.volume * trading_minutes_per_session() / elapsed / previous, 2)
+            is_condition_met = trigger_value >= rule.threshold
+
         elif rtype in (TaiwanRuleType.NEAR_UPPER_LIMIT, TaiwanRuleType.NEAR_LOWER_LIMIT):
             field_name = "distance_to_limit_pct"
             if inst is None or quote.last_price is None or quote.prev_close is None:
@@ -921,6 +963,8 @@ class TaiwanMonitorEngine:
             return f"{name} ({rule.symbol}) 累積成交量 {int(value):,} 股 已達設定量能門檻 {int(rule.threshold):,} 股"
         elif rtype == TaiwanRuleType.VOLUME_SPIKE:
             return f"{name} ({rule.symbol}) 目前量能為基準量能之 {value:.1f} 倍 (設定: {rule.threshold:.1f} 倍)"
+        elif rtype == TaiwanRuleType.PROJECTED_VOLUME_RATIO:
+            return f"{name} ({rule.symbol}) 預估全日量為昨量之 {value:.1f} 倍 (設定: {rule.threshold:.1f} 倍)"
         elif rtype == TaiwanRuleType.NEAR_UPPER_LIMIT:
             return f"{name} ({rule.symbol}) 現價 {quote.last_price:.2f} 距漲停價僅 {value:.1f}% (設定 ≤ {rule.threshold:.1f}%)"
         elif rtype == TaiwanRuleType.NEAR_LOWER_LIMIT:

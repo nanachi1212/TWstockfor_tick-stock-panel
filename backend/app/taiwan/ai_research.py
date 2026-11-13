@@ -330,6 +330,8 @@ def _alert_value_units(rule_type: str) -> str | None:
         return "trigger_value、threshold 為成交股數（股），不是百分比"
     if rule_type == "volume_spike":
         return "trigger_value、threshold 為相對參考成交量的倍數，不是百分比"
+    if rule_type == "projected_volume_ratio":
+        return "trigger_value、threshold 為預估全日量相對前一交易日成交量的倍數，不是百分比"
     return None
 
 
