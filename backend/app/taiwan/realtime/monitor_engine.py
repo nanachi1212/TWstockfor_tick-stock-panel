@@ -788,8 +788,10 @@ class TaiwanMonitorEngine:
             if previous is None:
                 return None, EvaluationStatus.SKIPPED_MISSING_FIELD, "Previous session volume unavailable"
             # Linear projection: today's volume so far scaled to the whole session.
-            trigger_value = round(quote.volume * trading_minutes_per_session() / elapsed / previous, 2)
-            is_condition_met = trigger_value >= rule.threshold
+            ratio = quote.volume * trading_minutes_per_session() / elapsed / previous
+            # Compare the exact ratio; rounding first would fire 1.998x on a 2x threshold.
+            is_condition_met = ratio >= rule.threshold
+            trigger_value = round(ratio, 2)
 
         elif rtype in (TaiwanRuleType.NEAR_UPPER_LIMIT, TaiwanRuleType.NEAR_LOWER_LIMIT):
             field_name = "distance_to_limit_pct"

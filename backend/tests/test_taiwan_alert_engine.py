@@ -321,8 +321,13 @@ def test_projected_volume_ratio_scales_volume_to_full_session(engine, monkeypatc
     quote.quote_time = datetime(2026, 11, 13, 10, 30, tzinfo=TAIPEI_TZ)
     assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.NOT_TRIGGERED
 
-    # 09:54 is 54 minutes: 6M -> 30M = 3.0x.
+    # 09:54 is 54 minutes (x5): 3.996M -> 1.998x must not round up to the 2x threshold.
     quote.quote_time = datetime(2026, 11, 13, 9, 54, tzinfo=TAIPEI_TZ)
+    quote.volume = 3_996_000
+    assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.NOT_TRIGGERED
+
+    # 6M -> 30M = 3.0x.
+    quote.volume = 6_000_000
     alert, status, _ = engine.evaluate_single_rule(rule, quote)
     assert status == EvaluationStatus.TRIGGERED
     assert alert.trigger_value == 3.0 and "3.0 倍" in alert.message
