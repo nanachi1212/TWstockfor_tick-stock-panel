@@ -61,6 +61,14 @@ def vcp_scan(target_date: Annotated[date | None, Query(alias="date")] = None) ->
     return TaiwanVcpScanService().snapshot(target_date)
 
 
+@router.get("/options-flows")
+def options_flows(target_date: Annotated[date | None, Query(alias="date")] = None) -> dict:
+    """TXO open interest by strike (stored TAIFEX days) and foreign futures/options positions."""
+    from app.taiwan.options_flows import options_flows_snapshot
+
+    return options_flows_snapshot(target_date)
+
+
 @router.get("/chip-ranking")
 def chip_ranking(target_date: Annotated[str | None, Query(alias="date")] = None) -> dict:
     """Latest stored session only; see chip_ranking module docstring."""

@@ -74,6 +74,7 @@ export const MARKET_RESEARCH_TABS = [
   { id: 'valuation', label: '估值', enabled: true },
   { id: 'chips', label: '籌碼排行', enabled: true },
   { id: 'big-holders', label: '大戶集中度', enabled: true },
+  { id: 'options', label: '期權籌碼', enabled: true },
   { id: 'patterns', label: '型態選股', enabled: true },
 ] as const
 
@@ -422,4 +423,26 @@ export function rotationPoints(rows: IndustryRotationRow[]) {
     && r.turnover_share_delta_pp.status === 'available'
     && r.relative_strength_20d.value !== null && r.turnover_share_delta_pp.value !== null)
     .map(r => ({ name: r.industry, value: [r.relative_strength_20d.value! * 100, r.turnover_share_delta_pp.value!] }))
+}
+
+/** TXO open interest (contracts) by strike from stored TAIFEX days; a change is null when not comparable, never 0. */
+export interface OptionsStrikeRow { strike: number; call: number | null; put: number | null; call_change: number | null; put_change: number | null }
+export interface OptionsContract { contract: string; strikes: OptionsStrikeRow[]; call_peak: number | null; put_peak: number | null; total_oi: number }
+export interface ForeignPositions {
+  futures: { date: string; long_oi: number; short_oi: number; net_oi: number; net_oi_change: number | null } | null
+  futures_status: string
+  futures_message: string | null
+  options: { date: string; call_net_oi: number; put_net_oi: number } | null
+  options_status: string
+  options_message: string | null
+}
+export interface OptionsFlowsSnapshot {
+  date: string | null
+  status: 'available' | 'unavailable'
+  source: string
+  message: string | null
+  previous_date: string | null
+  contracts: OptionsContract[]
+  default_contract: string | null
+  foreign: ForeignPositions | null
 }
