@@ -106,6 +106,20 @@ def test_downloaded_quantized_model_matches_before_first_load():
         assert ai_health._lmstudio_model("http://127.0.0.1:1234", "research-model@q8_0") == ("missing", {})
 
 
+def test_quantized_model_loaded_without_suffix_reloads_with_configured_context():
+    item = {"id": "research-model", "state": "loaded", "quantization": "Q4_K_M",
+            "loaded_context_length": 16384, "max_context_length": 262144}
+    response = httpx.Response(200, json={"data": [item]}, request=httpx.Request("GET", "http://x"))
+    with patch.object(httpx.Client, "get", return_value=response):
+        assert ai_health._lmstudio_model("http://127.0.0.1:1234", "research-model@q4_k_m") == ("loaded", item)
+        assert ai_health._lmstudio_state("http://127.0.0.1:1234", "research-model@q4_k_m", 50000) == "small-context"
+
+    cfg = _cfg("http://127.0.0.1:1234/v1", "research-model@q4_k_m", 50000)
+    _, calls = _autoload(cfg, item, lms_entry=LMS_ENTRY)
+    assert calls[0] == ("unload", "research-model")
+    assert calls[1][-2:] == ("--context-length", "50000")
+
+
 def test_quantized_autoload_uses_exact_downloaded_file_and_preserves_identifier():
     cfg = _cfg("http://127.0.0.1:1234/v1", "research-model@q4_k_m", 50000)
     item = {"id": "research-model", "state": "not-loaded", "quantization": "Q4_K_M"}
