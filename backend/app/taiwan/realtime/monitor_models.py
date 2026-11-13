@@ -29,6 +29,7 @@ class TaiwanRuleType(str, Enum):
     CHANGE_PCT_BELOW = "change_pct_below"
     VOLUME_ABOVE = "volume_above"
     VOLUME_SPIKE = "volume_spike"
+    PROJECTED_VOLUME_RATIO = "projected_volume_ratio"
     NEAR_UPPER_LIMIT = "near_upper_limit"
     NEAR_LOWER_LIMIT = "near_lower_limit"
     QUANT_TOP10_ENTER = "quant_top10_enter"

@@ -302,6 +302,7 @@ export type TaiwanRuleType =
   | 'change_pct_below'
   | 'volume_above'
   | 'volume_spike'
+  | 'projected_volume_ratio'
   | 'near_upper_limit'
   | 'near_lower_limit'
   | 'quant_top10_enter'

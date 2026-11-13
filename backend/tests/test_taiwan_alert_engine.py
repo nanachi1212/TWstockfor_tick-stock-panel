@@ -304,6 +304,73 @@ class TestVolumeRules:
         assert alert.trigger_value == 2.4
 
 
+def test_projected_volume_ratio_scales_volume_to_full_session(engine, monkeypatch):
+    rule = TaiwanMonitorRule(
+        rule_id="r_proj", name="預估量 2 倍昨量",
+        symbol="2330.TWSE", rule_type=TaiwanRuleType.PROJECTED_VOLUME_RATIO, threshold=2.0,
+    )
+    engine.validate_rule(rule)
+    with pytest.raises(ValueError):
+        engine.validate_rule(TaiwanMonitorRule(
+            rule_id="r_bad", name="x", symbol="2330.TWSE",
+            rule_type=TaiwanRuleType.PROJECTED_VOLUME_RATIO, threshold=25.0))
+    monkeypatch.setattr(engine, "_previous_session_volumes", lambda *_: {"2330.TWSE": 10_000_000.0})
+    quote = make_quote(volume=6_000_000)
+
+    # 10:30 is 90 of 270 minutes: 6M -> 18M projected = 1.8x yesterday.
+    quote.quote_time = datetime(2026, 11, 13, 10, 30, tzinfo=TAIPEI_TZ)
+    assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.NOT_TRIGGERED
+
+    # 09:54 is 54 minutes (x5): 3.996M -> 1.998x must not round up to the 2x threshold.
+    quote.quote_time = datetime(2026, 11, 13, 9, 54, tzinfo=TAIPEI_TZ)
+    quote.volume = 3_996_000
+    assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.NOT_TRIGGERED
+
+    # 6M -> 30M = 3.0x.
+    quote.volume = 6_000_000
+    alert, status, _ = engine.evaluate_single_rule(rule, quote)
+    assert status == EvaluationStatus.TRIGGERED
+    assert alert.trigger_value == 3.0 and "3.0 倍" in alert.message
+
+    # The first 15 minutes are not projected.
+    quote.quote_time = datetime(2026, 11, 13, 9, 10, tzinfo=TAIPEI_TZ)
+    assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.NOT_APPLICABLE
+
+    # No stored previous-session volume fails closed instead of guessing.
+    monkeypatch.setattr(engine, "_previous_session_volumes", lambda *_: {"2330.TWSE": None})
+    quote.quote_time = datetime(2026, 11, 13, 11, 0, tzinfo=TAIPEI_TZ)
+    assert engine.evaluate_single_rule(rule, quote)[1] == EvaluationStatus.SKIPPED_MISSING_FIELD
+
+
+def test_previous_session_volume_is_read_outside_locks_and_misses_are_not_reread(engine, monkeypatch):
+    import polars as pl
+
+    from app.taiwan.daily_store import TaiwanDailyStore
+
+    reads: list[list[str]] = []
+
+    def fake_read_range(_self, symbols, start, end):
+        assert not engine._rules_lock._is_owned() and not engine._state_lock._is_owned()
+        reads.append(sorted(symbols))
+        return pl.DataFrame({"symbol": ["2330.TWSE"], "volume": [10_000_000.0]})
+
+    clock = [1000.0]
+    monkeypatch.setattr(TaiwanDailyStore, "read_range", fake_read_range)
+    monkeypatch.setattr(engine, "_latest_session_iso", lambda _now: "2000-01-03")
+    monkeypatch.setattr("app.taiwan.realtime.monitor_engine.time.monotonic", lambda: clock[0])
+    for rule_id, symbol in (("r_a", "2330.TWSE"), ("r_b", "8069.TPEX")):
+        engine.add_rule(TaiwanMonitorRule(rule_id=rule_id, name=rule_id, symbol=symbol,
+                                          rule_type=TaiwanRuleType.PROJECTED_VOLUME_RATIO, threshold=2.0))
+
+    engine.evaluate_all(force_quotes={}, now_mono=clock[0])
+    engine.evaluate_all(force_quotes={}, now_mono=clock[0])
+    assert reads == [["2330.TWSE", "8069.TPEX"]]  # one batched read; 8069's miss is cached
+
+    clock[0] += 301.0
+    engine.evaluate_all(force_quotes={}, now_mono=clock[0])
+    assert reads[-1] == ["8069.TPEX"]  # only the miss is retried after the window
+
+
 class TestDataQualityAndMarketStatusGates:
     """Verify strict rejection when data quality or market session is compromised."""
 

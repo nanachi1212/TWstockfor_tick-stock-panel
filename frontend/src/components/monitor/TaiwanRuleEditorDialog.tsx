@@ -36,6 +36,7 @@ const RULE_TYPE_OPTIONS: { key: TaiwanRuleType; label: string; unit: string; des
   { key: 'quant_top10_exit', label: '離開 Quant Top 10', unit: '', desc: '通過稽核的今日 Live Quant 排名離開前十名時觸發' },
   { key: 'volume_above', label: '成交量高於', unit: '股 (可切換張)', desc: '累積成交量超越門檻時觸發 (後端以股為規範單位)' },
   { key: 'volume_spike', label: '成交量異常放大', unit: '倍數', desc: '目前量能超越基準參考成交量之倍數時觸發' },
+  { key: 'projected_volume_ratio', label: '預估量達昨量', unit: '倍', desc: '依目前成交量推估全日量，達昨量的倍數時觸發 (開盤 15 分鐘後判斷)' },
   { key: 'near_upper_limit', label: '接近漲停', unit: '%', desc: '距官方漲停價距離百分比 ≤ 門檻時觸發 (無限制商品不適用)' },
   { key: 'near_lower_limit', label: '接近跌停', unit: '%', desc: '距官方跌停價距離百分比 ≤ 門檻時觸發 (無限制商品不適用)' },
 ]
@@ -312,7 +313,10 @@ export function TaiwanRuleEditorDialog({
                     key={opt.key}
                     type="button"
                     disabled={optDisabled}
-                    onClick={() => setRuleType(opt.key)}
+                    onClick={() => {
+                      setRuleType(opt.key)
+                      if (opt.key === 'projected_volume_ratio') setThreshold(2)
+                    }}
                     className={cn(
                       'flex flex-col items-start p-2 rounded-xl border text-left transition-all',
                       isSelected
@@ -387,6 +391,10 @@ export function TaiwanRuleEditorDialog({
               <p className="mt-1 text-xs text-warning">自動監控價位由承接雷達計算，不可手動修改</p>
             )}
           </div>}
+
+          {ruleType === 'projected_volume_ratio' && (
+            <p className="text-xs text-muted -mt-2">可設 1–20 倍。預估全日量 = 目前成交量 × 全日交易分鐘 ÷ 已交易分鐘，昨量取前一交易日日 K。</p>
+          )}
 
           {/* 爆量專用: 基準參考成交量 */}
           {ruleType === 'volume_spike' && (
