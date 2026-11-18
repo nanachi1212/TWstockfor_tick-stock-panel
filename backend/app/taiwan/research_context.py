@@ -811,7 +811,8 @@ class TaiwanStockResearchContextService:
 
             if fsh_cached and fsh_cached.get("data"):
                 foreign = TaiwanFundamentalChipsService._process_shareholding(
-                    fsh_cached["data"], fsh_cached.get("data_date"), fsh_cached.get("fetched_at") or "", as_of=target,
+                    fsh_cached["data"], fsh_cached.get("data_date"), fsh_cached.get("fetched_at") or "",
+                    as_of=target, trading_dates=available_dates,
                 )
                 if foreign.ratio is not None:
                     fsh_ratio = foreign.ratio

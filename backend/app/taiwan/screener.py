@@ -1294,7 +1294,7 @@ class TaiwanScreenerService:
             if cached and cached.get("data") and _chip_date_current(cached, chips_floor):
                 chips_symbols.add(sym)
                 sh_data = fc_svc._process_shareholding(
-                    cached["data"], cached.get("data_date"), cached.get("fetched_at", "")
+                    cached["data"], cached.get("data_date"), cached.get("fetched_at", ""), trading_dates=sessions,
                 )
                 share_ratio_map[sym] = sh_data.ratio
                 share_chg20_map[sym] = sh_data.change_20d

@@ -446,6 +446,85 @@ def test_research_financial_zero_metrics_are_preserved(monkeypatch):
     assert (fund.operating_revenue, fund.net_income, fund.status) == (0, 0, "available")
 
 
+@pytest.mark.parametrize("research_first", [False, True])
+@pytest.mark.parametrize(("shares", "expected"), [("--", None), ("1,200", 1200), (0, 0), (1.5, None)])
+def test_shareholding_optional_quantity_agrees_across_entries(tmp_path, research_first, shares, expected):
+    from app.taiwan.finmind_cache import FinMindCache
+    from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+
+    target = date(2026, 8, 28)
+    symbol = "TEST.TWSE"
+    cache = FinMindCache(tmp_path)
+    cache.set("TaiwanStockShareholding", symbol,
+              [{"date": target.isoformat(), "ForeignInvestmentSharesRatio": 0, "ForeignInvestmentShares": shares}],
+              query_start="2025-01-01")
+    detail = TaiwanFundamentalChipsService(cache=cache)
+    research = _research_service(_weekdays(target, 25), {})
+    research.finmind_cache = cache
+
+    def check_detail():
+        data = detail.get_foreign_shareholding(symbol, target)
+        assert (data.meta.status, data.meta.trade_date, data.ratio, data.shares) == (
+            "available", target.isoformat(), 0, expected,
+        )
+
+    def check_research():
+        data = research.get_research_context(symbol, target).ownership_context
+        assert (data.status, data.foreign_shareholding_ratio) == ("available", 0)
+
+    for check in ((check_research, check_detail) if research_first else (check_detail, check_research)):
+        check()
+
+
+@pytest.mark.parametrize("ratio", ["--", "NaN"])
+def test_missing_ratio_is_unavailable_in_both_entries(tmp_path, ratio):
+    from app.taiwan.finmind_cache import FinMindCache
+    from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+
+    target = date(2026, 8, 28)
+    symbol = "TEST.TWSE"
+    cache = FinMindCache(tmp_path)
+    cache.set("TaiwanStockShareholding", symbol, [{"date": target.isoformat(), "ForeignInvestmentSharesRatio": ratio}],
+              query_start="2025-01-01")
+    detail = TaiwanFundamentalChipsService(cache=cache).get_foreign_shareholding(symbol, target)
+    research = _research_service(_weekdays(target, 25), {})
+    research.finmind_cache = cache
+    own = research.get_research_context(symbol, target).ownership_context
+    assert (detail.meta.status, detail.ratio, own.status, own.foreign_shareholding_ratio) == (
+        "unavailable", None, "unavailable", None,
+    )
+
+
+@pytest.mark.parametrize("gap", [3, 5, 20])
+def test_shareholding_changes_use_exact_sessions_across_entries(tmp_path, monkeypatch, gap):
+    from app.taiwan.finmind_cache import FinMindCache
+    from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+
+    target = date(2026, 8, 28)
+    sessions = _weekdays(target, 25)
+    symbol = "TEST.TWSE"
+    rows = [{"date": day.isoformat(), "ForeignInvestmentSharesRatio": i}
+            for i, day in enumerate(sessions) if day != sessions[-gap - 1]]
+    cache = FinMindCache(tmp_path)
+    cache.set("TaiwanStockShareholding", symbol, rows, data_date=target.isoformat(), query_start="2025-01-01")
+    monkeypatch.setattr("app.taiwan.fundamental_chips_service._market_dates", lambda: sessions)
+    detail = TaiwanFundamentalChipsService(cache=cache).get_foreign_shareholding(symbol, target)
+    research = _research_service(sessions, {})
+    research.finmind_cache = cache
+    own = research.get_research_context(symbol, target).ownership_context
+    from app.taiwan.screener import TaiwanScreenerService
+
+    screener = TaiwanScreenerService.__new__(TaiwanScreenerService)
+    screener.cache = cache
+    screener._fundamental_chips_service = TaiwanFundamentalChipsService(cache=cache)
+    screener.daily_store = research.daily_store
+    screen, _, _ = screener._join_cached_fundamentals_chips(pl.DataFrame({"symbol": [symbol]}), [symbol])
+    expected = (None if gap == 5 else 5, None if gap == 20 else 20)
+    assert screen["foreign_shareholding_change_20d"].to_list() == [expected[1]]
+    assert (detail.change_5d, detail.change_20d) == expected
+    assert (own.foreign_shareholding_change_5d, own.foreign_shareholding_change_20d) == expected
+
+
 def test_research_and_detail_agree_on_wide_cached_history(tmp_path, monkeypatch):
     from app.taiwan.finmind_cache import FinMindCache
     from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService

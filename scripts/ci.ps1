@@ -111,9 +111,10 @@ function Test-AnyPath {
 function Get-CrossEntryTests {
     param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths)
 
-    if (Test-AnyPath $Paths '^backend/app/taiwan/(finmind_cache|fundamental_chips_service|fundamentals|pit_cutoff|research_context|market_valuation)\.py$') {
+    if (Test-AnyPath $Paths '^backend/app/taiwan/(finmind_cache|fundamental_chips_service|fundamentals|pit_cutoff|research_context|research_metrics|market_valuation|screener)\.py$') {
         'backend/tests/test_taiwan_fundamental_chips_service.py'
         'backend/tests/test_taiwan_ai_wave2.py'
+        'backend/tests/test_screener_chip_freshness.py'
         'backend/tests/test_taiwan_finmind_findings_regression.py'
         'backend/tests/test_market_breadth_valuation.py'
     }

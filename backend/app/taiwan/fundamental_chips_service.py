@@ -31,6 +31,7 @@ from app.taiwan.detail_models import (
 )
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.fundamentals import TaiwanFundamentalStore, TaiwanOfficialFundamentals
+from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.pit_cutoff import (
     filter_daily_records_as_of,
     filter_financial_statements_as_of,
@@ -38,7 +39,9 @@ from app.taiwan.pit_cutoff import (
     resolve_as_of_date,
 )
 from app.taiwan.providers.finmind_provider import FinMindAdapter, FinMindError
-from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
+from app.taiwan.providers.taiwan_values import TAIPEI, parse_integer, parse_number
+from app.taiwan.realtime.calendar import TaiwanTradingCalendar
+from app.taiwan.research_metrics import research_sessions
 from app.taiwan.symbol import parse_symbol
 
 logger = logging.getLogger(__name__)
@@ -573,6 +576,7 @@ class TaiwanFundamentalChipsService:
         data_date: str | None,
         fetched_at: str,
         as_of: date | str | None = None,
+        trading_dates: Sequence[date] | None = None,
     ) -> TaiwanForeignShareholdingData:
         # Enforce point-in-time cutoff
         rows = filter_daily_records_as_of(rows, as_of)
@@ -584,27 +588,43 @@ class TaiwanFundamentalChipsService:
                                  status="unavailable", fallback_reason="no shareholding rows available as of cutoff")
             )
 
-        sorted_rows = sorted(
-            [r for r in rows if r.get("date") and r.get("ForeignInvestmentSharesRatio") is not None],
-            key=lambda x: str(x.get("date")),
-        )
-        if not sorted_rows:
+        ratios: dict[date, float] = {}
+        latest_day = None
+        latest = None
+        for row in rows:
+            day = resolve_as_of_date(row.get("date"))
+            try:
+                ratio = parse_number(row.get("ForeignInvestmentSharesRatio"))
+            except ValueError:
+                continue
+            if day is None or ratio is None or not math.isfinite(ratio):
+                continue
+            ratios[day] = ratio
+            if latest_day is None or day >= latest_day:
+                latest_day, latest = day, row
+        if latest is None or latest_day is None:
             return TaiwanForeignShareholdingData(
                 meta=SectionMeta(source="finmind:TaiwanStockShareholding", trade_date=data_date, fetched_at=fetched_at,
                                  status="unavailable", fallback_reason="shareholding rows contain no usable foreign ratio")
             )
 
-        latest = sorted_rows[-1]
-        cur_ratio = float(latest["ForeignInvestmentSharesRatio"])
-        shares = int(latest["ForeignInvestmentShares"]) if latest.get("ForeignInvestmentShares") is not None else None
+        cur_ratio = ratios[latest_day]
+        try:
+            shares = parse_integer(latest.get("ForeignInvestmentShares"))
+        except ValueError:
+            shares = None
 
-        # 5D / 20D ago: only when the history really spans that many rows (no shorter-window substitute)
-        chg_5d = None
-        if len(sorted_rows) >= 6:
-            chg_5d = round(cur_ratio - float(sorted_rows[-6]["ForeignInvestmentSharesRatio"]), 2)
-        chg_20d = None
-        if len(sorted_rows) >= 21:
-            chg_20d = round(cur_ratio - float(sorted_rows[-21]["ForeignInvestmentSharesRatio"]), 2)
+        chg_5d = chg_20d = None
+        if len(ratios) > 1:
+            market_days = _market_dates() if trading_dates is None else trading_dates
+            sessions = research_sessions(latest_day, 21, set(market_days).union(ratios),
+                                         TaiwanTradingCalendar(), ObservedUniverseStore())
+
+            def change(period: int) -> float | None:
+                reference = ratios.get(sessions[-period - 1]) if len(sessions) > period else None
+                return round(cur_ratio - reference, 2) if reference is not None else None
+
+            chg_5d, chg_20d = change(5), change(20)
 
         # Trend direction
         if chg_20d is None:
