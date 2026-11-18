@@ -96,6 +96,16 @@ class TaiwanRealtimeService:
             result.append(meta)
         return result
 
+    def _quote_at(self, quote: TaiwanRealtimeQuote, now: datetime, session: MarketStatus) -> TaiwanRealtimeQuote:
+        meta = quote.source_meta
+        if session not in (MarketStatus.OPEN, MarketStatus.SCHEDULED_OPEN_UNVERIFIED) or not quote.quote_time:
+            return quote
+        age = (now - quote.quote_time).total_seconds()
+        if meta.is_stale or age <= self.freshness_policy.get_threshold_for_source(meta.source):
+            return quote
+        status = RealtimeStatus.STALE.value if meta.status == RealtimeStatus.REALTIME.value else meta.status
+        return replace(quote, source_meta=replace(meta, is_stale=True, is_realtime=False, status=status))
+
     def get_quotes(
         self,
         symbols: list[TaiwanSymbol | str],
@@ -119,7 +129,7 @@ class TaiwanRealtimeService:
             now_tpe, require_verified_trading_day=True,
         )
         parsed_symbols = [s if isinstance(s, TaiwanSymbol) else parse_symbol(s) for s in symbols]
-        results: dict[str, TaiwanRealtimeQuote] = {}
+        cache_hits: dict[str, TaiwanRealtimeQuote] = {}
         to_fetch: list[TaiwanSymbol] = []
 
         # 1. Check in-memory cache (scoped by market session to prevent cross-session leakage)
@@ -130,16 +140,16 @@ class TaiwanRealtimeService:
                 if not force_refresh and cache_key in self._cache:
                     expiry, cached_quote = self._cache[cache_key]
                     if now_mono < expiry:
-                        results[canonical] = cached_quote
+                        cache_hits[canonical] = cached_quote
                         self.cache_hits += 1
                         continue
                 self.cache_misses += 1
                 to_fetch.append(ts)
 
         if not to_fetch:
-            return results
+            return {sym: self._quote_at(q, now_tpe, cur_market_status) for sym, q in cache_hits.items()}
 
-
+        results: dict[str, TaiwanRealtimeQuote] = {}
         # 2. Primary Provider: TWSE MIS
         self.provider_requests += 1
         fetched_quotes: dict[str, TaiwanRealtimeQuote] = {}
@@ -240,27 +250,13 @@ class TaiwanRealtimeService:
                 except Exception as e:
                     logger.debug("Daily fallback failed for %s: %s", ts.canonical, e)
 
-        # 6. Apply Freshness / Stale Policy & populate Cache
+        delivered_at = taipei_now()
+        quotes = {sym: self._quote_at(q, delivered_at, cur_market_status) for sym, q in (cache_hits | results).items()}
         with self._lock:
-            for sym, q in results.items():
-                threshold = self.freshness_policy.get_threshold_for_source(q.source_meta.source)
-                # Stale detection during regular open session
-                if cur_market_status in (MarketStatus.OPEN, MarketStatus.SCHEDULED_OPEN_UNVERIFIED) and q.quote_time:
-                    age_seconds = (now_tpe - q.quote_time).total_seconds()
-                    if age_seconds > threshold:
-                        new_status = (
-                            RealtimeStatus.STALE.value
-                            if q.source_meta.status == RealtimeStatus.REALTIME.value
-                            else q.source_meta.status
-                        )
-                        q.source_meta = replace(q.source_meta, is_stale=True, status=new_status)
-
-                # Update in-memory cache scoped by session
-
-                cache_key = (sym, cur_market_status.value)
-                self._cache[cache_key] = (now_mono + self.cache_ttl_seconds, q)
-
-        return results
+            expiry = time.monotonic() + self.cache_ttl_seconds
+            for sym in results:
+                self._cache[(sym, cur_market_status.value)] = (expiry, quotes[sym])
+        return quotes
 
 
 _default_service: TaiwanRealtimeService | None = None

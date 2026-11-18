@@ -26,7 +26,7 @@ STRICT SAFEGUARDS:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal
 
 import polars as pl
@@ -38,7 +38,11 @@ from app.taiwan.daily_update import (
     resolve_target_latest_trading_date,
 )
 from app.taiwan.finmind_cache import FinMindCache
-from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+from app.taiwan.fundamental_chips_service import (
+    TaiwanFundamentalChipsService,
+    cached_finmind_window,
+    finmind_query_start,
+)
 from app.taiwan.industry_intelligence import (
     TaiwanIndustryIntelligenceService,
 )
@@ -48,11 +52,7 @@ from app.taiwan.market_intelligence import (
     TaiwanMarketIntelligenceService,
 )
 from app.taiwan.market_rules import TickSizeModel
-from app.taiwan.pit_cutoff import (
-    filter_daily_records_as_of,
-    filter_financial_statements_as_of,
-)
-from app.taiwan.providers.taiwan_values import parse_number
+from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.symbol import parse_symbol
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
@@ -728,7 +728,11 @@ class TaiwanStockResearchContextService:
             )
 
             # Offline read from cache with strict Point-in-Time as-of cutoff
-            rev_cached = self.finmind_cache.get("TaiwanStockMonthRevenue", inst.symbol)
+            def read_window(dataset: str):
+                return cached_finmind_window(dataset, self.finmind_cache.get(dataset, inst.symbol),
+                                            finmind_query_start(dataset, target))
+
+            rev_cached = read_window("TaiwanStockMonthRevenue")
             prof_cached = self.finmind_cache.get("TaiwanStockFinancialStatements", inst.symbol)
 
             latest_rev = None
@@ -753,38 +757,23 @@ class TaiwanStockResearchContextService:
             net_income = None
 
             if prof_cached and prof_cached.get("data"):
-                raw_prof = filter_financial_statements_as_of(prof_cached["data"], target_date)
-                by_d = {}
-                for r in raw_prof:
-                    d = str(r.get("date") or "").strip()
-                    t = str(r.get("type") or "").strip()
-                    v = parse_number(r.get("value"))
-                    if d and t and v is not None:
-                        if d not in by_d:
-                            by_d[d] = {}
-                        by_d[d][t] = v
-                if by_d:
-                    latest_d = sorted(by_d.keys())[-1]
-                    m = by_d[latest_d]
-                    latest_eps = m.get("EPS")
-                    op_rev = m.get("Revenue") or m.get("OperatingRevenue")
-                    gross_profit = m.get("GrossProfit")
-                    op_income = m.get("OperatingIncome")
-                    net_income = m.get("IncomeAfterTaxes") or m.get("NetIncome")
-                    if not as_of_period:
-                        as_of_period = latest_d
+                financial = TaiwanFundamentalChipsService._process_financial_statements(
+                    prof_cached["data"], prof_cached.get("data_date"), prof_cached.get("fetched_at") or "",
+                    as_of=target_date,
+                )
+                latest_eps = financial.latest_eps
+                op_rev = financial.operating_revenue
+                gross_profit = financial.gross_profit
+                op_income = financial.operating_income
+                net_income = financial.net_income
+                as_of_period = as_of_period or financial.quarter
 
-            # Valuation: the cached official observation (same source as the screener), used only
-            # when its trade date is known and not after the report date.
-            pe = pb = dividend_yield = valuation_as_of = None
-            val_cached = self.finmind_cache.get("TaiwanValuation", inst.symbol)
-            val_date = str((val_cached or {}).get("data_date") or "")[:10]
-            if val_cached and isinstance(val_cached.get("data"), dict) and val_date and val_date <= str(target):
-                pe = parse_number(val_cached["data"].get("pe"))
-                pb = parse_number(val_cached["data"].get("pb"))
-                dividend_yield = parse_number(val_cached["data"].get("dividend_yield"))
-                if any(v is not None for v in (pe, pb, dividend_yield)):
-                    valuation_as_of = val_date
+            valuation = TaiwanFundamentalChipsService.historical_valuation(
+                inst.symbol, inst.exchange, target, self.finmind_cache.get("TaiwanValuation", inst.symbol),
+                observed_by=target_date or datetime.now(TAIPEI).date(),
+            )
+            pe, pb, dividend_yield = valuation.pe, valuation.pb, valuation.dividend_yield
+            valuation_as_of = valuation.meta.trade_date
 
             fund_avail = any(
                 v is not None for v in (latest_rev, rev_yoy, latest_eps, net_income, pe, pb, dividend_yield)
@@ -812,8 +801,8 @@ class TaiwanStockResearchContextService:
             )
 
             # Ownership (Foreign Shareholding & Securities Lending) with PIT cutoff
-            fsh_cached = self.finmind_cache.get("TaiwanStockShareholding", inst.symbol)
-            sl_cached = self.finmind_cache.get("TaiwanStockSecuritiesLending", inst.symbol)
+            fsh_cached = read_window("TaiwanStockShareholding")
+            sl_cached = read_window("TaiwanStockSecuritiesLending")
 
             fsh_ratio = None
             fsh_5d = None
@@ -821,20 +810,14 @@ class TaiwanStockResearchContextService:
             fsh_trend = None
 
             if fsh_cached and fsh_cached.get("data"):
-                fsh_pit_rows = filter_daily_records_as_of(fsh_cached["data"], target)
-                raw_fsh = sorted([r for r in fsh_pit_rows if r.get("date") and r.get("ForeignInvestmentSharesRatio") is not None], key=lambda x: str(x.get("date")))
-                if raw_fsh:
-                    latest_f = raw_fsh[-1]
-                    fsh_ratio = float(latest_f["ForeignInvestmentSharesRatio"])
-                    if len(raw_fsh) >= 6:
-                        f_5 = float(raw_fsh[-6]["ForeignInvestmentSharesRatio"])
-                        fsh_5d = round(fsh_ratio - f_5, 2)
-                    if len(raw_fsh) >= 21:
-                        f_20 = float(raw_fsh[-21]["ForeignInvestmentSharesRatio"])
-                        fsh_20d = round(fsh_ratio - f_20, 2)
-                        fsh_trend = "increasing" if fsh_20d >= 0.5 else ("decreasing" if fsh_20d <= -0.5 else "flat")
-                    else:
-                        fsh_trend = "unavailable"  # fewer than 21 rows: not enough history to call a trend
+                foreign = TaiwanFundamentalChipsService._process_shareholding(
+                    fsh_cached["data"], fsh_cached.get("data_date"), fsh_cached.get("fetched_at") or "", as_of=target,
+                )
+                if foreign.ratio is not None:
+                    fsh_ratio = foreign.ratio
+                    fsh_5d = foreign.change_5d
+                    fsh_20d = foreign.change_20d
+                    fsh_trend = foreign.trend
 
             sl_latest = None
             sl_5d = None

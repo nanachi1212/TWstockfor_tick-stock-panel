@@ -173,6 +173,13 @@ export function buildPortfolioPositions(transactions: readonly PortfolioTransact
   return [...positions.values()]
 }
 
+function validIsoDate(value: string): boolean {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!parts) return false
+  const parsed = new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])))
+  return parsed.toISOString().slice(0, 10) === value
+}
+
 export function createPortfolioTransaction(
   input: PortfolioTransactionInput,
   transactions: readonly PortfolioTransaction[],
@@ -185,9 +192,7 @@ export function createPortfolioTransaction(
   if (!Number.isFinite(fee) || fee < 0) throw new Error('手續費不可小於 0')
   const tax = input.tax ?? 0
   if (!Number.isFinite(tax) || tax < 0) throw new Error('證交稅不可小於 0')
-  const dateParts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input.date)
-  const parsedDate = dateParts ? new Date(Date.UTC(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]))) : null
-  if (!parsedDate || parsedDate.toISOString().slice(0, 10) !== input.date) {
+  if (!validIsoDate(input.date)) {
     throw new Error('請輸入有效成交日期')
   }
   if (input.date > todayTaipei()) throw new Error('成交日期不可晚於今日')
@@ -258,7 +263,10 @@ function parseDelimited(text: string): string[][] {
   return rows
 }
 
-const importNumber = (value: string | undefined) => Number((value ?? '').replace(/[,\s]/g, ''))
+const importNumberFormat = /^[+-]?(?:(?:\d{1,3}(?:[,\s]\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i
+function importNumber(value: string | undefined): number {
+  return value && importNumberFormat.test(value) ? Number(value.replace(/[,\s]/g, '')) : NaN
+}
 
 // 表頭關鍵字 → 欄位；沒有表頭時用預設順序 代號,名稱,股數,均價,總成本,日期。
 const IMPORT_HEADERS = {
@@ -310,6 +318,19 @@ export function parsePortfolioImport(text: string, defaultDate: string): { rows:
     if (!sharesText || /^n\/?a$/i.test(sharesText)) { incomplete = true; return }
     const shares = importNumber(sharesText)
     const price = importNumber(at('price'))
+    const rawDate = at('date') || defaultDate
+    const date = rawDate.replace(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/, (_, y, m, d) =>
+      [y, m.padStart(2, '0'), d.padStart(2, '0')].join('-'))
+    if (!validIsoDate(date)) {
+      errors.push(`第 ${index + 1} 列 ${code}：日期無效`)
+      return
+    }
+    const costText = at('cost') ?? ''
+    const cost = Math.abs(importNumber(costText)) // 券商的投資成本可用負數表示支出
+    if (costText && !Number.isFinite(cost)) {
+      errors.push(`第 ${index + 1} 列 ${code}：總成本不是有效數字`)
+      return
+    }
     if (shares === 0) {
       if (/^0+(?:\.0+)?$/.test(sharesText)) zeroCodes.push(code)
       else errors.push(`第 ${index + 1} 列 ${code}：零股數格式不明確`)
@@ -319,10 +340,7 @@ export function parsePortfolioImport(text: string, defaultDate: string): { rows:
       errors.push(`第 ${index + 1} 列 ${code}：股數或均價不是有效數字`)
       return
     }
-    const cost = Math.abs(importNumber(at('cost'))) // 券商的「投資成本」以負數表示支出
-    const fee = at('cost') && Number.isFinite(cost) ? Math.max(0, Math.round((cost - shares * price) * 100) / 100) : 0
-    const rawDate = (at('date') ?? '').replace(/\//g, '-')
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : defaultDate
+    const fee = costText ? Math.max(0, Math.round((cost - shares * price) * 100) / 100) : 0
     rows.push({ code, name: nameCode ? nameCell.slice(0, nameCode.index).trim() : nameCell, shares, price, fee, date })
   })
   return { rows, errors, zeroCodes, incomplete, emptySnapshot: zeroCodes.length > 0 && !rows.length && !errors.length && !incomplete }

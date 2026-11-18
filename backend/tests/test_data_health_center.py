@@ -666,3 +666,12 @@ def test_daily_chips_health_uses_data_date_not_cache_age(monkeypatch, tmp_path):
     row = DataHealthService()._finmind()["foreign_shareholding"]
     assert row["status"] == "stale"  # fresh cache entry, but its data date is behind
     assert "1/2" in row["reason"]
+
+
+def test_finmind_reporting_period_counts_undated_records():
+    status, reason = finmind_policy("financial", [
+        {"status": "available", "data_date": "2026-09-30"},
+        {"status": "available", "data_date": None},
+    ], date(2026, 9, 30), 3600)
+    assert status == "partial"
+    assert "1/2" in reason

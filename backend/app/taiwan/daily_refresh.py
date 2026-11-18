@@ -7,6 +7,7 @@ resume-capable, and never attempt a full 2335-symbol sweep in one shot.
 from __future__ import annotations
 
 import logging
+from bisect import bisect_left, bisect_right
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Any
@@ -40,24 +41,6 @@ def _get_universe() -> list[str]:
     return sorted(combined["symbol"].unique().to_list())
 
 
-def _is_potential_trading_day(d: date, calendar: TaiwanTradingCalendar) -> bool:
-    """Check if date could be a trading day (confirmed True, or unverified None).
-
-    Confirmed non-trading days (weekends, statutory holidays) return False.
-    """
-    status = calendar.is_trading_day(d)
-    return status is not False
-
-
-def _iter_candidate_dates(start: date, end: date, calendar: TaiwanTradingCalendar):
-    """Yield candidate dates between start and end, skipping confirmed non-trading days."""
-    cur = start
-    while cur <= end:
-        if _is_potential_trading_day(cur, calendar):
-            yield cur
-        cur += timedelta(days=1)
-
-
 def _coalesce_dates_to_ranges(dates: list[date]) -> list[tuple[date, date]]:
     """Coalesce sorted candidate dates into contiguous start..end ranges.
 
@@ -81,34 +64,6 @@ def _coalesce_dates_to_ranges(dates: list[date]) -> list[tuple[date, date]]:
             r_end = d
     ranges.append((r_start, r_end))
     return ranges
-
-
-def _determine_fetch_ranges_for_symbol(
-    existing_dates: set[date],
-    start: date,
-    end: date,
-    calendar: TaiwanTradingCalendar,
-) -> list[tuple[date, date]]:
-    """Determine the minimal ranges to fetch for a given symbol.
-
-    - If no existing data in storage: bootstrap fetch requested [start, end].
-    - If symbol has existing data:
-      Find candidate trading dates missing in [start, end] and coalesce.
-    """
-    if not existing_dates:
-        # First historical bootstrap: fetch whole requested range once
-        # Check if there are any candidate trading days in [start, end]
-        candidates = list(_iter_candidate_dates(start, end, calendar))
-        if not candidates:
-            return []
-        return [(start, end)]
-
-    # Missing candidate trading dates
-    missing_dates = [
-        d for d in _iter_candidate_dates(start, end, calendar)
-        if d not in existing_dates
-    ]
-    return _coalesce_dates_to_ranges(missing_dates)
 
 
 class TaiwanDailyRefreshService:
@@ -236,14 +191,23 @@ class TaiwanDailyRefreshService:
             for row in all_rows.iter_rows(named=True):
                 existing_by_symbol[row["symbol"]].add(row["date"])
 
-        # Determine fetch jobs (symbol, fetch_start, fetch_end)
-        jobs: list[tuple[str, date, date]] = []
-        for sym in symbols:
-            ranges = _determine_fetch_ranges_for_symbol(
-                existing_by_symbol[sym], start, end, self._calendar
-            )
-            for r_start, r_end in ranges:
-                jobs.append((sym, r_start, r_end))
+        sessions = []
+        day = start
+        while day <= end:
+            if is_potential_market_session(day, self._calendar, self._evidence_store):
+                sessions.append(day)
+            day += timedelta(days=1)
+
+        # Keep the exact expected sessions even when one HTTP request spans existing rows or closures.
+        jobs = []
+        for sym, existing in existing_by_symbol.items():
+            missing = [day for day in sessions if day not in existing]
+            if not missing:
+                continue
+            ranges = _coalesce_dates_to_ranges(missing) if existing else [(start, end)]
+            for first, last in ranges:
+                expected = missing[bisect_left(missing, first):bisect_right(missing, last)]
+                jobs.append((sym, first, last, expected))
 
         if not jobs:
             return {"message": "all dates up to date", "symbols_fetched": 0, "rows_written": 0, "jobs_executed": 0}
@@ -254,44 +218,50 @@ class TaiwanDailyRefreshService:
             "jobs_executed": 0,
             "rows_written": 0,
             "failed": [],
+            "pending_dates": [],
             "per_symbol": {},
         }
 
         with ThreadPoolExecutor(max_workers=self._concurrency) as executor:
             futures = {
-                executor.submit(self._fetch_and_store, sym, j_start, j_end): (sym, j_start, j_end)
-                for sym, j_start, j_end in jobs
+                executor.submit(self._fetch_and_store, sym, first, last): (sym, first, last, expected)
+                for sym, first, last, expected in jobs
             }
             symbols_seen = set()
+            fetched_days = set()
             for future in as_completed(futures):
-                sym, j_start, j_end = futures[future]
+                sym, j_start, j_end, expected = futures[future]
+                item = stats["per_symbol"].setdefault(sym, {"symbol": sym, "rows": 0, "ranges": []})
+                interval = {"start": j_start.isoformat(), "end": j_end.isoformat(), "rows": 0}
+                stats["jobs_executed"] += 1
                 try:
                     result = future.result()
-                    rows_got = result.get("rows", 0)
-                    if rows_got > 0:
+                    rows = result["rows"]
+                    interval["rows"] = rows
+                    item["rows"] += rows
+                    stats["rows_written"] += result.get("written", 0)
+                    returned = set(result["dates"])
+                    fetched_days.update(returned)
+                    missing_days = [day for day in expected if day not in returned]
+                    interval["missing"] = len(missing_days)
+                    stats["pending_dates"].extend({"symbol": sym, "date": day.isoformat(), "reason": "no daily rows for symbol"}
+                                                  for day in missing_days)
+                    if rows:
                         symbols_seen.add(sym)
-                    stats["jobs_executed"] += 1
-                    stats["rows_written"] += rows_got
-                    if sym not in stats["per_symbol"]:
-                        stats["per_symbol"][sym] = {
-                            "symbol": sym,
-                            "rows": 0,
-                            "ranges": [],
-                            "status": "ok" if rows_got > 0 else "empty",
-                        }
-                    stats["per_symbol"][sym]["rows"] += result.get("rows", 0)
-                    stats["per_symbol"][sym]["ranges"].append({
-                        "start": j_start.isoformat(),
-                        "end": j_end.isoformat(),
-                        "rows": result.get("rows", 0),
-                    })
                 except Exception as exc:
                     logger.warning("Refresh failed for %s (%s..%s): %s", sym, j_start, j_end, exc)
                     if sym not in stats["failed"]:
                         stats["failed"].append(sym)
-                    stats["per_symbol"][sym] = {"error": str(exc)}
+                    item["error"] = interval["error"] = str(exc)
+                item["ranges"].append(interval)
 
-            stats["symbols_fetched"] = len(symbols_seen)
+        for item in stats["per_symbol"].values():
+            if item["rows"]:
+                item["status"] = "ok" if all(r["rows"] and not r["missing"] for r in item["ranges"]) else "partial"
+            else:
+                item["status"] = "failed" if "error" in item else "empty"
+        stats["symbols_fetched"] = len(symbols_seen)
+        stats["dates_fetched"] = len(fetched_days)
 
         return stats
 
@@ -299,8 +269,11 @@ class TaiwanDailyRefreshService:
         """Fetch a single symbol's daily data for [start, end] and store it atomically."""
         df = self._provider.get_daily([symbol], start_time=start, end_time=end)
         if df.is_empty():
-            return {"symbol": symbol, "rows": 0, "status": "empty"}
+            return {"symbol": symbol, "rows": 0, "dates": [], "status": "empty"}
 
-        rows = df.height
+        df = df.filter(
+            (pl.col("symbol") == symbol) & pl.col("date").cast(pl.Date).is_between(start, end)
+        )
         written = self._store.write_batch(df, partial=True)
-        return {"symbol": symbol, "rows": rows, "written": written, "status": "ok"}
+        return {"symbol": symbol, "rows": df.height, "written": written,
+                "dates": df["date"].cast(pl.Date).unique().to_list(), "status": "ok" if df.height else "empty"}

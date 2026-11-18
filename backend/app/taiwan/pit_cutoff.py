@@ -30,6 +30,8 @@ import logging
 from datetime import date, datetime
 from typing import Any
 
+from app.taiwan.realtime.calendar import TAIPEI_TZ
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,17 +39,20 @@ def resolve_as_of_date(as_of: date | str | None) -> date | None:
     """Normalize input as_of parameter to a datetime.date object."""
     if as_of is None:
         return None
+    if isinstance(as_of, datetime):
+        return (as_of.astimezone(TAIPEI_TZ) if as_of.tzinfo else as_of).date()
     if isinstance(as_of, date):
         return as_of
     if isinstance(as_of, str):
         cleaned = as_of.strip()
         if not cleaned:
             return None
-        if "T" in cleaned:
-            cleaned = cleaned.split("T")[0]
         try:
+            if "T" in cleaned:
+                stamp = datetime.fromisoformat(cleaned)
+                return (stamp.astimezone(TAIPEI_TZ) if stamp.tzinfo else stamp).date()
             return datetime.strptime(cleaned, "%Y-%m-%d").date()
-        except Exception:
+        except ValueError:
             logger.warning("Failed to parse as_of date string: %s", as_of)
             return None
     return None
@@ -68,14 +73,20 @@ def filter_month_revenue_as_of(
     - as_of is set   (historical analysis): keep only rows published by the
       cutoff date.
     """
-    if resolve_as_of_date(as_of) is None:
-        # Current / latest analysis: pass all rows for downstream selection.
+    if as_of is None:
         return rows
-    cutoff_str = resolve_as_of_date(as_of).strftime("%Y-%m-%d")
+    cutoff = resolve_as_of_date(as_of)
+    if cutoff is None:
+        return []
     filtered: list[dict[str, Any]] = []
     for row in rows:
-        published = str(row.get("create_time") or "").strip()[:10]
-        if published and published <= cutoff_str:
+        try:
+            published = datetime.fromisoformat(str(row.get("create_time") or "").strip())
+        except ValueError:
+            continue
+        if published.tzinfo is not None:
+            published = published.astimezone(TAIPEI_TZ)
+        if published.date() <= cutoff:
             filtered.append(row)
     return filtered
 
@@ -95,11 +106,7 @@ def filter_financial_statements_as_of(
     - as_of is None  (current/latest analysis): all rows returned.
     - as_of is set   (historical analysis): returns [] (fail-closed).
     """
-    if resolve_as_of_date(as_of) is None:
-        # Current / latest analysis: pass all rows for downstream selection.
-        return rows
-    # Historical query: no verified availability evidence -> fail closed.
-    return []
+    return rows if as_of is None else []
 
 
 def filter_daily_records_as_of(
@@ -113,15 +120,21 @@ def filter_daily_records_as_of(
     reliable availability signal.  Unchanged by Phase 6G decision.
     If as_of is None, returns rows untouched (current-date analysis).
     """
+    if as_of is None:
+        return rows
     cutoff = resolve_as_of_date(as_of)
     if cutoff is None:
-        return rows
+        return []
 
-    cutoff_str = cutoff.strftime("%Y-%m-%d")
     filtered: list[dict[str, Any]] = []
-    for r in rows:
-        d_val = str(r.get(date_key) or "").strip()
-        if d_val and d_val <= cutoff_str:
-            filtered.append(r)
+    for row in rows:
+        raw = row.get(date_key)
+        try:
+            day = date.fromisoformat(str(raw).strip())
+        except ValueError:
+            continue
+        if day <= cutoff:
+            iso = day.isoformat()
+            filtered.append(row if raw == iso else {**row, date_key: iso})
 
     return filtered

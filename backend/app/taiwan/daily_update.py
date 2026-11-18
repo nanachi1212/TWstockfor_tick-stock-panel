@@ -269,16 +269,22 @@ class TaiwanDailyUpdateService:
             cur += timedelta(days=1)
         return "stale", days_behind
 
+    def _available_dates_through(self, target: date) -> tuple[list[date], list[date], list[date]]:
+        return (
+            [day for day in self.daily_store.available_dates() if day <= target],
+            [day for day in self.inst_store.available_dates() if day <= target],
+            [day for day in self.margin_store.available_dates() if day <= target],
+        )
+
     def get_freshness(self, target_date: date | None = None) -> FreshnessStatus:
         """Inspect and return current storage freshness across all 3 datasets."""
         target = target_date or resolve_target_latest_trading_date(
             self.calendar, evidence_store=self.evidence_store,
         )
-        d_dates = self.daily_store.available_dates()
-        i_dates = self.inst_store.available_dates()
-        m_dates = self.margin_store.available_dates()
+        d_dates, i_dates, m_dates = self._available_dates_through(target)
 
-        d_as_of = max(d_dates) if d_dates else None
+        partial_dates = self.daily_store.partial_dates()
+        d_as_of = max((d for d in d_dates if d not in partial_dates), default=None)
         i_as_of = max(i_dates) if i_dates else None
         m_as_of = max(m_dates) if m_dates else None
 
@@ -331,9 +337,7 @@ class TaiwanDailyUpdateService:
         )
 
         # 1. Determine date ranges per dataset
-        d_dates = self.daily_store.available_dates()
-        i_dates = self.inst_store.available_dates()
-        m_dates = self.margin_store.available_dates()
+        d_dates, i_dates, m_dates = self._available_dates_through(target)
 
         d_max = max(d_dates) if d_dates else None
         i_max = max(i_dates) if i_dates else None
@@ -346,6 +350,14 @@ class TaiwanDailyUpdateService:
             )
             for latest, dates in ((d_max, d_dates), (i_max, i_dates), (m_max, m_dates))
         ]
+        # A per-symbol partition still needs the official market snapshot, even
+        # when it predates the first complete partition in the retry window.
+        retry_from = target - timedelta(days=RECENT_GAP_MAX_DAYS)
+        first_partial = min(
+            (d for d in self.daily_store.partial_dates() if retry_from <= d <= target), default=None,
+        )
+        if first_partial is not None:
+            d_range = (min(first_partial, d_range[0]) if d_range else first_partial, target)
         start_bound = min((span[0] for span in (d_range, i_range, m_range) if span), default=target)
         end_bound = target
         if force:
@@ -380,17 +392,18 @@ class TaiwanDailyUpdateService:
                             failed_symbols = res.get("failed") or []
                             # Jobs ran but no source returned a row: that is a failure, not "current".
                             nothing_returned = res.get("jobs_executed", 0) > 0 and fetched_symbols == 0
+                            daily_stats.pending_dates = res.get("pending_dates", [])
                             if failed_symbols:
                                 daily_stats.failed_dates.append(
                                     {"error": "symbols failed: " + ", ".join(map(str, failed_symbols[:20]))}
                                 )
                             elif nothing_returned:
                                 daily_stats.failed_dates.append({"error": "no source returned daily rows"})
-                            if failed_symbols or nothing_returned:
+                            if failed_symbols or nothing_returned or daily_stats.pending_dates:
                                 daily_stats.status = "failed" if fetched_symbols == 0 else "partial"
                             else:
                                 daily_stats.status = "success"
-                            daily_stats.dates_fetched = 1 if fetched_symbols > 0 else 0
+                            daily_stats.dates_fetched = res.get("dates_fetched", int(fetched_symbols > 0))
                             daily_stats.dates_skipped = 1 if fetched_symbols == 0 and not daily_stats.failed_dates else 0
                             daily_stats.rows_written = res.get("rows_written", 0)
                     else:
@@ -504,14 +517,9 @@ class TaiwanDailyUpdateService:
             executed_statuses.append(daily_stats.status)
         executed_statuses.extend([inst_stats.status, margin_stats.status])
 
-        if all(s == "success" for s in executed_statuses):
-            overall_status = "success"
-        elif any(s == "failed" for s in executed_statuses):
-            if any(s == "success" for s in executed_statuses):
-                overall_status = "partial"
-            else:
-                overall_status = "failed"
-        elif any(s == "partial" for s in executed_statuses):
+        if all(status == "failed" for status in executed_statuses):
+            overall_status = "failed"
+        elif any(status in ("partial", "failed") for status in executed_statuses):
             overall_status = "partial"
         else:
             overall_status = "success"

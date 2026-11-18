@@ -380,6 +380,84 @@ class TestRealtimeCachingAndBatch:
         assert svc.cache_misses == 2
         assert svc.provider_requests == 2
 
+    def test_mixed_batch_does_not_renew_cached_quote(self, monkeypatch):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        from app.taiwan.realtime import service
+
+        first, second = "2330.TWSE", "2317.TWSE"
+        prices = {first: 100.0, second: 50.0}
+        clock = 0
+        monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: clock))
+        monkeypatch.setattr(service, "taipei_now", lambda: _FROZEN_SESSION)
+        calendar = Mock(known_holidays=set())
+        calendar.get_market_status.return_value = MarketStatus.OPEN
+        provider = Mock()
+        calls = []
+
+        def fetch(symbols):
+            calls.append([s.canonical for s in symbols])
+            return {
+                s.canonical: Mock(last_price=prices[s.canonical], quote_time=_FROZEN_SESSION,
+                                  trade_date=_FROZEN_SESSION.date(), source_meta=Mock(source="mis", is_stale=False))
+                for s in symbols
+            }
+
+        provider.fetch_quotes.side_effect = fetch
+        svc = TaiwanRealtimeService(cache_ttl_seconds=3, mis_provider=provider, trading_calendar=calendar)
+        assert svc.get_quotes([first])[first].last_price == 100
+        prices[first] = 105
+        clock = 2
+        mixed = svc.get_quotes([first, second])
+        assert (mixed[first].last_price, mixed[second].last_price) == (100, 50)
+        clock = 4
+        assert svc.get_quotes([first, second])[first].last_price == 105
+        assert calls == [[first], [second], [first]]
+
+    def test_slow_provider_uses_delivery_time_for_freshness_and_ttl(self, monkeypatch):
+        from datetime import timedelta
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        from app.taiwan.realtime import service
+
+        elapsed = 0
+        def now():
+            return _FROZEN_SESSION + timedelta(seconds=elapsed)
+
+        monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: elapsed))
+        monkeypatch.setattr(service, "taipei_now", now)
+        monkeypatch.setattr(mis_provider_module, "taipei_now", now)
+        calendar = Mock(known_holidays=set())
+        calendar.get_market_status.return_value = MarketStatus.OPEN
+        mis = TwseMisRealtimeProvider()
+        provider = Mock()
+
+        def fetch(symbols):
+            nonlocal elapsed
+            elapsed += 4
+            trades = {"2330": "10:59:02", "2317": "10:59:05"}
+            rows = [{"c": s.code, "ch": f"tse_{s.code}.tw", "d": "20260828", "t": trades[s.code], "z": "100"}
+                    for s in symbols]
+            return mis.fetch_quotes(symbols, mock_response_json={"msgArray": rows})
+
+        provider.fetch_quotes.side_effect = fetch
+        svc = TaiwanRealtimeService(cache_ttl_seconds=3, mis_provider=provider, trading_calendar=calendar)
+        symbols = ["2330.TWSE", "2317.TWSE"]
+        first = svc.get_quotes(symbols)
+        assert first[symbols[0]].source_meta.is_stale
+        assert first[symbols[0]].source_meta.status == "stale"
+        assert not first[symbols[0]].source_meta.is_realtime
+        assert not first[symbols[1]].source_meta.is_stale
+        elapsed += 2
+        cached = svc.get_quotes(symbols)
+        assert provider.fetch_quotes.call_count == 1
+        assert cached[symbols[1]].source_meta.is_stale
+        elapsed += 1
+        svc.get_quotes(symbols)
+        assert provider.fetch_quotes.call_count == 2
+
     def test_configurable_freshness_threshold(self):
         """Verify RealtimeFreshnessPolicy properly distinguishes MIS vs Yahoo thresholds."""
         from app.taiwan.realtime.models import RealtimeFreshnessPolicy

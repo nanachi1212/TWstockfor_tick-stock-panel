@@ -77,14 +77,38 @@ export function excelSerialToDate(serial: number, date1904 = false): string {
   return new Date(epoch + Math.floor(serial) * 86_400_000).toISOString().slice(0, 10)
 }
 
+function firstWorksheet(files: Map<string, string>): string {
+  const parser = new DOMParser()
+  const workbook = parser.parseFromString(files.get('xl/workbook.xml') ?? '', 'application/xml')
+  const sheets = Array.from(workbook.getElementsByTagNameNS('*', 'sheet'))
+  if (!sheets.length) {
+    // Some single-sheet broker exports omit the workbook's sheet list.
+    const parts = [...files.keys()].filter(name => name.startsWith('xl/worksheets/'))
+    if (parts.length === 1) return parts[0]
+  }
+  const rels = parser.parseFromString(files.get('xl/_rels/workbook.xml.rels') ?? '', 'application/xml')
+  const relationships = Array.from(rels.getElementsByTagNameNS('*', 'Relationship'))
+  for (const sheet of sheets) {
+    const id = Array.from(sheet.attributes).find(attr => attr.localName === 'id')?.value
+    const rel = relationships.find(item => item.getAttribute('Id') === id)
+    if (!rel) break
+    if (!rel.getAttribute('Type')?.endsWith('/worksheet')) continue
+    const target = rel.getAttribute('Target')
+    if (!target || rel.getAttribute('TargetMode') === 'External') break
+    const part = new URL(target, 'file:///xl/workbook.xml').pathname.slice(1)
+    if (files.has(part)) return part
+    break
+  }
+  throw new Error('Excel 檔裡找不到第一個工作表')
+}
+
 /** 讀 .xlsx 第一個工作表，轉成 TSV 文字；日期格式的儲存格轉成 YYYY-MM-DD，不留原始序號。 */
 export async function xlsxToText(buffer: ArrayBuffer): Promise<string> {
   const files = await unzipEntries(buffer, name => name === 'xl/sharedStrings.xml' || name === 'xl/styles.xml'
-    || name === 'xl/workbook.xml' || /^xl\/worksheets\/sheet\d+\.xml$/.test(name))
+    || name === 'xl/workbook.xml' || name === 'xl/_rels/workbook.xml.rels' || /^xl\/worksheets\/[^/]+\.xml$/.test(name))
   const dateStyles = dateStyleIndexes(files.get('xl/styles.xml') ?? '')
   const date1904 = /<workbookPr\b[^>]*date1904="(1|true)"/.test(files.get('xl/workbook.xml') ?? '')
-  const sheetName = [...files.keys()].filter(name => name.startsWith('xl/worksheets/')).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0]
-  if (!sheetName) throw new Error('Excel 檔裡找不到工作表')
+  const sheetName = firstWorksheet(files)
   const shared = [...(files.get('xl/sharedStrings.xml') ?? '').matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)]
     .map(match => decodeXml([...match[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => t[1]).join('')))
   const rows: string[][] = []

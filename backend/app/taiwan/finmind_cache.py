@@ -100,6 +100,8 @@ class FinMindCache:
         data_date: str | None = None,
         status: str = "available",
         error_msg: str | None = None,
+        query_start: str | None = None,
+        fetched_at: str | None = None,
     ) -> None:
         """Write payload to cache."""
         try:
@@ -107,16 +109,17 @@ class FinMindCache:
         except ValueError as e:
             logger.warning("FinMindCache set skipped: %s", e)
             return
-        now_iso = datetime.now(UTC).isoformat()
         payload = {
             "symbol": symbol,
             "dataset": dataset,
             "data_date": data_date,
-            "fetched_at": now_iso,
+            "fetched_at": fetched_at or datetime.now(UTC).isoformat(),
             "status": status,
             "error_msg": error_msg,
             "data": data,
         }
+        if query_start is not None:
+            payload["query_start"] = query_start
         try:
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

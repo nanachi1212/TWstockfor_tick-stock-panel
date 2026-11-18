@@ -310,6 +310,24 @@ def test_refresh_two_requests_persistence_provenance_and_isolated_failure(tmp_pa
     assert saved.retrieved_at.tzinfo and saved.source_url.endswith("BWIBBU_ALL")
 
 
+def test_repeated_valuation_retains_first_observation_and_reversions(tmp_path, monkeypatch):
+    from app.config import settings
+    from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    store = TaiwanFundamentalStore(tmp_path)
+    day = date(2026, 10, 8)
+    first = record(day, "2330.TWSE", 10)
+    for offset, pe in enumerate([10, 10, 30, 10]):
+        stamp = datetime.combine(day + timedelta(days=offset), datetime.min.time(), tzinfo=TAIPEI)
+        observation = replace(first, revision=f"v{pe}", values={"pe": pe}, retrieved_at=stamp)
+        store.save([observation])
+    for offset, pe in enumerate([10, 10, 30, 10]):
+        result = TaiwanFundamentalChipsService.historical_valuation(first.symbol, "TWSE", day + timedelta(days=offset), None)
+        assert result.pe == pe
+    assert calculate_valuation(store.load(), day=day, market="TWSE").metrics["pe"].value == 10
+
+
 def test_changed_official_snapshot_preserves_descriptive_revisions(tmp_path):
     row = {"Code": "2330", "Date": "1150930", "PEratio": "20"}
     provider = TaiwanOfficialFundamentals(httpx.Client(transport=httpx.MockTransport(

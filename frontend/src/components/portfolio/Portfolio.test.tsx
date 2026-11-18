@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { storage } from '@/lib/storage'
 import { PortfolioPanel } from './Portfolio'
 
-vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn(), taiwanPortfolioInstrument: vi.fn(), taiwanSearch: vi.fn(), watchlistList: vi.fn(), alertsList: vi.fn(), portfolioAutoSyncSet: vi.fn(), portfolioAutoSyncGet: vi.fn(), portfolioImportRead: vi.fn() } }))
+vi.mock('@/lib/api', () => ({ api: { taiwanQuotes: vi.fn(), taiwanTransactionTax: vi.fn(), taiwanPortfolioInstrument: vi.fn(), taiwanSearch: vi.fn(), watchlistList: vi.fn(), watchlistBatchAdd: vi.fn(), portfolioImportFiles: vi.fn(), alertsList: vi.fn(), portfolioAutoSyncSet: vi.fn(), portfolioAutoSyncGet: vi.fn(), portfolioImportRead: vi.fn() } }))
 vi.mock('@/components/quant/TodaySelection', () => ({ useTodayQuantSelection: () => ({ signals: [], loading: false, error: false, validRun: null }) }))
 
 function renderPortfolio(props: Parameters<typeof PortfolioPanel>[0] = {}) {
@@ -28,7 +28,7 @@ async function fillTrade({ shares, price }: { shares: string; price: string }) {
 
 beforeEach(() => {
   vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
-  vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [{ code: '2330', symbol: '2330.TWSE', name: '台積電' }] } as any)
+  vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [{ code: '2330', symbol: '2330.TWSE', name: '台積電', is_supported: true, instrument_type: 'stock' }] } as any)
   vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: null, name: null, modified: null })
   vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] } as any)
   vi.mocked(api.alertsList).mockResolvedValue({ alerts: [] } as any)
@@ -53,6 +53,85 @@ afterEach(() => {
 })
 
 describe('Portfolio UI', () => {
+  it('retries only the sync setting after an appended cloud import has committed', async () => {
+    const file = { path: 'mock/holdings.csv', name: 'holdings.csv', folder: 'mock', modified: 123 }
+    vi.mocked(api.portfolioImportFiles).mockResolvedValue({ roots: ['mock'], files: [file] })
+    vi.mocked(api.portfolioImportRead).mockResolvedValue({ text: '代號,股數,均價,日期\n2330,10,100,2026-09-24' })
+    vi.mocked(api.watchlistBatchAdd).mockResolvedValue({} as any)
+    vi.mocked(api.portfolioAutoSyncSet).mockRejectedValueOnce(new Error('設定連線失敗')).mockResolvedValue(file)
+    renderPortfolio({ openImportWhenEmpty: true })
+    const dialog = within(await screen.findByRole('dialog', { name: '匯入持股' }))
+    fireEvent.click(dialog.getByRole('tab', { name: 'OneDrive' }))
+    fireEvent.click(await dialog.findByRole('button', { name: /holdings.csv/ }))
+    fireEvent.click(await dialog.findByRole('button', { name: '匯入 1 檔持股' }))
+    expect(await dialog.findByRole('alert')).toHaveTextContent('持股已匯入')
+    expect(dialog.queryByRole('button', { name: '匯入 1 檔持股' })).not.toBeInTheDocument()
+    fireEvent.click(dialog.getByRole('button', { name: '重試同步設定' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '匯入持股' })).not.toBeInTheDocument())
+    expect(api.portfolioAutoSyncSet).toHaveBeenCalledTimes(2)
+    expect(api.taiwanSearch).toHaveBeenCalledTimes(1)
+    expect(storage.portfolioTransactions.get([])).toEqual([expect.objectContaining({ shares: 10 })])
+  })
+
+  it('applies the newest sync version when a previous read is still pending', async () => {
+    const file = { path: 'holdings.csv', name: 'holdings.csv', modified: 100 }
+    vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue(file)
+    const row = (shares: number) => `代號,股數,均價,日期\n2330,${shares},100,2026-09-24`
+    let finish!: (result: { text: string; modified: number }) => void
+    vi.mocked(api.portfolioImportRead)
+      .mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+      .mockResolvedValue({ text: row(20), modified: 200 })
+    vi.mocked(api.watchlistBatchAdd).mockResolvedValue({} as any)
+    const { client } = renderPortfolio()
+    await waitFor(() => expect(api.portfolioImportRead).toHaveBeenCalledTimes(1))
+    act(() => { client.setQueryData(['portfolioAutoSync'], { ...file, modified: 200 }) })
+    await waitFor(() => expect(api.portfolioImportRead).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(localStorage.getItem('tf-portfolio-sync-mtime')).toBe(JSON.stringify([file.path, 200])))
+    await act(async () => { finish({ text: row(10), modified: 100 }) })
+    expect(storage.portfolioTransactions.get([])).toEqual([expect.objectContaining({ shares: 20 })])
+    expect(storage.portfolioImportPrevious.get(null)).toEqual([])
+  })
+
+  it('keeps a pasted snapshot when an earlier file read finishes late', async () => {
+    const file = { path: 'mock/holdings.csv', name: 'holdings.csv', folder: 'mock', modified: 123 }
+    vi.mocked(api.portfolioImportFiles).mockResolvedValue({ roots: ['mock'], files: [file] })
+    let finish!: (value: Awaited<ReturnType<typeof api.portfolioImportRead>>) => void
+    vi.mocked(api.portfolioImportRead).mockReturnValue(new Promise(resolve => { finish = resolve }))
+    renderPortfolio({ openImportWhenEmpty: true })
+    const dialog = within(await screen.findByRole('dialog', { name: '匯入持股' }))
+    fireEvent.click(dialog.getByRole('tab', { name: 'OneDrive' }))
+    fireEvent.click(await dialog.findByRole('button', { name: /holdings.csv/ }))
+    const textarea = dialog.getByRole('textbox')
+    const pasted = '代號,股數,均價\n2330,20,100'
+    fireEvent.change(textarea, { target: { value: pasted } })
+    await act(async () => { finish({ text: '代號,股數,均價\n2330,0,0', modified: 123 }) })
+    expect(textarea).toHaveValue(pasted)
+    expect(dialog.queryByRole('checkbox', { name: /自動同步/ })).not.toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: '匯入 1 檔持股' })).toBeEnabled()
+  })
+
+  it('syncs the newer file when it changes after the import preview', async () => {
+    const file = { path: 'mock/holdings.csv', name: 'holdings.csv', folder: 'mock', modified: 123 }
+    const newer = { ...file, modified: 456 }
+    const snapshot = (shares: number, modified: number) => ({
+      text: `代號,股數,均價,日期\n2330,${shares},100,2026-09-24`, modified,
+    })
+    vi.mocked(api.portfolioImportFiles).mockResolvedValue({ roots: ['mock'], files: [file] })
+    vi.mocked(api.portfolioImportRead).mockResolvedValueOnce(snapshot(10, 123)).mockResolvedValue(snapshot(20, 456))
+    vi.mocked(api.watchlistBatchAdd).mockResolvedValue({} as any)
+    vi.mocked(api.portfolioAutoSyncSet).mockImplementation(async () => {
+      vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue(newer)
+      return newer
+    })
+    renderPortfolio({ openImportWhenEmpty: true })
+    const dialog = within(await screen.findByRole('dialog', { name: '匯入持股' }))
+    fireEvent.click(dialog.getByRole('tab', { name: 'OneDrive' }))
+    fireEvent.click(await dialog.findByRole('button', { name: /holdings.csv/ }))
+    fireEvent.click(await dialog.findByRole('button', { name: '匯入 1 檔持股' }))
+    await waitFor(() => expect(storage.portfolioTransactions.get([])).toEqual([expect.objectContaining({ shares: 20 })]))
+    expect(localStorage.getItem('tf-portfolio-sync-mtime')).toBe(JSON.stringify([file.path, 456]))
+  })
+
   it.each(['', '代號,名稱,股數,均價', '代號,名稱,股數,均價\n2330,台積電,0,0\n2317,鴻海,N/A,100'])('does not clear the ledger or advance the sync marker for incomplete input %s', async text => {
     const before = [{ id: 'old', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
       price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
@@ -62,6 +141,22 @@ describe('Portfolio UI', () => {
     renderPortfolio()
     expect(await screen.findByText(/自動同步持股失敗/)).toBeInTheDocument()
     expect(storage.portfolioTransactions.get([])).toEqual(before)
+    expect(localStorage.getItem('tf-portfolio-sync-mtime')).toBeNull()
+  })
+
+  it.each([0, 10])('preserves the ledger on import of an unsupported warrant with %i shares', async shares => {
+    const before = [{ id: 'old', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
+    storage.portfolioTransactions.set(before)
+    vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [{
+      symbol: '012345.TWSE', code: '012345', name: '測試權證', is_supported: false, instrument_type: 'warrant',
+    }], count: 1 } as any)
+    vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: 'warrant.csv', name: 'warrant.csv', modified: 123 })
+    vi.mocked(api.portfolioImportRead).mockResolvedValue({ text: `代號,股數,均價,日期\n012345,${shares},100,2026-09-24` })
+    renderPortfolio()
+    expect(await screen.findByText(/自動同步持股失敗.*012345/)).toBeInTheDocument()
+    expect(storage.portfolioTransactions.get([])).toEqual(before)
+    expect(storage.portfolioImportPrevious.get(null)).toBeNull()
     expect(localStorage.getItem('tf-portfolio-sync-mtime')).toBeNull()
   })
 

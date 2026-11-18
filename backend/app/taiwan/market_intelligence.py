@@ -30,11 +30,28 @@ from app.taiwan.daily_update import (
 )
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
+from app.taiwan.observed_universe import ObservedUniverseStore
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
+from app.taiwan.research_metrics import research_sessions
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
 
 logger = logging.getLogger(__name__)
+MarketDatasetStatus = DatasetFreshnessStatus | Literal["partial"]
+
+
+def _complete_sum(frame: pl.DataFrame, column: str) -> float | None:
+    if column not in frame.columns or frame[column].null_count():
+        return None
+    return float(frame[column].sum())
+
+
+def _aggregate_status(as_of: date, expected: date, *values: float | None) -> MarketDatasetStatus:
+    if all(value is None for value in values):
+        return "unavailable"
+    if as_of < expected:
+        return "stale"
+    return "partial" if None in values else "current"
 
 
 # ── Pydantic Response Contract Models ─────────────────────────
@@ -78,7 +95,7 @@ class InstitutionalMarketAggregate(BaseModel):
     investment_trust_net: float | None = None  # in shares
     dealer_net: float | None = None  # in shares
     total_net: float | None = None  # in shares (sum of foreign, it, dealer)
-    status: DatasetFreshnessStatus = "unavailable"
+    status: MarketDatasetStatus = "unavailable"
 
 
 class MarginMarketAggregate(BaseModel):
@@ -91,7 +108,7 @@ class MarginMarketAggregate(BaseModel):
     short_balance: float | None = None  # in shares
     short_balance_change: float | None = None  # in shares
     aggregate_short_margin_ratio: float | None = None  # short_balance / margin_balance * 100
-    status: DatasetFreshnessStatus = "unavailable"
+    status: MarketDatasetStatus = "unavailable"
 
 
 class IndexSnapshot(BaseModel):
@@ -142,7 +159,7 @@ class DatasetQualityMeta(BaseModel):
 
     dataset: str
     as_of: str | None = None
-    status: DatasetFreshnessStatus = "unavailable"
+    status: MarketDatasetStatus = "unavailable"
     source: str = "local_store"
 
 
@@ -188,8 +205,10 @@ class TaiwanMarketIntelligenceService:
         margin_store: TaiwanMarginStore | None = None,
         calendar: TaiwanTradingCalendar | None = None,
         security_master: TaiwanSecurityMaster | None = None,
+        evidence_store: ObservedUniverseStore | None = None,
     ) -> None:
         self.calendar = calendar or TaiwanTradingCalendar()
+        self.evidence_store = evidence_store or ObservedUniverseStore()
         self.daily_store = daily_store or TaiwanDailyStore()
         self.inst_store = inst_store or TaiwanInstitutionalStore()
         self.margin_store = margin_store or TaiwanMarginStore()
@@ -197,16 +216,11 @@ class TaiwanMarketIntelligenceService:
 
     def get_previous_trading_date(self, target_date: date) -> date | None:
         """Find the immediately preceding trading date using TaiwanTradingCalendar and store history."""
-        available = self.daily_store.available_dates()
-        prior_dates = [d for d in available if d < target_date]
-        if prior_dates:
-            return max(prior_dates)
-
-        # Fall back to calendar iteration if daily store doesn't have prior dates
-        cur = target_date - timedelta(days=1)
-        while self.calendar.is_trading_day(cur) is False:
-            cur -= timedelta(days=1)
-        return cur
+        sessions = research_sessions(
+            target_date - timedelta(days=1), 1, set(self.daily_store.available_dates()),
+            self.calendar, self.evidence_store,
+        )
+        return sessions[0] if sessions else None
 
     def _calc_breadth(self, df: pl.DataFrame) -> MarketBreadthStats:
         """Compute MarketBreadthStats from joined current & previous dataframe."""
@@ -255,7 +269,7 @@ class TaiwanMarketIntelligenceService:
         # resolved target date has no data (e.g. data is stale and not yet updated).
         # Only fall back automatically when the caller did not supply an explicit date.
         daily_available = self.daily_store.available_dates()
-        daily_as_of = max(daily_available) if daily_available else None
+        daily_as_of = max((d for d in daily_available if d <= expected), default=None)
         if target_date is None and daily_as_of is not None and daily_as_of < target:
             target = daily_as_of
 
@@ -273,11 +287,16 @@ class TaiwanMarketIntelligenceService:
         curr_daily = self.daily_store.read_range(supported_symbols, target, target)
         prev_daily = self.daily_store.read_range(supported_symbols, prev_d, prev_d) if prev_d else pl.DataFrame()
 
+        daily_as_of = target if not curr_daily.is_empty() else None
         # Check daily status
-        daily_status: DatasetFreshnessStatus = (
-            "current" if (daily_as_of and daily_as_of >= expected)
-            else ("stale" if daily_as_of else "unavailable")
-        )
+        daily_status: MarketDatasetStatus = "unavailable"
+        if daily_as_of is not None:
+            if daily_as_of < expected:
+                daily_status = "stale"
+            elif daily_as_of in self.daily_store.partial_dates():
+                daily_status = "partial"
+            else:
+                daily_status = "current"
 
         matched_symbols_count = len(curr_daily)
         missing_count = max(0, supported_count - matched_symbols_count)
@@ -371,16 +390,14 @@ class TaiwanMarketIntelligenceService:
             if inst_as_of
             else pl.DataFrame()
         )
-        inst_status: DatasetFreshnessStatus = (
-            "current" if (inst_as_of and inst_as_of >= expected)
-            else ("stale" if inst_as_of else "unavailable")
-        )
+        inst_status: MarketDatasetStatus = "unavailable"
 
-        if not inst_df.is_empty():
-            f_net = float(inst_df["foreign_net"].sum() or 0.0)
-            it_net = float(inst_df["investment_trust_net"].sum() or 0.0)
-            d_net = float(inst_df["dealer_net"].sum() or 0.0)
-            tot_net = f_net + it_net + d_net
+        if inst_as_of and not inst_df.is_empty():
+            f_net = _complete_sum(inst_df, "foreign_net")
+            it_net = _complete_sum(inst_df, "investment_trust_net")
+            d_net = _complete_sum(inst_df, "dealer_net")
+            inst_status = _aggregate_status(inst_as_of, expected, f_net, it_net, d_net)
+            tot_net = f_net + it_net + d_net if f_net is not None and it_net is not None and d_net is not None else None
             inst_agg = InstitutionalMarketAggregate(
                 trade_date=str(inst_as_of),
                 row_count=len(inst_df),
@@ -405,18 +422,16 @@ class TaiwanMarketIntelligenceService:
             if m_as_of
             else pl.DataFrame()
         )
-        m_status: DatasetFreshnessStatus = (
-            "current" if (m_as_of and m_as_of >= expected)
-            else ("stale" if m_as_of else "unavailable")
-        )
+        m_status: MarketDatasetStatus = "unavailable"
 
-        if not m_df.is_empty():
-            mb = float(m_df["margin_balance"].sum() or 0.0)
-            mc = float(m_df["margin_change"].sum() or 0.0) if "margin_change" in m_df.columns else None
-            sb = float(m_df["short_balance"].sum() or 0.0)
-            sc = float(m_df["short_change"].sum() or 0.0) if "short_change" in m_df.columns else None
+        if m_as_of and not m_df.is_empty():
+            mb = _complete_sum(m_df, "margin_balance")
+            mc = _complete_sum(m_df, "margin_change")
+            sb = _complete_sum(m_df, "short_balance")
+            sc = _complete_sum(m_df, "short_change")
+            m_status = _aggregate_status(m_as_of, expected, mb, mc, sb, sc)
             # Compute aggregate ratio safely: sum(short) / sum(margin) * 100
-            ratio = round((sb / mb * 100.0), 2) if mb > 0 else None
+            ratio = round((sb / mb * 100.0), 2) if mb is not None and mb > 0 and sb is not None else None
 
             margin_agg = MarginMarketAggregate(
                 trade_date=str(m_as_of),
@@ -445,7 +460,7 @@ class TaiwanMarketIntelligenceService:
         dataset_statuses = [daily_status, inst_status, m_status]
         if all(s == "current" for s in dataset_statuses):
             overall_status = "complete"
-        elif any(s == "current" for s in dataset_statuses) or any(s == "stale" for s in dataset_statuses):
+        elif any(s != "unavailable" for s in dataset_statuses):
             overall_status = "partial"
         else:
             overall_status = "unavailable"

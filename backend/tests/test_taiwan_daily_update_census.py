@@ -24,6 +24,10 @@ class FakeDailyStore:
     def available_dates(self) -> list[date]:
         return sorted(self.dates)
 
+    def partial_dates(self) -> set[date]:
+        # This fixture publishes only full-market snapshots.
+        return set()
+
 
 class FakeCensus:
     """Stands in for the TWSE/TPEx HTTP layer of ObservedUniverseCensus."""

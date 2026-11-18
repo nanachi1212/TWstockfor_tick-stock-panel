@@ -16,6 +16,7 @@ import {
   createPortfolioTransaction,
   isTaiwanPortfolioSymbol,
   isPortfolioTransaction,
+  isSupportedPortfolioInstrument,
   parsePortfolioImport,
   PORTFOLIO_CHANGED,
   readPortfolioLedger,
@@ -501,23 +502,23 @@ export function PortfolioPanel({ symbol, name, quote: detailQuote, change: detai
 const AUTO_SYNC_MARK = 'tf-portfolio-sync-mtime'
 
 /** 匯入核心: 確認上市/上櫃別 → 每檔記一筆買入 (可取代整本) → 持股加入自選。 */
-async function importHoldingRows(parsed: ReturnType<typeof parsePortfolioImport>, replace: boolean, sync?: { previous: string; version: string }) {
+async function importHoldingRows(parsed: ReturnType<typeof parsePortfolioImport>, replace: boolean, sync?: { previous: string; version: string; active: () => boolean }) {
   if (parsed.errors.length) throw new Error(parsed.errors.join('；'))
   if (replace && parsed.incomplete) throw new Error('持股表格有未知或缺漏的列，已保留原帳本，請先補齊資料')
   if (!parsed.rows.length && !(replace && parsed.emptySnapshot)) throw new Error('沒有可匯入的持股；只有明確全數零股的快照可取代成空帳本')
-  if (replace) await Promise.all([...new Set(parsed.zeroCodes)].map(async code => {
-    if (!(await api.taiwanSearch(code, 5)).results.some(item => item.code.toUpperCase() === code)) {
-      throw new Error(`找不到零股列的代號 ${code}，已保留原帳本`)
-    }
-  }))
-  // 只需確認上市/上櫃別；賣出時的稅費仍由既有賣出流程依官方規則計算。
+  const resolveInstrument = async (code: string) => {
+    const { results } = await api.taiwanSearch(code, 5)
+    const found = results.find(item => item.code.toUpperCase() === code && isSupportedPortfolioInstrument(item))
+    if (!found) throw new Error(`找不到支援的股票或 ETF：${code}，請確認代號`)
+    return found
+  }
+  if (replace) await Promise.all([...new Set(parsed.zeroCodes)].map(resolveInstrument))
   const resolved = await Promise.all(parsed.rows.map(async row => {
-    const found = (await api.taiwanSearch(row.code, 5)).results.find(item => item.code.toUpperCase() === row.code)
-    if (!found) throw new Error(`找不到代號 ${row.code}，請確認是上市/上櫃股票或 ETF`)
+    const found = await resolveInstrument(row.code)
     return { row, symbol: found.symbol, name: row.name || found.name }
   }))
   const imported = await withPortfolioWriteLock(() => {
-    if (sync && (localStorage.getItem(AUTO_SYNC_MARK) ?? '') !== sync.previous) return false
+    if (sync && (!sync.active() || (localStorage.getItem(AUTO_SYNC_MARK) ?? '') !== sync.previous)) return false
     const ledger = readPortfolioLedger()
     if (ledger.error) throw new Error(ledger.error)
     let next = replace ? [] : ledger.transactions
@@ -540,32 +541,33 @@ async function importHoldingRows(parsed: ReturnType<typeof parsePortfolioImport>
 function usePortfolioAutoSync(enabled: boolean) {
   const qc = useQueryClient()
   const sync = useQuery({ queryKey: ['portfolioAutoSync'], queryFn: api.portfolioAutoSyncGet, enabled, staleTime: 60_000 })
-  const running = useRef(false)
   const [message, setMessage] = useState('')
   useEffect(() => {
     const info = sync.data
-    if (!enabled || !info?.path || info.modified == null || running.current) return
+    if (!enabled || !info?.path || info.modified == null) return
     let mark = ''
     try { mark = localStorage.getItem(AUTO_SYNC_MARK) ?? '' } catch { /* ignore */ }
     if (mark === 'paused' || mark === JSON.stringify([info.path, info.modified])) return
-    running.current = true
+    let active = true
     const path = info.path
     void (async () => {
       try {
-        const { text } = await api.portfolioImportRead({ path })
-        if (!await importHoldingRows(parsePortfolioImport(text, todayTaipei()), true, { previous: mark, version: JSON.stringify([info.path, info.modified]) })) return
+        const { text, modified } = await api.portfolioImportRead({ path })
+        if (!active) return
+        const version = JSON.stringify([path, modified ?? info.modified])
+        if (!await importHoldingRows(parsePortfolioImport(text, todayTaipei()), true, { previous: mark, version, active: () => active })) return
         void qc.invalidateQueries({ queryKey: QK.watchlist })
-        setMessage(`已從 ${info.name} 自動同步持股`)
+        if (active) setMessage(`已從 ${info.name} 自動同步持股`)
       } catch (cause) {
-        setMessage(`自動同步持股失敗：${cause instanceof Error ? cause.message : '未知錯誤'}`)
-      } finally {
-        running.current = false
+        if (active) setMessage(`自動同步持股失敗：${cause instanceof Error ? cause.message : '未知錯誤'}`)
       }
     })()
+    return () => { active = false }
   }, [enabled, qc, sync.data])
   return { info: sync.data, message }
 }
 
+type CloudSnapshot = { path: string; modified: number }
 type ImportSource = 'local' | 'onedrive' | 'gdrive'
 const IMPORT_SOURCES: { id: ImportSource; label: string }[] = [
   { id: 'local', label: '檔案 / 貼上' },
@@ -581,9 +583,8 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
   const [source, setSource] = useState<ImportSource>('local')
   const [sheetUrl, setSheetUrl] = useState('')
   const [loadedFrom, setLoadedFrom] = useState('')
-  const [cloudPath, setCloudPath] = useState('')
+  const [cloudSnapshot, setCloudSnapshot] = useState<CloudSnapshot | null>(null)
   const [keepSynced, setKeepSynced] = useState(true)
-  const autoSyncPath = keepSynced && cloudPath ? cloudPath : ''
   const [loadingSource, setLoadingSource] = useState(false)
   const loadRequest = useRef(0)
   const cloudFiles = useQuery({
@@ -592,16 +593,19 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
     enabled: source !== 'local',
     staleTime: 60_000,
   })
-  const loadCloud = async (payload: { path?: string; sheet_url?: string }, label: string) => {
+  const [replace, setReplace] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const loadPreview = async (label: string, read: () => Promise<{ text: string; snapshot?: CloudSnapshot }>) => {
     const requestId = ++loadRequest.current
     setError('')
     setLoadingSource(true)
     try {
-      const result = await api.portfolioImportRead(payload)
+      const result = await read()
       if (requestId === loadRequest.current) {
         setText(result.text)
         setLoadedFrom(label)
-        setCloudPath(payload.path ?? '')
+        setCloudSnapshot(result.snapshot ?? null)
       }
     } catch (cause) {
       if (requestId === loadRequest.current) setError(cause instanceof Error ? cause.message : '讀取失敗')
@@ -609,20 +613,38 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
       if (requestId === loadRequest.current) setLoadingSource(false)
     }
   }
-  const [replace, setReplace] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const loadLocalFile = async (file: File) => {
+  const loadCloud = (payload: { path?: string; sheet_url?: string }, label: string, listedVersion?: number) =>
+    loadPreview(label, async () => {
+      const result = await api.portfolioImportRead(payload)
+      const modified = result.modified ?? listedVersion
+      return { text: result.text, snapshot: payload.path && modified != null ? { path: payload.path, modified } : undefined }
+    })
+  const loadLocalFile = (file: File) => loadPreview(file.name, async () => ({ text: await holdingsFileToText(file) }))
+  const editPreview = (value: string) => {
+    loadRequest.current++
+    setLoadingSource(false)
+    setLoadedFrom('')
+    setCloudSnapshot(null)
     setError('')
-    try {
-      setText(await holdingsFileToText(file))
-      setLoadedFrom(file.name)
-      setCloudPath('')
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '讀取檔案失敗')
-    }
+    setText(value)
   }
   const parsed = useMemo(() => parsePortfolioImport(text, todayTaipei()), [text])
+
+  const [pendingSync, setPendingSync] = useState<CloudSnapshot | null>(null)
+  const finishSync = async (snapshot: CloudSnapshot) => {
+    setBusy(true)
+    setError('')
+    try {
+      await api.portfolioAutoSyncSet(snapshot.path)
+      localStorage.setItem(AUTO_SYNC_MARK, JSON.stringify([snapshot.path, snapshot.modified]))
+      void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] })
+      onClose()
+    } catch (cause) {
+      setError(`持股已匯入，同步設定尚未完成：${cause instanceof Error ? cause.message : '請稍後重試'}`)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const runImport = async () => {
     setBusy(true)
@@ -630,18 +652,26 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
     try {
       await importHoldingRows(parsed, replace)
       void qc.invalidateQueries({ queryKey: QK.watchlist })
-      if (autoSyncPath) {
-        const sync = await api.portfolioAutoSyncSet(autoSyncPath)
-        localStorage.setItem(AUTO_SYNC_MARK, JSON.stringify([sync.path, sync.modified]))
-        void qc.invalidateQueries({ queryKey: ['portfolioAutoSync'] })
+      if (keepSynced && cloudSnapshot) {
+        setPendingSync(cloudSnapshot)
+        await finishSync(cloudSnapshot)
+      } else {
+        onClose()
       }
-      onClose()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '匯入失敗')
     } finally {
       setBusy(false)
     }
   }
+
+  if (pendingSync) return (
+    <Modal onClose={onClose} ariaLabel="匯入持股" overlayClassName="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" panelClassName="w-full max-w-md space-y-3 rounded-2xl bg-surface p-4">
+      {error ? <p role="alert">{error}</p> : <p role="status">持股已匯入，正在設定同步…</p>}
+      {error && <button type="button" disabled={busy} onClick={() => void finishSync(pendingSync)} className={menuItemClass}>重試同步設定</button>}
+      <button type="button" onClick={onClose} className={menuItemClass}>關閉</button>
+    </Modal>
+  )
 
   return (
     <Modal onClose={onClose} ariaLabel="匯入持股" overlayClassName="fixed inset-0 z-[80] grid place-items-center bg-black/55 p-4" panelClassName="max-h-[calc(100vh-2rem)] w-full max-w-2xl space-y-3 overflow-y-auto rounded-2xl border border-border bg-surface p-4 shadow-2xl">
@@ -687,7 +717,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
               <ul className="max-h-36 overflow-auto rounded-lg border border-border text-xs">
                 {cloudFiles.data.files.map(file => (
                   <li key={file.path}>
-                    <button type="button" disabled={loadingSource} onClick={() => void loadCloud({ path: file.path }, file.name)} className="w-full px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50">
+                    <button type="button" disabled={loadingSource} onClick={() => void loadCloud({ path: file.path }, file.name, file.modified)} className="w-full px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50">
                       <span className="font-medium text-foreground">{file.name}</span>
                       <span className="ml-2 text-muted">{fmtTaipeiDateTime(file.modified * 1000, '—', true)}</span>
                       <div className="truncate text-xs text-muted">{file.folder}</div>
@@ -711,7 +741,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
         )}
         {loadedFrom && <p className="text-xs text-muted">已讀入：{loadedFrom}</p>}
         <label className="block text-xs font-medium text-secondary" htmlFor="holdings-import-text">{loadedFrom ? '內容（可再修改）' : '或直接貼上持股表格'}</label>
-        <textarea id="holdings-import-text" value={text} onChange={event => { setText(event.target.value); setLoadedFrom('') }} rows={8} placeholder={'把券商或 Excel 的持股表格整張貼在這裡，例如：\n代號,名稱,股數,均價,總成本\n2330,台積電,1000,850.5,851712'} className="w-full rounded-lg border border-border bg-base px-3 py-2 font-mono text-xs text-foreground" />
+        <textarea id="holdings-import-text" value={text} onChange={event => editPreview(event.target.value)} rows={8} placeholder={'把券商或 Excel 的持股表格整張貼在這裡，例如：\n代號,名稱,股數,均價,總成本\n2330,台積電,1000,850.5,851712'} className="w-full rounded-lg border border-border bg-base px-3 py-2 font-mono text-xs text-foreground" />
         {parsed.rows.length > 0 && (
           <div className="max-h-48 overflow-auto rounded-lg border border-border">
             <table className="w-full text-xs">
@@ -727,7 +757,7 @@ function PortfolioImportDialog({ onClose }: { onClose: () => void }) {
           <input type="checkbox" checked={replace} onChange={event => setReplace(event.target.checked)} />
           匯入前清空現有 {transactions.length} 筆成交紀錄（用匯入的資料取代；不勾則加在後面）
         </label>
-        {cloudPath && (
+        {cloudSnapshot && (
           <label className="flex items-center gap-2 text-xs text-secondary">
             <input type="checkbox" checked={keepSynced} onChange={event => setKeepSynced(event.target.checked)} />
             以後每次開看板，這個檔案有更新就自動同步（整本取代，在看板手動記的交易會被蓋掉）

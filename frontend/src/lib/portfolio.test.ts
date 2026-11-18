@@ -158,6 +158,35 @@ describe('portfolio accounting', () => {
 })
 
 describe('parsePortfolioImport', () => {
+  it('validates grouping in share counts and prices before importing', () => {
+    const parse = (shares: string, price: string) =>
+      parsePortfolioImport(`代號\t股數\t均價\n2330\t${shares}\t${price}`, '2026-09-24')
+    for (const [shares, price] of [['1,00', '105'], ['100', '10,5'], ['1 00', '105']]) {
+      const result = parse(shares, price)
+      expect(result.errors).toEqual([expect.stringMatching(/第 2 列 2330/)])
+      expect(result.rows).toEqual([])
+    }
+    for (const shares of ['1,000', '1 000', '1000']) {
+      expect(parse(shares, '1,234.50').rows[0]).toMatchObject({ shares: 1000, price: 1234.5 })
+    }
+  })
+  it('rejects malformed explicit costs before a holding or zero snapshot can be imported', () => {
+    const header = '代號\t股數\t均價\t總成本\n'
+    for (const shares of [0, 10]) {
+      for (const cost of ['1O50', 'Infinity', '10,50']) {
+        const result = parsePortfolioImport(header + ['2330', shares, 100, cost].join('\t'), '2026-11-18')
+        expect(result.errors).toEqual([expect.stringMatching(/第 2 列 2330.*總成本/)])
+        expect(result.rows).toEqual([])
+        expect(result.emptySnapshot).toBe(false)
+      }
+    }
+    for (const [cost, fee] of [['', 0], ['-1,050', 50]] as const) {
+      const result = parsePortfolioImport(header + '2330\t10\t100\t' + cost, '2026-11-18')
+      expect(result.errors).toEqual([])
+      expect(result.rows[0].fee).toBe(fee)
+    }
+  })
+
   it('distinguishes an explicit zero snapshot from empty, partial and broken inputs', () => {
     const zero = '代號,名稱,股數,均價\n2330,台積電,0,0'
     expect(parsePortfolioImport(zero, '2026-10-09').emptySnapshot).toBe(true)
@@ -251,4 +280,12 @@ describe('parsePortfolioImport', () => {
     expect(isTaiwanPortfolioSymbol('00981A.TWSE')).toBe(true)
     expect(isTaiwanPortfolioSymbol('2330')).toBe(false)
   })
+})
+
+it('preserves unpadded import dates and rejects an invalid explicit date', () => {
+  const text = '代號,股數,均價,日期\n2330,10,100,2026/9/3\n0050,10,100,2026-02-30\n2317,1,10,'
+  const result = parsePortfolioImport(text, '2026-11-18')
+  expect(result.rows.map(row => [row.code, row.date])).toEqual([['2330', '2026-09-03'], ['2317', '2026-11-18']])
+  expect(result.errors).toHaveLength(1)
+  expect(result.errors[0]).toContain('0050')
 })

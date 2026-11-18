@@ -81,6 +81,11 @@ def allowed_path(path: str | None) -> Path | None:
 
 
 def read_file(path: str) -> str:
+    text, _ = read_file_snapshot(path)
+    return text
+
+
+def read_file_snapshot(path: str) -> tuple[str, float]:
     """Only files that list_files() would offer may be read (no arbitrary local reads)."""
     candidate = allowed_path(path)
     if candidate is None:
@@ -94,12 +99,17 @@ def read_file(path: str) -> str:
         or not target.is_file()
     ):
         raise PermissionError("只能讀取 OneDrive / Google Drive 同步資料夾內的持股檔")
-    if target.stat().st_size > MAX_BYTES:
+    with target.open("rb") as handle:
+        before = os.fstat(handle.fileno())
+        raw = handle.read(MAX_BYTES + 1)
+        after = os.fstat(handle.fileno())
+    if len(raw) > MAX_BYTES:
         raise ValueError("檔案太大")
-    raw = target.read_bytes()
+    if before.st_mtime_ns != after.st_mtime_ns or len(raw) != after.st_size:
+        raise ValueError("持股檔案正在更新，請重新讀取")
     for encoding in ("utf-8-sig", "cp950"):
         try:
-            return raw.decode(encoding)
+            return raw.decode(encoding), after.st_mtime
         except UnicodeDecodeError:
             continue
     raise ValueError("無法辨識檔案編碼，請另存為 UTF-8 CSV")

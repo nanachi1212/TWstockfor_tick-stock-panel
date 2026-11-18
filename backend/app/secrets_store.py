@@ -27,14 +27,23 @@ def _path() -> Path:
     return p
 
 
+def _read(p: Path) -> dict:
+    try:
+        content = p.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    data = json.loads(content)
+    if not isinstance(data, dict):
+        raise ValueError("secrets.json must contain an object")
+    return data
+
+
 def load() -> dict:
-    p = _path()
-    if p.exists():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning("secrets.json malformed: %s", e)
-    return {}
+    try:
+        return _read(_path())
+    except (ValueError, OSError) as e:
+        logger.warning("Cannot read secrets.json: %s", type(e).__name__)
+        return {}
 
 
 def _write(p: Path, data: dict) -> None:
@@ -49,9 +58,10 @@ def _write(p: Path, data: dict) -> None:
 def save(updates: dict) -> dict:
     """合併寫入(不會清掉未提及的欄位)。回傳新內容。"""
     with _WRITE_LOCK:
-        current = load()
+        p = _path()
+        current = _read(p)
         current.update({k: v for k, v in updates.items() if v is not None})
-        _write(_path(), current)
+        _write(p, current)
         return current
 
 
@@ -64,7 +74,7 @@ def clear(*keys: str) -> dict:
         if not keys:
             p.unlink()
             return {}
-        current = load()
+        current = _read(p)
         for k in keys:
             current.pop(k, None)
         _write(p, current)

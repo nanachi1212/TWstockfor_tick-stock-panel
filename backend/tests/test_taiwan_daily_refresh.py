@@ -264,3 +264,19 @@ class TestTaiwanDailyRefreshIncremental:
         stored = tmp_store.read_all(["0050.TWSE"])
         assert stored.height == 1
         assert stored["date"][0] == target_date
+
+
+def test_symbol_gap_fill_preserves_middle_snapshot(tmp_store):
+    symbol = "2330.TWSE"
+    start, middle, end = (date(2026, 11, day) for day in (16, 17, 18))
+    provider = MockCallTrackingProvider()
+    official = provider.get_daily([symbol], middle, middle).with_columns(
+        pl.lit(110.0).alias("close"), pl.lit("official").alias("status"),
+    )
+    tmp_store.write_batch(official)
+    service = TaiwanDailyRefreshService(store=tmp_store, provider=provider)
+    result = service.refresh_symbols([symbol], start, end)
+    rows = tmp_store.read_range([symbol], start, end, include_provenance=True)
+    assert rows["close"].to_list() == [102.0, 110.0, 102.0]
+    assert rows["status"][1] == "official"
+    assert result["rows_written"] == 2

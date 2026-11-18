@@ -14,6 +14,7 @@ import time
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import date, datetime, timedelta
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -154,17 +155,33 @@ class TaiwanFundamentalStore:
         return list(memo[1])
 
     def save(self, records: Iterable[FundamentalRecord]) -> int:
-        merged = {self._identity(row): row for row in self.load()}
-        for row in records:
-            merged[self._identity(row)] = row
+        revisions = {}
+        daily_latest = {}
+        for row in chain(self.load(), records):
+            key = self._identity(row)
+            if row.dataset != "valuation":
+                revisions[key] = row
+                continue
+            # The first sighting proves when this revision was known. The last
+            # sighting each Taipei day also captures a correction reverting to an older value.
+            if key not in revisions or row.retrieved_at < revisions[key].retrieved_at:
+                revisions[key] = row
+            day_key = (row.symbol, row.period_end, row.retrieved_at.astimezone(TAIPEI).date())
+            if day_key not in daily_latest or row.retrieved_at > daily_latest[day_key].retrieved_at:
+                daily_latest[day_key] = row
+
+        saved = list(revisions.values())
+        saved.extend(row for row in daily_latest.values()
+                     if row.retrieved_at != revisions[self._identity(row)].retrieved_at)
+        saved.sort(key=lambda row: (self._identity(row), row.retrieved_at))
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = "\n".join(json.dumps(row.to_dict(), ensure_ascii=False, sort_keys=True) for row in sorted(merged.values(), key=self._identity))
+        payload = "\n".join(json.dumps(row.to_dict(), ensure_ascii=False, sort_keys=True) for row in saved)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(payload + ("\n" if payload else ""), encoding="utf-8")
         temporary.replace(self.path)
         # Two saves inside one timestamp tick can leave size and mtime unchanged.
         _LOAD_MEMO.pop(self.path, None)
-        return len(merged)
+        return len(saved)
 
     @staticmethod
     def _identity(row: FundamentalRecord) -> tuple[str, str, str, str, str]:

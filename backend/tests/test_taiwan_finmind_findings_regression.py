@@ -337,3 +337,12 @@ def test_connection_test_succeeds_when_data_received():
         res = adapter.test_connection(probe_symbol="2330")
         assert res["ok"] is True
         assert "連線成功" in res["message"]
+
+
+def test_revenue_cutoff_requires_valid_publication_time_in_taipei():
+    rows = [{"create_time": stamp} for stamp in (
+        "--", "2026-02-30", "2026-09-30garbage", "2026-09-30T17:00:00Z",
+        "2026-09-30 23:59:59", "2026-09-30T15:59:59Z",
+    )]
+    assert filter_month_revenue_as_of(rows, date(2026, 9, 30)) == rows[-2:]
+    assert filter_month_revenue_as_of(rows, "invalid") == []

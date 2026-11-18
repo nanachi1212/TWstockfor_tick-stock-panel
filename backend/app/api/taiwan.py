@@ -241,7 +241,8 @@ def read_portfolio_import(payload: PortfolioImportReadIn):
         if payload.sheet_url:
             return {"text": portfolio_import.fetch_google_sheet(payload.sheet_url)}
         if payload.path:
-            return {"text": portfolio_import.read_file(payload.path)}
+            text, modified = portfolio_import.read_file_snapshot(payload.path)
+            return {"text": text, "modified": modified}
     except (PermissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     raise HTTPException(status_code=400, detail="請選擇檔案或貼上試算表網址")

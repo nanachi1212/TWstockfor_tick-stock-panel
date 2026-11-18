@@ -1313,7 +1313,7 @@ export interface InstitutionalMarketAggregate {
   investment_trust_net: number | null
   dealer_net: number | null
   total_net: number | null
-  status: 'current' | 'stale' | 'unavailable'
+  status: 'current' | 'stale' | 'partial' | 'unavailable'
 }
 
 export interface MarginMarketAggregate {
@@ -1324,7 +1324,7 @@ export interface MarginMarketAggregate {
   short_balance: number | null
   short_balance_change: number | null
   aggregate_short_margin_ratio: number | null
-  status: 'current' | 'stale' | 'unavailable'
+  status: 'current' | 'stale' | 'partial' | 'unavailable'
 }
 
 export interface IndexSnapshot {
@@ -1359,7 +1359,7 @@ export interface TaiwanMarketIntelligenceSnapshot {
     target_trade_date: string
     previous_trade_date: string | null
     overall_status: 'complete' | 'partial' | 'unavailable'
-    daily: { dataset: string; as_of: string | null; status: 'current' | 'stale' | 'unavailable'; source: string }
+    daily: { dataset: string; as_of: string | null; status: 'current' | 'stale' | 'partial' | 'unavailable'; source: string }
     indexes: { dataset: string; as_of: string | null; status: 'current' | 'stale' | 'unavailable'; source: string }
     universe_supported_symbols: number
     daily_snapshot_symbols: number
@@ -3314,7 +3314,7 @@ export const api = {
     }),
 
   portfolioImportRead: (payload: { path?: string; sheet_url?: string }) =>
-    request<{ text: string }>('/api/taiwan/portfolio-import/read', {
+    request<{ text: string; modified?: number }>('/api/taiwan/portfolio-import/read', {
       method: 'POST',
       body: JSON.stringify(payload),
       quiet: true,

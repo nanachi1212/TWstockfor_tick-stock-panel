@@ -413,7 +413,7 @@ def test_research_context_fills_valuation_point_in_time():
 
     sessions = _weekdays(date(2026, 8, 28), 25)
     valuation = {"data": {"pe": 18.5, "pb": None, "dividend_yield": 2.1}, "data_date": "2026-08-27",
-                 "status": "available"}
+                 "status": "available", "fetched_at": "2026-08-27T10:00:00+08:00"}
     service = _research_service(sessions, {"TaiwanValuation": valuation})
 
     ctx = service.get_research_context("TEST.TWSE", date(2026, 8, 28))
@@ -429,3 +429,41 @@ def test_research_context_fills_valuation_point_in_time():
     past = service.get_research_context("TEST.TWSE", date(2026, 8, 26)).fundamentals_context
     assert (past.pe, past.dividend_yield, past.valuation_as_of) == (None, None, None)
     assert past.status == "unavailable"
+
+    valuation["fetched_at"] = "2026-08-28T17:00:00Z"  # Aug 29 in Taipei.
+    revised = service.get_research_context("TEST.TWSE", date(2026, 8, 28)).fundamentals_context
+    assert revised.pe is None
+
+
+def test_research_financial_zero_metrics_are_preserved(monkeypatch):
+    event_service = MagicMock()
+    event_service.get_events.return_value = []
+    monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: event_service)
+    sessions = _weekdays(date(2026, 8, 28), 25)
+    rows = [{"date": "2026-06-30", "type": name, "value": 0} for name in ("Revenue", "IncomeAfterTaxes")]
+    service = _research_service(sessions, {"TaiwanStockFinancialStatements": {"data": rows}})
+    fund = service.get_research_context("TEST.TWSE").fundamentals_context
+    assert (fund.operating_revenue, fund.net_income, fund.status) == (0, 0, "available")
+
+
+def test_research_and_detail_agree_on_wide_cached_history(tmp_path, monkeypatch):
+    from app.taiwan.finmind_cache import FinMindCache
+    from app.taiwan.fundamental_chips_service import TaiwanFundamentalChipsService
+
+    day = date(2026, 8, 28)
+    cache = FinMindCache(tmp_path)
+    symbol = "TEST.TWSE"
+    for dataset, fields in (
+        ("TaiwanStockMonthRevenue", {"revenue": 100, "create_time": "2024-01-10"}),
+        ("TaiwanStockShareholding", {"ForeignInvestmentSharesRatio": 12}),
+        ("TaiwanStockSecuritiesLending", {"volume": 50, "fee_rate": 1}),
+    ):
+        cache.set(dataset, symbol, [{"date": "2024-01-10", **fields}], query_start="2023-01-01")
+    detail = TaiwanFundamentalChipsService(cache=cache)
+    research = _research_service(_weekdays(day, 25), {})
+    research.finmind_cache = cache
+    monkeypatch.setattr(detail, "_get_finmind_adapter", lambda: pytest.fail("unexpected provider call"))
+    context = research.get_research_context(symbol, day)
+    assert context.fundamentals_context.latest_monthly_revenue == detail.get_monthly_revenue(symbol, day).latest_revenue is None
+    assert context.ownership_context.foreign_shareholding_ratio == detail.get_foreign_shareholding(symbol, day).ratio is None
+    assert context.ownership_context.securities_lending_latest_volume == detail.get_securities_lending(symbol, day).latest_volume is None

@@ -55,3 +55,18 @@ def test_google_sheet_response_is_bounded(monkeypatch):
 
     with pytest.raises(ValueError, match="太大"):
         portfolio_import.fetch_google_sheet("https://docs.google.com/spreadsheets/d/abcdefghijklmnopqrst")
+
+
+def test_preview_reports_version_of_the_file_read(tmp_path, monkeypatch):
+    import os
+
+    from app.api.taiwan import PortfolioImportReadIn, read_portfolio_import
+
+    holdings = tmp_path / "holdings.csv"
+    monkeypatch.setattr(portfolio_import, "cloud_roots", lambda: {"onedrive": [tmp_path], "gdrive": []})
+    for shares, stamp in ((10, 100000), (20, 200000)):
+        content = f"code,shares\n2330,{shares}"
+        holdings.write_bytes(content.encode("utf-8"))
+        os.utime(holdings, (stamp, stamp))
+        result = read_portfolio_import(PortfolioImportReadIn(path=str(holdings)))
+        assert (result["text"], result.get("modified")) == (content, holdings.stat().st_mtime)

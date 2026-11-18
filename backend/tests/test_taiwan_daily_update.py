@@ -575,3 +575,171 @@ def test_recent_gap_scan_skips_verified_closures_and_does_not_bootstrap_history(
     old = date(2026, 8, 31)
     recent = [date(2026, 9, 20) + timedelta(days=i) for i in range(46)]
     assert resolve_missing_date_range(target, target, cal, evidence, available_dates=[old, *recent]) is None
+
+
+@pytest.mark.parametrize("later_snapshot", [False, True])
+def test_market_update_retries_partial_partition(tmp_path, later_snapshot):
+    target = date(2026, 11, 17)
+    available = [target, target + timedelta(days=1)] if later_snapshot else [target]
+    daily, other, refresh = MagicMock(), MagicMock(), MagicMock()
+    daily.available_dates.return_value = available
+    daily.partial_dates.return_value = {target}
+    other.available_dates.return_value = [target]
+    refresh.refresh_dates.return_value = {"dates_fetched": 1}
+    service = TaiwanDailyUpdateService(
+        daily_store=daily, inst_store=other, margin_store=other, daily_service=refresh,
+        evidence_store=ObservedUniverseStore(tmp_path / "observed"),
+    )
+    assert not service.get_freshness(target).is_fully_current
+    service.run_update(target_date=target)
+    refresh.refresh_dates.assert_called_once_with(start_date=target, end_date=target, force=False)
+
+
+def test_future_partitions_do_not_mark_target_current(tmp_path):
+    target = date(2026, 11, 17)
+    previous, following = target - timedelta(days=1), target + timedelta(days=1)
+    daily, inst, margin = (MagicMock() for _ in range(3))
+    daily.available_dates.return_value = [target]
+    daily.partial_dates.return_value = set()
+    inst.available_dates.return_value = [following]
+    margin.available_dates.return_value = [previous, following]
+    service = TaiwanDailyUpdateService(
+        daily_store=daily, inst_store=inst, margin_store=margin,
+        evidence_store=ObservedUniverseStore(tmp_path / "observed"),
+    )
+    result = service.get_freshness(target)
+    assert not result.is_fully_current
+    assert (result.institutional_as_of, result.institutional_status) == (None, "unavailable")
+    assert (result.margin_as_of, result.margin_status, result.margin_days_behind) == (str(previous), "stale", 1)
+
+
+def test_update_requests_target_when_first_partition_is_later(tmp_path):
+    target = date(2026, 11, 17)
+    store = MagicMock()
+    store.available_dates.return_value = [target + timedelta(days=1)]
+    store.partial_dates.return_value = set()
+    daily, inst, margin = (MagicMock() for _ in range(3))
+    for refresh in (daily, inst, margin):
+        refresh.refresh_dates.return_value = {"dates_fetched": 1}
+    service = TaiwanDailyUpdateService(
+        daily_store=store, inst_store=store, margin_store=store,
+        daily_service=daily, inst_service=inst, margin_service=margin,
+        evidence_store=ObservedUniverseStore(tmp_path / "observed"),
+    )
+    service.run_update(target_date=target)
+    daily.refresh_dates.assert_called_once_with(start_date=target, end_date=target, force=False)
+    for refresh in (inst, margin):
+        refresh.refresh_dates.assert_called_once_with(target, target, force=False)
+
+
+@pytest.mark.parametrize("providers_fail", [False, True])
+def test_symbol_update_reports_partial_and_retries_only_missing_symbol(tmp_path, providers_fail):
+    import polars as pl
+
+    from app.taiwan.daily_store import TaiwanDailyStore
+
+    target = date(2026, 11, 17)
+    daily = TaiwanDailyStore(tmp_path / "daily")
+    provider = MagicMock()
+    missing = {"2317.TWSE"}
+
+    def fetch(symbols, start_time, end_time):
+        if symbols[0] in missing:
+            return pl.DataFrame()
+        return pl.DataFrame({"symbol": symbols, "date": [target], "open": [10.0], "high": [11.0],
+                             "low": [9.0], "close": [10.0], "volume": [100], "amount": [1000.0], "quote_ts": [None]})
+
+    provider.get_daily.side_effect = fetch
+    other, refresh = MagicMock(), MagicMock()
+    other.available_dates.return_value = [] if providers_fail else [target]
+    refresh.refresh_dates.return_value = {"failed_dates": [{"date": str(target), "error": "fixture failure"}]}
+    service = TaiwanDailyUpdateService(
+        daily_store=daily, daily_service=TaiwanDailyRefreshService(store=daily, provider=provider),
+        inst_store=other, margin_store=other, inst_service=refresh, margin_service=refresh,
+        evidence_store=ObservedUniverseStore(tmp_path / "observed"),
+    )
+    symbols = ["2330.TWSE", "2317.TWSE"]
+    result = service.run_update(target_date=target, daily_symbols=symbols)
+    assert (result.daily.status, result.overall_status, result.daily.rows_written) == ("partial", "partial", 1)
+    assert "2317.TWSE" in str(result.daily.failed_dates + result.daily.pending_dates)
+    assert daily.read_all()["symbol"].to_list() == ["2330.TWSE"]
+    missing.clear()
+    provider.get_daily.reset_mock()
+    retried = service.run_update(target_date=target, daily_symbols=symbols)
+    assert (retried.daily.status, retried.daily.rows_written) == ("success", 1)
+    provider.get_daily.assert_called_once_with(["2317.TWSE"], start_time=target, end_time=target)
+    assert sorted(daily.read_all()["symbol"].to_list()) == sorted(symbols)
+
+
+def test_symbol_refresh_with_concurrent_official_row_reports_no_extra_write(tmp_path):
+    import polars as pl
+
+    from app.taiwan.daily_store import TaiwanDailyStore
+
+    target = date(2026, 11, 17)
+    daily = TaiwanDailyStore(tmp_path / "daily")
+    rows = pl.DataFrame({"symbol": ["2330.TWSE"], "date": [target], "open": [10.0], "high": [11.0],
+                         "low": [9.0], "close": [10.0], "volume": [100], "amount": [1000.0], "quote_ts": [None]})
+
+    def fetch(*args, **kwargs):
+        daily.write_batch(rows, partition_date=target)
+        return rows.with_columns(pl.lit(9.0).alias("close"))
+
+    other = MagicMock()
+    other.available_dates.return_value = [target]
+    provider = MagicMock()
+    provider.get_daily.side_effect = fetch
+    svc = TaiwanDailyUpdateService(
+        daily_store=daily, daily_service=TaiwanDailyRefreshService(store=daily, provider=provider),
+        inst_store=other, margin_store=other, evidence_store=ObservedUniverseStore(tmp_path / "observed"),
+    )
+    result = svc.run_update(target_date=target, daily_symbols=["2330.TWSE"])
+    assert (result.daily.status, result.daily.rows_written) == ("success", 0)
+    assert daily.read_all()["close"].to_list() == [10.0]
+
+
+def test_partial_date_range_counts_persisted_sessions_and_retries_gap(tmp_path):
+    import polars as pl
+
+    from app.taiwan.daily_store import TaiwanDailyStore
+
+    store = TaiwanDailyStore(tmp_path / "daily")
+    symbol = "2330.TWSE"
+    days = [date(2026, 11, day) for day in (16, 17, 18)]
+
+    def rows(observations):
+        return pl.DataFrame([{"symbol": symbol, "date": d, "open": 10.0, "high": 11.0, "low": 9.0,
+                              "close": 10.0, "volume": 100, "amount": 1000.0, "quote_ts": None} for d in observations])
+
+    store.write_batch(rows([date(2026, 11, 13)]))
+    provider = MagicMock()
+    provider.get_daily.side_effect = [rows([days[0], days[2]]), rows([days[1]])]
+    other = MagicMock()
+    other.available_dates.return_value = [days[-1]]
+    svc = TaiwanDailyUpdateService(
+        daily_store=store, daily_service=TaiwanDailyRefreshService(store=store, provider=provider),
+        inst_store=other, margin_store=other, evidence_store=ObservedUniverseStore(tmp_path / "observed"),
+    )
+    result = svc.run_update(target_date=days[-1], daily_symbols=[symbol])
+    assert (result.daily.status, result.daily.dates_fetched, result.daily.rows_written) == ("partial", 2, 2)
+    assert any(entry.get("symbol") == symbol and entry.get("date") == str(days[1]) for entry in result.daily.pending_dates)
+    retry = svc.run_update(target_date=days[-1], daily_symbols=[symbol])
+    assert (retry.daily.status, retry.daily.dates_fetched, retry.daily.rows_written) == ("success", 1, 1)
+    provider.get_daily.assert_called_with([symbol], start_time=days[1], end_time=days[1])
+    assert store.read_range([symbol], days[0], days[-1])["date"].to_list() == days
+
+
+def test_symbol_and_market_refresh_skip_same_verified_closure(tmp_path):
+    from app.taiwan.daily_store import TaiwanDailyStore
+
+    target = date(2026, 11, 17)
+    evidence = ObservedUniverseStore(tmp_path / "observed")
+    for exchange in ("TWSE", "TPEX"):
+        evidence.write(exchange, target, [], confirmed_non_trading_source="official:calendar")
+    provider, snapshot = MagicMock(), MagicMock()
+    store = TaiwanDailyStore(tmp_path / "daily")
+    service = TaiwanDailyRefreshService(store=store, provider=provider, snapshot_adapter=snapshot, evidence_store=evidence)
+    assert service.refresh_dates(target, target)["dates_requested"] == 0
+    assert service.refresh_symbols(["2330.TWSE"], target, target)["jobs_executed"] == 0
+    provider.get_daily.assert_not_called()
+    snapshot.fetch_date.assert_not_called()

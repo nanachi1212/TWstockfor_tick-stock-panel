@@ -209,6 +209,8 @@ def finmind_policy(
             return "partial", f"{invalid_count}/{len(records)} 檔快取沒有有效資料"
         if not dated:
             return "unavailable", "快取沒有可判定期別的資料"
+        if len(dated) < len(records):
+            return "partial", f"{len(records) - len(dated)}/{len(records)} 檔缺少可判定期別的日期"
         if behind:
             return "stale", f"{len(behind)}/{len(records)} 檔早於應已公告期別 {expected}"
         return "current", f"已快取標的均已涵蓋應已公告期別 {expected}"

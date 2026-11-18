@@ -75,7 +75,7 @@ class TaiwanDailyStore:
                 non-partial write clears the mark.
 
         Returns:
-            Number of rows written (after dedup).
+            For gap fills, number of newly inserted rows. For snapshots, merged partition size.
         """
         del partition_date
         if df.is_empty():
@@ -97,18 +97,12 @@ class TaiwanDailyStore:
         # Group by date and write each partition independently.
         for part_date in df["date"].unique().sort().to_list():
             group = df.filter(pl.col("date") == part_date)
-            existed = (self._data_dir / f"date={part_date.isoformat()}" / "part.parquet").exists()
-            total_written += self._write_partition(part_date, group)
-            marker = self._data_dir / f"date={part_date.isoformat()}" / PARTIAL_MARKER
-            if not partial:
-                marker.unlink(missing_ok=True)
-            elif not existed:
-                marker.touch()
+            total_written += self._write_partition(part_date, group, partial=partial)
 
         logger.debug("write_batch total rows written: %d", total_written)
         return total_written
 
-    def _write_partition(self, d: date, df: pl.DataFrame) -> int:
+    def _write_partition(self, d: date, df: pl.DataFrame, *, partial: bool) -> int:
         """Write *df* to the partition directory for date *d*, merging if exists.
 
         The entire read-merge-dedup-replace sequence is protected by a
@@ -120,11 +114,20 @@ class TaiwanDailyStore:
             partition_dir.mkdir(parents=True, exist_ok=True)
             target = partition_dir / "part.parquet"
 
-            # Merge with existing partition if present.
+            marker = partition_dir / PARTIAL_MARKER
+            inserted = df.height
+            # Symbol refreshes fill gaps only, including when a snapshot arrived during fetch.
             if target.exists():
                 existing = pl.scan_parquet(target, missing_columns="insert", extra_columns="ignore").collect()
                 if not existing.is_empty():
+                    if partial:
+                        df = df.join(existing.select("symbol", "date"), on=["symbol", "date"], how="anti")
+                        inserted = df.height
+                        if not inserted:
+                            return 0
                     df = pl.concat([existing, df], how="diagonal_relaxed")
+            elif partial:
+                marker.touch()
 
             # Final dedup + deterministic sort.
             before = df.height
@@ -143,7 +146,9 @@ class TaiwanDailyStore:
                     Path(tmp_path).unlink(missing_ok=True)
                 raise
 
-            return df.height
+            if not partial:
+                marker.unlink(missing_ok=True)
+            return inserted if partial else df.height
 
     # ── Read ───────────────────────────────────────────────────────
 

@@ -265,11 +265,20 @@ def test_partial_state_reporting():
     d = date(2026, 8, 28)
     mock_daily = MagicMock()
     mock_daily.available_dates.return_value = [d]
-    mock_daily.read_range.return_value = pl.DataFrame()
+    mock_daily.read_range.side_effect = lambda _, start, end: (
+        pl.DataFrame({"symbol": ["A.TWSE"], "close": [10.0], "volume": [1.0], "amount": [10.0]})
+        if start == d else pl.DataFrame()
+    )
+    master = MagicMock()
+    master.to_dataframe.return_value = pl.DataFrame({
+        "symbol": ["A.TWSE"], "exchange": ["TWSE"], "instrument_type": ["stock"], "listing_status": ["active"],
+    })
 
     mock_inst = MagicMock()
     mock_inst.available_dates.return_value = [date(2026, 8, 27)]  # stale
-    mock_inst.read_range.return_value = pl.DataFrame()
+    mock_inst.read_range.return_value = pl.DataFrame({
+        "foreign_net": [0], "investment_trust_net": [0], "dealer_net": [0],
+    })
 
     mock_margin = MagicMock()
     mock_margin.available_dates.return_value = []  # unavailable
@@ -279,6 +288,7 @@ def test_partial_state_reporting():
         daily_store=mock_daily,
         inst_store=mock_inst,
         margin_store=mock_margin,
+        security_master=master,
     )
     snapshot = svc.get_snapshot(d)
     dq = snapshot.data_quality
@@ -382,3 +392,89 @@ def test_api_endpoint_zero_external_http():
         assert "margin" in data
         assert "by_exchange" in data
         assert mock_urlopen.call_count == 0
+
+
+@pytest.mark.parametrize("partition_on_target", [False, True])
+def test_empty_historical_daily_snapshot_never_uses_future_freshness(partition_on_target):
+    prior, target, future = (date(2026, 11, day) for day in (16, 17, 18))
+    daily, inst, margin, master = (MagicMock() for _ in range(4))
+    daily.available_dates.return_value = [prior, future] + ([target] if partition_on_target else [])
+    daily.read_range.return_value = master.to_dataframe.return_value = pl.DataFrame()
+    for store, columns in (
+        (inst, ["foreign_net", "investment_trust_net", "dealer_net"]),
+        (margin, ["margin_balance", "margin_change", "short_balance", "short_change"]),
+    ):
+        store.available_dates.return_value = [target]
+        store.read_range.return_value = pl.DataFrame({col: [10] for col in columns})
+    snapshot = TaiwanMarketIntelligenceService(daily, inst, margin, security_master=master).get_snapshot(target)
+    assert snapshot.data_quality.daily.status == "unavailable"
+    assert snapshot.data_quality.daily.as_of is None
+    assert snapshot.data_quality.overall_status == "partial"
+
+
+def test_incomplete_market_flows_keep_nulls_and_real_zero_distinct():
+    day = date(2026, 11, 17)
+    daily, inst, margin, master = (MagicMock() for _ in range(4))
+    daily.available_dates.return_value = []
+    daily.read_range.return_value = master.to_dataframe.return_value = pl.DataFrame()
+    inst.available_dates.return_value = margin.available_dates.return_value = [day]
+    inst.read_range.return_value = pl.DataFrame({
+        "foreign_net": [None, 100], "investment_trust_net": [30, -30], "dealer_net": [-5, 0],
+    })
+    margin.read_range.return_value = pl.DataFrame({
+        "margin_balance": [100, None], "margin_change": [None, None], "short_balance": [5, 5],
+    })
+    snap = TaiwanMarketIntelligenceService(daily, inst, margin, security_master=master).get_snapshot(day)
+    assert snap.institutional.foreign_net is None
+    assert snap.institutional.investment_trust_net == 0
+    assert snap.institutional.dealer_net == -5
+    assert snap.institutional.total_net is None
+    assert snap.margin.margin_balance is snap.margin.margin_balance_change is None
+    assert snap.margin.short_balance == 10
+    assert snap.margin.aggregate_short_margin_ratio is snap.margin.short_balance_change is None
+    assert snap.institutional.status == snap.margin.status == "partial"
+    assert snap.data_quality.overall_status == "partial"
+
+
+def test_previous_session_does_not_skip_missing_weekday(mock_calendar):
+    before, missing, target = (date(2026, 11, day) for day in (16, 17, 18))
+    daily = MagicMock()
+    daily.available_dates.return_value = [before, target]
+    svc = TaiwanMarketIntelligenceService(daily_store=daily, calendar=mock_calendar)
+    assert svc.get_previous_trading_date(target) == missing
+
+
+def test_single_symbol_partition_stays_partial_until_full_snapshot(tmp_path):
+    from app.taiwan.daily_store import TaiwanDailyStore
+
+    day = date(2026, 11, 17)
+    symbols = ["2330.TWSE", "2317.TWSE"]
+    rows = pl.DataFrame({
+        "symbol": symbols, "date": [day] * 2, "open": [100.0] * 2, "high": [100.0] * 2,
+        "low": [100.0] * 2, "close": [100.0] * 2, "volume": [1.0] * 2,
+        "amount": [100.0] * 2, "quote_ts": [None] * 2,
+    })
+    daily = TaiwanDailyStore(tmp_path / "daily")
+    master, inst, margin = MagicMock(), MagicMock(), MagicMock()
+    master.to_dataframe.return_value = pl.DataFrame({
+        "symbol": symbols, "exchange": ["TWSE"] * 2, "instrument_type": ["stock"] * 2,
+        "listing_status": ["active"] * 2,
+    })
+    for store, columns in (
+        (inst, ["foreign_net", "investment_trust_net", "dealer_net"]),
+        (margin, ["margin_balance", "margin_change", "short_balance", "short_change"]),
+    ):
+        store.available_dates.return_value = [day]
+        store.read_range.return_value = pl.DataFrame({col: [1] for col in columns})
+    service = TaiwanMarketIntelligenceService(daily, inst, margin, security_master=master)
+    daily.write_batch(rows.head(1), partial=True)
+    snapshot = service.get_snapshot(day)
+    assert snapshot.data_quality.daily.status == snapshot.data_quality.overall_status == "partial"
+    assert snapshot.data_quality.missing_symbols_count == 1
+    assert snapshot.market_totals.turnover == 100
+
+    daily.write_batch(rows)
+    snapshot = service.get_snapshot(day)
+    assert snapshot.data_quality.daily.status == "current"
+    assert snapshot.data_quality.overall_status == "complete"
+    assert snapshot.market_totals.turnover == 200

@@ -61,3 +61,10 @@ describe('holdings file import', () => {
     await expect(xlsxToText(new TextEncoder().encode('not a zip').buffer)).rejects.toThrow('Excel')
   })
 })
+
+it('reads the first workbook tab when worksheet parts are in a different order', async () => {
+  // Current (sheet2) contains 100. Old (sheet1) contains 10.
+  const archive = 'UEsDBBQAAAAIAClbcl3NXrswjgAAAMoAAAAPAAAAeGwvd29ya2Jvb2sueG1sVc5NDoIwEAXgq5A5AIMsXBBK4s/GlWeoMNiGtkNmSuT4RiNGVy95+fLy2gfLdGOeijWGpI0YcDnPDaL2jqLVkmdKawwjS7RZS5Y78jj6ns7cL5FSxrqq9igUbPac1PlZoWvVEWX9ZJFsJAOnRYRShuJdXgYDNRTS+MGAHAH/8TUMP3D3hYcXxG0et//dE1BLAwQUAAAACAApW3JdsXefGJwAAAB+AQAAGgAAAHhsL19yZWxzL3dvcmtib29rLnhtbC5yZWxztZBLCsJAEESvMswB0jELF5IEFDfZSi4wjJ1MyPyYbnG8vSB+ImThxlVBLV49qj6hVTwFT2aKJLKznhppmOMOgLRBp6gIEX12dgjJKaYipBGi0rMaEaqy3EJaMmRbL5miOzcy7aXobxF/IYdhmDQeg7449LwyANeQZjKILEWv0ojcyHdF8IhNkZ2VsKZy+LMKZPupnzrVSwe+7m7vUEsDBBQAAAAIAClbcl2cQf2xOgAAAFAAAAAYAAAAeGwvd29ya3NoZWV0cy9zaGVldDEueG1ssynPL8ouzkhNLbGzAVMuiSWJdjZF+eV2NskKRbZKjoZKdjZldoYGNvpldjb6yXY2+mBJfSTV+ghDAFBLAwQUAAAACAApW3Jd4C9K2TsAAABRAAAAGAAAAHhsL3dvcmtzaGVldHMvc2hlZXQyLnhtbLMpzy/KLs5ITS2xswFTLokliXY2RfnldjbJCkW2So6GSnY2ZXaGBgY2+mV2NvrJdjb6YFl9JOX6CFMAUEsBAhQAFAAAAAgAKVtyXc1euzCOAAAAygAAAA8AAAAAAAAAAAAAAIABAAAAAHhsL3dvcmtib29rLnhtbFBLAQIUABQAAAAIAClbcl2xd58YnAAAAH4BAAAaAAAAAAAAAAAAAACAAbsAAAB4bC9fcmVscy93b3JrYm9vay54bWwucmVsc1BLAQIUABQAAAAIAClbcl2cQf2xOgAAAFAAAAAYAAAAAAAAAAAAAACAAY8BAAB4bC93b3Jrc2hlZXRzL3NoZWV0MS54bWxQSwECFAAUAAAACAApW3Jd4C9K2TsAAABRAAAAGAAAAAAAAAAAAAAAgAH/AQAAeGwvd29ya3NoZWV0cy9zaGVldDIueG1sUEsFBgAAAAAEAAQAEQEAAHACAAAAAA=='
+  const buffer = Uint8Array.from(atob(archive), ch => ch.charCodeAt(0)).buffer
+  expect(await xlsxToText(buffer)).toBe('100')
+})
