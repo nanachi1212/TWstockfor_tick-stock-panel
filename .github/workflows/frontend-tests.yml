@@ -5,11 +5,15 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'backend/app/api/taiwan.py'
+      - 'backend/app/services/portfolio_import.py'
       - '.github/workflows/frontend-tests.yml'
   push:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'backend/app/api/taiwan.py'
+      - 'backend/app/services/portfolio_import.py'
       - '.github/workflows/frontend-tests.yml'
 
 concurrency:

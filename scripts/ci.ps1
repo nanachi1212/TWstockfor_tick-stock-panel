@@ -21,13 +21,7 @@ $ScriptPath = $MyInvocation.MyCommand.Path
 $CiRunRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("tick-stock-panel-ci-" + [guid]::NewGuid().ToString('N'))
 $CiCache = Join-Path $CiRunRoot 'uv-cache'
 $CiTemp = Join-Path $CiRunRoot 'pytest-temp'
-New-Item -ItemType Directory -Force -Path $CiCache, $CiTemp | Out-Null
 $CiProcessDirectory = Join-Path $CiTemp ("ci-processes-" + [guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Force -Path $CiProcessDirectory | Out-Null
-$env:UV_CACHE_DIR = $CiCache
-$env:TEMP = $CiTemp
-$env:TMP = $CiTemp
-$env:TMPDIR = $CiTemp
 $TrivyExcludedDirs = @(
     '**/.git',
     '**/.pytest-*',
@@ -111,6 +105,31 @@ function Test-AnyPath {
     )
 
     return [bool]($Paths | Where-Object { $_ -match $Pattern } | Select-Object -First 1)
+}
+
+# These existing tests exercise the same persisted data through different entry points.
+function Get-CrossEntryTests {
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Paths)
+
+    if (Test-AnyPath $Paths '^backend/app/taiwan/(finmind_cache|fundamental_chips_service|fundamentals|pit_cutoff|research_context|market_valuation)\.py$') {
+        'backend/tests/test_taiwan_fundamental_chips_service.py'
+        'backend/tests/test_taiwan_ai_wave2.py'
+        'backend/tests/test_taiwan_finmind_findings_regression.py'
+        'backend/tests/test_market_breadth_valuation.py'
+    }
+    if (Test-AnyPath $Paths '^backend/app/taiwan/(daily_refresh|daily_store|daily_update|observed_universe|market_intelligence)\.py$') {
+        'backend/tests/test_taiwan_daily_store.py'
+        'backend/tests/test_taiwan_daily_refresh.py'
+        'backend/tests/test_taiwan_daily_update.py'
+        'backend/tests/test_taiwan_daily_update_census.py'
+        'backend/tests/test_taiwan_market_intelligence.py'
+    }
+    if (Test-AnyPath $Paths '^(backend/app/services/portfolio_import\.py|frontend/src/(components/portfolio/Portfolio\.tsx|lib/(portfolio|holdingsFile)\.ts))$') {
+        'backend/tests/test_portfolio_import.py'
+        'frontend/src/lib/holdingsFile.test.ts'
+        'frontend/src/lib/portfolio.test.ts'
+        'frontend/src/components/portfolio/Portfolio.test.tsx'
+    }
 }
 
 function Get-ChangeProfile {
@@ -293,6 +312,10 @@ function Get-Lanes {
         return @($lanes)
     }
 
+    if ($Paths -contains 'scripts/ci.ps1') {
+        Add-Lane -Lanes $lanes -Lane 'ci-script-check'
+    }
+
     if ($SelectedMode -eq 'Auto' -and $Profile.Dependency) {
         Add-Lane -Lanes $lanes -Lane 'trivy-dependency'
     }
@@ -353,6 +376,9 @@ function Stop-CiProcessTree {
 
     if (-not (Test-Path -LiteralPath $ProcessDirectory -PathType Container)) { return }
 
+    $metadataFiles = @(Get-ChildItem -LiteralPath $ProcessDirectory -Filter '*.json' -File)
+    if ($metadataFiles.Count -eq 0) { return }
+
     $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
     $childrenByParent = @{}
     foreach ($process in $processes) {
@@ -364,7 +390,7 @@ function Stop-CiProcessTree {
     }
 
     $targets = [System.Collections.Generic.List[object]]::new()
-    foreach ($metadataPath in @(Get-ChildItem -LiteralPath $ProcessDirectory -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
+    foreach ($metadataPath in $metadataFiles) {
         try {
             $metadata = Get-Content -LiteralPath $metadataPath.FullName -Raw | ConvertFrom-Json
             $queue = [System.Collections.Generic.Queue[object]]::new()
@@ -591,16 +617,22 @@ function Invoke-ScriptCheck {
         @{ Path = 'backend/app/example.py'; Expected = 'backend-fast' },
         @{ Path = 'frontend/src/example.tsx'; Expected = 'frontend-fast' },
         @{ Path = 'backend/pyproject.toml'; Expected = 'backend-full' },
+        @{ Path = 'backend/app/taiwan/finmind_cache.py'; Expected = @('test_taiwan_ai_wave2.py', 'test_taiwan_fundamental_chips_service.py') },
+        @{ Path = 'backend/app/taiwan/daily_store.py'; Expected = @('test_taiwan_daily_refresh.py', 'test_taiwan_daily_update.py') },
+        @{ Path = 'frontend/src/lib/holdingsFile.ts'; Expected = @('frontend-fast', 'backend-fast', 'Portfolio.test.tsx', 'test_portfolio_import.py') },
+        @{ Path = 'backend/app/services/portfolio_import.py'; Expected = @('frontend-fast', 'backend-fast', 'holdingsFile.test.ts') },
         @{ Path = 'README.md'; Expected = '無需執行程式驗證' }
     )
     foreach ($probe in $probeCases) {
-        $probeOutput = @(& $PSHOME\pwsh.exe -NoProfile -File $ScriptPath -Mode Auto -ChangedPath $probe.Path -PlanOnly 2>&1)
-        if ($LASTEXITCODE -ne 0 -or -not (($probeOutput -join [Environment]::NewLine) -match [regex]::Escape($probe.Expected))) {
+        $probeOutput = @(& (Get-Process -Id $PID).Path -NoProfile -File $ScriptPath -Mode Auto -ChangedPath $probe.Path -PlanOnly 2>&1)
+        $plan = $probeOutput -join [Environment]::NewLine
+        $missing = @($probe.Expected | Where-Object { -not $plan.Contains($_) })
+        if ($LASTEXITCODE -ne 0 -or $missing.Count) {
             return [pscustomobject]@{
                 Name = 'CI script plan probes'
                 Passed = $false
                 Duration = 0
-                Output = "Probe '$($probe.Path)' did not select '$($probe.Expected)'.`n$($probeOutput -join [Environment]::NewLine)"
+                Output = "Probe '$($probe.Path)' missing: $($missing -join ', ').`n$plan"
             }
         }
     }
@@ -688,10 +720,17 @@ trap {
 }
 
 $changed = @(Get-ChangedPaths)
-$profile = Get-ChangeProfile -Paths $changed
+$crossEntryTests = @(Get-CrossEntryTests -Paths $changed)
+foreach ($test in $crossEntryTests) {
+    if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot $test) -PathType Leaf)) {
+        throw "Missing cross-entry regression test: $test"
+    }
+}
+$selection = @(($changed + $crossEntryTests) | Sort-Object -Unique)
+$profile = Get-ChangeProfile -Paths $selection
 $lanes = @(Get-Lanes -SelectedMode $Mode -Profile $profile -Paths $changed)
-$backendTests = if ($profile.Backend) { Get-BackendTestFiles -Paths $changed } else { [pscustomobject]@{ Files = @(); Fallback = $false } }
-$frontendTests = if ($profile.Frontend) { Get-FrontendTestFiles -Paths $changed } else { [pscustomobject]@{ Files = @(); Fallback = $false } }
+$backendTests = if ($profile.Backend) { Get-BackendTestFiles -Paths $selection } else { [pscustomobject]@{ Files = @(); Fallback = $false } }
+$frontendTests = if ($profile.Frontend) { Get-FrontendTestFiles -Paths $selection } else { [pscustomobject]@{ Files = @(); Fallback = $false } }
 $frontendBuild = Get-FrontendBuildNeeded -Paths $changed -Full ($Mode -eq 'Full' -or ($Mode -eq 'Auto' -and $profile.HighRisk))
 
 Write-Output "Mode: $Mode"
@@ -719,11 +758,22 @@ if ($profile.Frontend -and $frontendTests.Fallback) { Write-Output 'Frontend tes
 if ($profile.Frontend -and $frontendBuild -and $Mode -ne 'Full') { Write-Output 'Frontend build: 本次變更觸及入口、共享模組、頁面、設定或樣式，納入 build。' }
 
 if ($PlanOnly) {
+    if ('backend-fast' -in $lanes -and $backendTests.Files.Count) {
+        Write-Output ('Backend tests: ' + (($backendTests.Files | ForEach-Object { Get-RelativeRepoPath $_ }) -join ', '))
+    }
+    if ('frontend-fast' -in $lanes -and $frontendTests.Files.Count) {
+        Write-Output ('Frontend tests: ' + (($frontendTests.Files | ForEach-Object { Get-RelativeRepoPath $_ }) -join ', '))
+    }
     Write-Output 'PlanOnly: 未執行 validation commands。'
     exit 0
 }
 
 $results = [System.Collections.Generic.List[object]]::new()
+New-Item -ItemType Directory -Force -Path $CiCache, $CiProcessDirectory | Out-Null
+$env:UV_CACHE_DIR = $CiCache
+$env:TEMP = $CiTemp
+$env:TMP = $CiTemp
+$env:TMPDIR = $CiTemp
 $startedAll = Get-Date
 $jobs = [System.Collections.Generic.List[object]]::new()
 

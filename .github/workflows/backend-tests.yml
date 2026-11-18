@@ -38,16 +38,27 @@ jobs:
 
           if [[ "$base_sha" =~ ^0+$ ]]; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "routing=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           git diff --name-only "$base_sha" "$GITHUB_SHA" > "$RUNNER_TEMP/changed-paths.txt"
-          if grep -Eq '^(docs/taiwan_market_contract|packaging/|scripts/|VERSION$|\.github/workflows/)' "$RUNNER_TEMP/changed-paths.txt" \
+          if grep -Eq '^(scripts/ci\.ps1|\.github/workflows/(backend-tests|frontend-tests)\.yml)$' "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "routing=true" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -Eq '^frontend/src/(components/portfolio/Portfolio\.tsx|lib/(holdingsFile|portfolio)\.ts)$' "$RUNNER_TEMP/changed-paths.txt" \
+            || grep -Eq '^(docs/taiwan_market_contract|packaging/|scripts/|VERSION$|\.github/workflows/)' "$RUNNER_TEMP/changed-paths.txt" \
             || grep -E '^backend/' "$RUNNER_TEMP/changed-paths.txt" | grep -Ev '(^|/)docs/|\.md$'; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Verify cross-entry regression test selection
+        if: steps.scope.outputs.routing == 'true'
+        shell: pwsh
+        working-directory: .
+        run: ./scripts/ci.ps1 -Mode Auto -ChangedPath scripts/ci.ps1
 
       - name: No backend changes
         if: steps.scope.outputs.backend != 'true'
