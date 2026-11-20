@@ -19,6 +19,8 @@ from datetime import date
 from pathlib import Path
 
 import polars as pl
+import pyarrow.parquet as pq
+from pyarrow import ArrowInvalid
 
 from app.file_lock import file_lock
 
@@ -67,10 +69,28 @@ class TaiwanMarginStore:
         self._data_dir = Path(data_dir)
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
-    def write_batch(self, df: pl.DataFrame, partition_date: date | None = None) -> int:
+    def has_verified_publication(self, day: date) -> bool:
+        """Both official response dates must have been verified in the same atomic publication."""
+        path = self._data_dir / f"date={day}" / "part.parquet"
+        try:
+            metadata = pq.read_metadata(path).metadata or {}
+        except FileNotFoundError:
+            return False
+        except ArrowInvalid as exc:
+            logger.warning("Cannot verify margin publication for %s: %s", day, exc)
+            return False
+        expected = day.isoformat().encode("ascii")
+        return all(metadata.get(key) == expected for key in (b"twse_margin_report_date", b"tpex_margin_report_date"))
+
+    def write_batch(self, df: pl.DataFrame, partition_date: date | None = None, *,
+                    verified_report_dates: tuple[date, date] | None = None) -> int:
         """Atomically append rows to the margin parquet dataset, grouped by date."""
         if df.is_empty():
             return 0
+        if verified_report_dates is not None and (
+            partition_date is None or verified_report_dates != (partition_date, partition_date)
+        ):
+            raise ValueError("TWSE and TPEx margin report dates must match the published partition")
 
         # Ensure required columns
         for col_name, dtype in _schema().items():
@@ -106,18 +126,21 @@ class TaiwanMarginStore:
             if d is None:
                 continue
             part_df = df.filter(pl.col("date") == d)
-            written = self._write_single_partition(d, part_df)
+            written = self._write_single_partition(d, part_df, verified_report_dates)
             total_written += written
 
         return total_written
 
-    def _write_single_partition(self, partition_date: date, new_df: pl.DataFrame) -> int:
+    def _write_single_partition(self, partition_date: date, new_df: pl.DataFrame,
+                                verified_report_dates: tuple[date, date] | None) -> int:
         with file_lock(self._data_dir / f"date={partition_date.isoformat()}" / ".write.lock"):
             part_dir = self._data_dir / f"date={partition_date.isoformat()}"
             part_dir.mkdir(parents=True, exist_ok=True)
             target = part_dir / "part.parquet"
 
-            if target.exists():
+            # A verified full-market snapshot replaces this date. Merging would
+            # give old rows that the exchanges did not return the same proof.
+            if verified_report_dates is None and target.exists():
                 existing = pl.read_parquet(target)
                 combined = (
                     pl.concat([existing, new_df], how="diagonal_relaxed")
@@ -135,7 +158,13 @@ class TaiwanMarginStore:
             os.close(fd)
 
             try:
-                combined.write_parquet(tmp_path, compression="snappy")
+                if verified_report_dates is None:
+                    combined.write_parquet(tmp_path, compression="snappy")
+                else:
+                    twse_date, tpex_date = verified_report_dates
+                    metadata = {b"twse_margin_report_date": twse_date.isoformat().encode("ascii"),
+                                b"tpex_margin_report_date": tpex_date.isoformat().encode("ascii")}
+                    pq.write_table(combined.to_arrow().replace_schema_metadata(metadata), tmp_path, compression="snappy")
                 retries = 3
                 for attempt in range(retries):
                     try:

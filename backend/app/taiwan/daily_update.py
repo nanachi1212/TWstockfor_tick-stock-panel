@@ -62,6 +62,7 @@ class DatasetRefreshStats(BaseModel):
     # Official feed answered but had no rows yet for one or both exchanges;
     # nothing was persisted, so the date stays retryable.
     pending_dates: list[dict[str, Any]] = Field(default_factory=list)
+    rejected_rows: list[dict[str, str]] = Field(default_factory=list)
     rows_written: int = 0
     note: str | None = None
 
@@ -95,6 +96,7 @@ class TaiwanDailyUpdateResult(BaseModel):
     daily: DatasetRefreshStats
     institutional: DatasetRefreshStats
     margin: DatasetRefreshStats
+    margin_publication_verified: bool = False
     freshness: FreshnessStatus
     overall_status: UpdateStatus
     benchmark: dict[str, Any] | None = None
@@ -358,6 +360,9 @@ class TaiwanDailyUpdateService:
         )
         if first_partial is not None:
             d_range = (min(first_partial, d_range[0]) if d_range else first_partial, target)
+        if m_range is None and target in m_dates and not self.margin_store.has_verified_publication(target):
+            # A legacy partition can be dated from the request rather than the exchange.
+            m_range = (target, target)
         start_bound = min((span[0] for span in (d_range, i_range, m_range) if span), default=target)
         end_bound = target
         if force:
@@ -439,6 +444,7 @@ class TaiwanDailyUpdateService:
                 inst_stats.rows_written = res.get("total_rows_written", 0)
                 inst_stats.failed_dates = res.get("failed_dates", [])
                 inst_stats.pending_dates = res.get("pending_dates", [])
+                inst_stats.rejected_rows = res.get("rejected_rows", [])
                 if inst_stats.failed_dates:
                     inst_stats.status = "failed" if inst_stats.dates_fetched == 0 else "partial"
                 else:
@@ -533,6 +539,8 @@ class TaiwanDailyUpdateService:
             daily=daily_stats,
             institutional=inst_stats,
             margin=margin_stats,
+            margin_publication_verified=bool(freshness.margin_as_of == str(target)
+                                             and self.margin_store.has_verified_publication(target)),
             freshness=freshness,
             overall_status=overall_status,
             benchmark=benchmark,

@@ -72,6 +72,28 @@ def test_single_uses_trading_sessions_and_preserves_raw_indicator_basis(history_
     assert body["rows"][-1]["volume"] == 12_400_000
 
 
+def test_history_returns_old_exchange_bars_after_market_transfer(history_client):
+    client, env = history_client
+    day = date(2021, 3, 2)
+    taiwan_root = env["data_dir"] / "taiwan"
+    master_path = taiwan_root / "security_master.parquet"
+    master = pl.read_parquet(master_path)
+    transferred = master.filter(pl.col("symbol") == "2330.TWSE").with_columns(
+        pl.lit("6446").alias("code"), pl.lit("6446.TWSE").alias("symbol"))
+    pl.concat([master, transferred]).write_parquet(master_path)
+    store = TaiwanDailyStore(taiwan_root / "daily")
+    row = store.read_range(["2330.TWSE"], env["target"], env["target"]).with_columns(
+        pl.lit("6446.TPEX").alias("symbol"), pl.lit(day).alias("date"))
+    store.write_batch(row)
+    response = client.get("/api/kline/daily", params={
+        "symbol": "6446.TPEX", "start_date": str(day), "end_date": str(day),
+    })
+    assert response.status_code == 200
+    body = response.json()
+    assert body["symbol"] == "6446.TPEX"
+    assert [(r["date"], r["close"]) for r in body["rows"]] == [(str(day), row["close"][0])]
+
+
 def test_explicit_historical_range_never_injects_today(history_client):
     client, env = history_client
     start, end = env["trading_days"][5], env["trading_days"][12]

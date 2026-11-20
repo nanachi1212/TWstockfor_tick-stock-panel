@@ -83,3 +83,14 @@ def test_new_legacy_entries_rejected_before_persistence(monkeypatch, path, body)
     app = FastAPI()
     app.include_router(api.router)
     assert TestClient(app).post(path, json=body).status_code == 422
+
+
+def test_current_watchlist_validates_every_symbol_against_official_directory(taiwan_data_env):
+    app = FastAPI()
+    app.include_router(api.router)
+    client = TestClient(app)
+    assert client.post("/api/watchlist", json={"symbol": "9999.TWSE"}).status_code == 422
+    assert client.post("/api/watchlist/batch", json={"symbols": ["2330", "8069.TWSE"]}).status_code == 422
+    assert client.get("/api/watchlist").json()["symbols"] == []
+    result = client.post("/api/watchlist", json={"symbol": "8069"})
+    assert result.status_code == 200 and result.json()["symbols"][0]["symbol"] == "8069.TPEX"

@@ -13,7 +13,7 @@ from app.indicators.pipeline import compute_enriched
 from app.price_limits import taiwan_limit_profiles
 from app.services import kline_sync
 from app.taiwan.realtime.calendar import TAIPEI_TZ, taipei_now, taipei_today
-from app.taiwan.symbol import parse_symbol
+from app.taiwan.symbol import parse_history_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def _require_taiwan_symbol(symbol: str) -> str:
     try:
         if not isinstance(symbol, str):
             raise ValueError("symbol must be a string")
-        return parse_symbol(symbol).canonical
+        return parse_history_symbol(symbol).canonical
     except ValueError as exc:
         raise HTTPException(422, "僅支援台股代碼 CODE.TWSE / CODE.TPEX") from exc
 

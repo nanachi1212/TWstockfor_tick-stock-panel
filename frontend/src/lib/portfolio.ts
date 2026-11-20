@@ -302,9 +302,10 @@ export function parsePortfolioImport(text: string, defaultDate: string): { rows:
     if ((header.code >= 0 || header.name >= 0) && header.shares >= 0) { columns = header; return }
     const at = (key: ImportColumn) => (columns[key] >= 0 ? cells[columns[key]] : undefined)
     const nameCell = at('name') ?? ''
-    const nameCode = columns.code < 0 ? nameCell.match(/[(（]\s*(\d{2,6}[A-Za-z]?)\s*[)）]\s*$/) : null
-    const code = (nameCode?.[1] ?? at('code') ?? '').toUpperCase().replace(/\.(TWSE|TPEX)$/, '')
-    if (!/^\d{2,6}[A-Z]?$/.test(code)) {
+    const nameCode = columns.code < 0 ? nameCell.match(/[(（]\s*(\d{2,6}[A-Z]?(?:\.(?:TWSE|TPEX|TW|TWO))?)\s*[)）]\s*$/i) : null
+    const code = (nameCode?.[1] ?? at('code') ?? '').toUpperCase().replace(/\.TW$/, '.TWSE').replace(/\.TWO$/, '.TPEX')
+    if (!/^\d{2,6}[A-Z]?(?:\.(?:TWSE|TPEX))?$/.test(code)) {
+      if (/^[0-9][^\s]*$/.test(code)) errors.push(`第 ${index + 1} 列 ${code}：台股代號或市場格式錯誤`)
       // Explicit non-security annotations do not invalidate the holdings snapshot.
       // Unknown codes or a claimed share quantity still require review.
       const cashNote = /^(?:N\/?A)?$/i.test(code)

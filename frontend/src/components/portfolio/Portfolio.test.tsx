@@ -28,7 +28,8 @@ async function fillTrade({ shares, price }: { shares: string; price: string }) {
 
 beforeEach(() => {
   vi.mocked(api.taiwanQuotes).mockResolvedValue({ quotes: [], count: 0 })
-  vi.mocked(api.taiwanSearch).mockResolvedValue({ results: [{ code: '2330', symbol: '2330.TWSE', name: '台積電', is_supported: true, instrument_type: 'stock' }] } as any)
+  vi.mocked(api.taiwanSearch).mockResolvedValue({ count: 1, results: [{ code: '2330', symbol: '2330.TWSE', name: '台積電', exchange: 'TWSE', instrument_type: 'stock', is_supported: true }] })
+  vi.mocked(api.watchlistBatchAdd).mockResolvedValue({ symbols: [], added: 1 })
   vi.mocked(api.portfolioAutoSyncGet).mockResolvedValue({ path: null, name: null, modified: null })
   vi.mocked(api.watchlistList).mockResolvedValue({ symbols: [] } as any)
   vi.mocked(api.alertsList).mockResolvedValue({ alerts: [] } as any)
@@ -130,6 +131,37 @@ describe('Portfolio UI', () => {
     fireEvent.click(await dialog.findByRole('button', { name: '匯入 1 檔持股' }))
     await waitFor(() => expect(storage.portfolioTransactions.get([])).toEqual([expect.objectContaining({ shares: 20 })]))
     expect(localStorage.getItem('tf-portfolio-sync-mtime')).toBe(JSON.stringify([file.path, 456]))
+  })
+
+  it.each([
+    ['6488.TWSE', 'wrong market', false],
+    ['6488', 'ambiguous', false],
+    ['6488.TPEX', 'unsupported', false],
+    ['6488.TPEX', 'unsupported', true],
+    ['6488.TWO', 'supported', false],
+  ] as const)('validates the import identity before writing %s (%s, zero=%s)', async (input, kind, zero) => {
+    const hit = { code: '6488', symbol: '6488.TPEX', name: 'fixture', exchange: 'TPEX',
+      instrument_type: kind === 'unsupported' ? 'unsupported' : 'stock', is_supported: kind !== 'unsupported' }
+    const results = kind === 'ambiguous' ? [hit, { ...hit, symbol: '6488.TWSE', exchange: 'TWSE' }] : [hit]
+    vi.mocked(api.taiwanSearch).mockResolvedValue({ results, count: results.length })
+    const before = [{ id: 'keep', symbol: '2330.TWSE', name: '台積電', side: 'buy', shares: 5,
+      price: 100, fee: 0, date: '2026-09-24', createdAt: '2026-09-24T00:00:00.000Z' }]
+    storage.portfolioTransactions.set(before)
+    renderPortfolio()
+    fireEvent.click(await screen.findByRole('button', { name: '匯入持股' }))
+    const dialog = await screen.findByRole('dialog', { name: '匯入持股' })
+    const csv = [input, 'fixture', zero ? 0 : 10, 20, 200, '2025-01-06'].join(',')
+    fireEvent.change(within(dialog).getByLabelText('或直接貼上持股表格'), { target: { value: csv } })
+    if (zero) fireEvent.click(within(dialog).getByRole('checkbox', { name: /匯入前清空/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: zero ? '以零持股快照取代帳本' : '匯入 1 檔持股' }))
+    if (kind === 'supported') {
+      await waitFor(() => expect(api.watchlistBatchAdd).toHaveBeenCalledWith(['6488.TPEX']))
+      expect(storage.portfolioTransactions.get([])).toContainEqual(expect.objectContaining({ symbol: '6488.TPEX' }))
+    } else {
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(kind === 'ambiguous' ? '有多個市場' : '找不到代號')
+      expect(storage.portfolioTransactions.get([])).toEqual(before)
+      expect(api.watchlistBatchAdd).not.toHaveBeenCalled()
+    }
   })
 
   it.each(['', '代號,名稱,股數,均價', '代號,名稱,股數,均價\n2330,台積電,0,0\n2317,鴻海,N/A,100'])('does not clear the ledger or advance the sync marker for incomplete input %s', async text => {

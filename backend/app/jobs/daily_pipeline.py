@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -13,6 +14,28 @@ from app.capabilities import CapabilitySet
 from app.repository import KlineRepository
 
 logger = logging.getLogger(__name__)
+
+
+def _lock_forward_selections(update, *, only_missing: bool = False) -> None:
+    try:
+        from app.taiwan.selection_review_service import lock_daily_forward_batches
+
+        # A request can succeed while an exchange is still publishing. Only the
+        # actual persisted source dates establish readiness for this session.
+        target = update.target_latest_trading_date
+        freshness = update.freshness
+        if not update.margin_publication_verified or any(
+            as_of != target for as_of in (freshness.daily_as_of, freshness.institutional_as_of, freshness.margin_as_of)
+        ):
+            logger.info("Taiwan forward batches waiting for official inputs for %s", target)
+            return
+        if only_missing:
+            result = lock_daily_forward_batches(only_missing_for=date.fromisoformat(target))
+        else:
+            result = lock_daily_forward_batches()
+        logger.info("Taiwan forward batches: %s", result)
+    except Exception:
+        logger.exception("Taiwan forward batch lock failed")
 
 
 def _refresh_after_close_research() -> dict[str, object]:
@@ -94,6 +117,8 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
         # Evening catch-up exists for margin (published in the evening); only a
         # newly fetched daily date gives Quant anything new to freeze.
         if evening and result.daily.dates_fetched == 0:
+            if result.overall_status == "success" and result.daily.status == "success":
+                _lock_forward_selections(result, only_missing=True)
             return
         # Quant is downstream and isolated: it must never roll back or
         # relabel the completed market-data refresh.
@@ -112,12 +137,7 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
                 logger.info("Taiwan Auto Watch sync: %s", sync_watchlist_plans())
             except Exception:
                 logger.exception("Taiwan Auto Watch sync failed; old rules remain")
-            try:
-                from app.taiwan.selection_review_service import lock_daily_forward_batches
-
-                logger.info("Taiwan forward batches: %s", lock_daily_forward_batches())
-            except Exception:
-                logger.exception("Taiwan forward batch lock failed")
+            _lock_forward_selections(result)
             try:
                 from app.taiwan.auto_ai_explain import run_auto_explain
 

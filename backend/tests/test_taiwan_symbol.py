@@ -10,6 +10,7 @@ Reference stocks used as test fixtures (names are NOT hardcoded in production):
 """
 from __future__ import annotations
 
+import polars as pl
 import pytest
 
 from app.taiwan.symbol import (
@@ -152,6 +153,37 @@ class TestParseSymbol:
     def test_raw_code_without_exchange_raises(self):
         with pytest.raises(ValueError, match="Cannot determine exchange"):
             parse_symbol("2330")
+
+    def test_official_directory_resolves_and_rejects_by_exact_market(self, tmp_path, monkeypatch):
+        from app.taiwan import data_root
+
+        monkeypatch.setattr(data_root, "taiwan_data_root", lambda: tmp_path)
+        codes = ["00981A", "00632R", "00675L", "2330", "6488"]
+        markets = ["TWSE"] * 4 + ["TPEX"]
+        pl.DataFrame({"code": codes, "exchange": markets}).write_parquet(
+            tmp_path / "security_master.parquet"
+        )
+        for code, market in zip(codes, markets, strict=True):
+            assert parse_symbol(code).canonical == f"{code}.{market}"
+            assert is_taiwan_symbol(f"{code}.{market}")
+        for invalid in ("00981", "9999.TWSE", "6488.TWSE", "!?.TWSE", "2330..TWSE"):
+            with pytest.raises(ValueError):
+                parse_symbol(invalid, verify_listing=True)
+        assert parse_symbol("9999.TWSE").code == "9999"  # historical lookup
+        assert not is_taiwan_symbol("!?.TWSE")
+
+    def test_missing_directory_fallback_requires_market_and_valid_syntax(self, tmp_path, monkeypatch):
+        from app.taiwan import data_root
+
+        monkeypatch.setattr(data_root, "taiwan_data_root", lambda: tmp_path)
+        assert parse_symbol("00981a", exchange=Exchange.TWSE).canonical == "00981A.TWSE"
+        assert parse_symbol("123456Z.TPEX").code == "123456Z"
+        assert parse_symbol("TAIEX.TWSE").code == "TAIEX"
+        for raw in ("00981A", "123.TWSE", "１２３４.TPEX", "1234567.TWSE", "00981AB.TWSE", "A/23.TWSE"):
+            with pytest.raises(ValueError):
+                parse_symbol(raw)
+        with pytest.raises(ValueError):
+            parse_symbol("6488.TPEX", exchange=Exchange.TWSE)
 
     def test_empty_string_raises(self):
         with pytest.raises(ValueError, match="Empty symbol"):

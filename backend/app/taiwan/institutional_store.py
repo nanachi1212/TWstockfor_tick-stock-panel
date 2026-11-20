@@ -49,6 +49,7 @@ def _schema() -> dict[str, pl.DataType]:
         "computed_net": pl.Int64,
         "has_discrepancy": pl.Boolean,
         "status": pl.String,
+        "status_reason": pl.String,
         "source": pl.String,
     }
 
@@ -219,6 +220,8 @@ class TaiwanInstitutionalStore:
                 continue
 
             part_df = pl.read_parquet(f)
+            if "status_reason" not in part_df.columns:
+                part_df = part_df.with_columns(pl.lit(None, dtype=pl.String).alias("status_reason"))
             if symbols:
                 part_df = part_df.filter(pl.col("symbol").is_in(symbols))
             if not part_df.is_empty():

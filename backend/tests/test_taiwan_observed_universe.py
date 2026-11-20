@@ -74,6 +74,7 @@ def _twse_payload(codes: dict[str, str]) -> dict:
 
 def _tpex_payload(codes: dict[str, str]) -> dict:
     return {
+        "date": "20240603",
         "tables": [
             {
                 "title": "上櫃股票行情",
@@ -622,6 +623,8 @@ def test_retry_empty_refetches_and_recovers_rows_for_both_exchanges(tmp_path: Pa
         payload = json.loads(json.dumps(
             TWSE_FIXTURE if "twse.com.tw" in url else TPEX_FIXTURE))
         table = payload["tables"][1] if "twse.com.tw" in url else payload["tables"][0]
+        payload["date"] = unknown_day.strftime("%Y%m%d")
+        table["title"] = table["title"].replace("113年06月03日", "113年06月04日")
         table["data"].append(list(table["data"][0]))
         return payload
 

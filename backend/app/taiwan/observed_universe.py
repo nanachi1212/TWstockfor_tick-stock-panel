@@ -66,7 +66,7 @@ import polars as pl
 import pyarrow.parquet as pq
 
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
-from app.taiwan.providers.taiwan_values import TAIPEI, parse_number
+from app.taiwan.providers.taiwan_values import TAIPEI, parse_number, require_report_date
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, TradingDayEvidence
 
 logger = logging.getLogger(__name__)
@@ -432,6 +432,13 @@ def _base_row(day: date, code: str, exchange: str, name: str | None,
     }
 
 
+def _check_census_date(payload: dict, table: dict, day: date, label: str) -> None:
+    try:
+        require_report_date(payload, table, day, label)
+    except ValueError as exc:
+        raise CensusSchemaError(str(exc)) from exc
+
+
 def parse_twse_census(payload: dict[str, Any], day: date, retrieved_at: str) -> list[dict[str, Any]]:
     """Parse ``MI_INDEX?type=ALLBUT0999`` into observations.
 
@@ -440,11 +447,11 @@ def parse_twse_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
     """
     if not isinstance(payload, dict) or "stat" not in payload:
         raise CensusSchemaError("TWSE MI_INDEX missing status")
-    if payload.get("date") and payload["date"] != day.strftime("%Y%m%d"):
-        raise CensusSchemaError("TWSE MI_INDEX response date mismatch")
     stat = str(payload.get("stat", "")).strip()
     if stat != "OK":
         if stat == "很抱歉，沒有符合條件的資料!":
+            if payload.get("date") or payload.get("reportDate"):
+                _check_census_date(payload, {}, day, "TWSE MI_INDEX")
             return []
         raise CensusProviderError("TWSE MI_INDEX provider error")
     table = next(
@@ -468,6 +475,8 @@ def parse_twse_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
         raise CensusSchemaError(f"TWSE MI_INDEX schema changed on {day}: {exc}; fields={fields}") from exc
 
     category = str(table.get("title") or "")
+    if table.get("data") or payload.get("date") or payload.get("reportDate"):
+        _check_census_date(payload, table, day, "TWSE MI_INDEX")
     rows: list[dict[str, Any]] = []
     for raw in table.get("data") or []:
         if len(raw) <= max(i_code, i_name, i_vol, i_amt, i_open, i_high, i_low, i_close):
@@ -516,6 +525,7 @@ def parse_tpex_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
             raise CensusSchemaError(f"TPEx dailyQuotes schema changed on {day}: {exc}; fields={fields}") from exc
 
         category = str(table.get("title") or "")
+        _check_census_date(payload, table, day, "TPEx dailyQuotes")
         for raw in data:
             if len(raw) <= max(i_code, i_name, i_vol, i_amt, i_open, i_high, i_low, i_close):
                 raise CensusSchemaError("TPEx dailyQuotes truncated row")
@@ -538,6 +548,8 @@ def parse_tpex_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
                 "volume": _num(raw[i_vol]), "amount": _num(raw[i_amt]),
             })
             rows.append(row)
+    if not rows and (payload.get("date") or payload.get("reportDate")):
+        _check_census_date(payload, {}, day, "TPEx dailyQuotes")
     return rows
 
 

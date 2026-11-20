@@ -300,6 +300,29 @@ def test_resolve_canonical_symbols_dedupe_and_canonicalize():
     assert unsupported == []
 
 
+def test_research_and_comparison_reject_numeric_prefixes_and_ambiguous_markets(taiwan_security_master_offline):
+    from dataclasses import replace
+
+    from app.taiwan.research_context import TaiwanStockResearchContextService
+    from app.taiwan.universe.service import TaiwanSecurityMaster
+
+    initial = taiwan_security_master_offline.get_instrument("0050.TWSE")
+    etf = replace(initial, code="00981A", symbol="00981A.TWSE", name="主動測試ETF")
+    second_market = replace(initial, symbol="0050.TPEX", exchange="TPEX")
+    master = TaiwanSecurityMaster(taiwan_security_master_offline.cache_path)
+    master.load_cache()
+    # Exercise the actual search/get methods on the two-market directory fixture.
+    master._instruments.update({item.symbol: item for item in (etf, second_market)})
+    resolved, unsupported = resolve_canonical_symbols(
+        ["00981", "0050", "00981A.TPEX", "主動測試", "0050.TPEX", "2330.tw"], master)
+    assert resolved == ["00981A.TWSE", "0050.TPEX", "2330.TWSE"]
+    assert unsupported == ["00981", "0050", "00981A.TPEX"]
+    research = TaiwanStockResearchContextService(security_master=master)
+    for query in unsupported:
+        with pytest.raises(ValueError, match="Symbol not found"):
+            research.get_research_context(query)
+
+
 def test_resolve_canonical_symbols_unsupported_excluded():
     from app.taiwan.universe import get_security_master
 

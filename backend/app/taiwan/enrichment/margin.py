@@ -24,7 +24,7 @@ from app.taiwan.enrichment.models import (
     StalePolicy,
 )
 from app.taiwan.providers.http import fetch_json
-from app.taiwan.providers.taiwan_values import TAIPEI, parse_integer
+from app.taiwan.providers.taiwan_values import TAIPEI, parse_integer, require_report_date
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +53,15 @@ class TwseMarginAdapter:
         target_code: str | None = None,
         lot_multiplier: int = 1000,
     ) -> list[MarginTrading]:
-        rows = payload.get("data")
-        if not rows and "tables" in payload:
-            rows = next((table.get("data") for table in payload["tables"]
-                         if table.get("data") and len(table["data"][0]) >= 16), None)
+        # MI_MARGN's first table is market totals. Its dated title cannot
+        # establish the date of the individual securities in the next table.
+        table = next((t for t in payload.get("tables", [])
+                      if t.get("data") and len(t["data"][0]) >= 16), {})
+        rows = table.get("data") or payload.get("data")
         if not rows:
             return []
 
+        trade_date = require_report_date(payload, table, trade_date, "TWSE margin")
         fetched_at = datetime.now(TAIPEI)
         is_stale = StalePolicy.is_stale(DatasetType.MARGIN, trade_date, fetched_at)
         results: list[MarginTrading] = []
@@ -152,12 +154,12 @@ class TpexMarginAdapter:
         target_code: str | None = None,
         lot_multiplier: int = 1000,
     ) -> list[MarginTrading]:
-        rows = payload.get("aaData")
-        if not rows and "tables" in payload and payload["tables"]:
-            rows = payload["tables"][0].get("data")
+        table = (payload.get("tables") or [{}])[0]
+        rows = table.get("data") or payload.get("aaData")
         if not rows:
             return []
 
+        trade_date = require_report_date(payload, table, trade_date, "TPEx margin")
         fetched_at = datetime.now(TAIPEI)
         is_stale = StalePolicy.is_stale(DatasetType.MARGIN, trade_date, fetched_at)
         results: list[MarginTrading] = []

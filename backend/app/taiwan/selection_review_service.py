@@ -23,7 +23,7 @@ from contextvars import ContextVar
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from statistics import median
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
@@ -50,6 +50,9 @@ from app.taiwan.selection_review_models import (
     StrategyReviewStats,
 )
 from app.taiwan.selection_v2 import is_supported_strategy, strategy_metadata
+
+if TYPE_CHECKING:
+    from app.taiwan.weekly_selection_review import SessionPlan
 
 logger = logging.getLogger(__name__)
 
@@ -278,21 +281,71 @@ class TaiwanSelectionReviewService:
 
     def lock_forward_batch(self, screener=None, strategy_id: str = FORWARD_RULE_VERSION) -> SelectionSnapshot:
         """Run the canonical screener server-side and lock one batch per source session."""
-        from app.taiwan.screener import TaiwanScreenerRequest, TaiwanScreenerService
+        from app.taiwan.screener import TaiwanScreenerService
+        from app.taiwan.weekly_selection_review import finish_week, resolve_session
 
         if not is_supported_strategy(strategy_id):
             raise ValueError(f"不支援的正式前瞻策略: {strategy_id}")
+        official_schedule = screener is None
+        if screener is not None and not hasattr(screener, "run_with_weekly_output"):
+            return self._lock_daily_output(screener, strategy_id)
+        day = self.daily_store.latest_date()
+        plan = None
+        calendar = self.calendar
+        if day is not None and taipei_now() >= market_close(day):
+            ledger = self.path.parent / "weekly_selection" / day.strftime("%G-W%V") / f"{strategy_id}.jsonl"
+            batch_id = f"forward_{strategy_id}_{day:%Y%m%d}"
+            with self._lock, self._write_guard():
+                existing = next((s for s in self._read_snapshots_raw() if s.snapshot_id == batch_id), None)
+                if existing and (existing.weekly_records_sha256 or existing.weekly_capture_error or ledger.exists()):
+                    finish_week(ledger, existing, calendar, self.census_store)
+                    return existing
+            plan = resolve_session(day, calendar, self.census_store, use_official_schedule=official_schedule)
+            if existing and plan.closes_week:
+                finish_week(ledger, existing, calendar, self.census_store)
+                return existing
+            calendar = calendar.with_resolved_session(day, plan.following)
+        screener = screener or TaiwanScreenerService(
+            daily_store=self.daily_store, calendar=calendar,
+            census_store=self.census_store, action_store=self.action_store,
+        )
+        try:
+            return self._lock_daily_output(screener, strategy_id, session_plan=plan, use_official_schedule=official_schedule)
+        except OSError as exc:
+            raise ValueError(f"weekly_capture_io_failure ({type(exc).__name__})") from exc
+
+    def _lock_daily_output(self, screener, strategy_id: str, *,
+                           session_plan: SessionPlan | None = None,
+                           use_official_schedule: bool = False) -> SelectionSnapshot:
+        from app.taiwan.screener import TaiwanScreenerRequest
+        from app.taiwan.weekly_selection_review import (
+            WeeklyCandidates,
+            capture_week,
+            file_sha256,
+            finish_week,
+        )
+
         metadata = strategy_metadata(strategy_id)
+        weekly_output = None
+        weekly_window = session_plan is not None and session_plan.closes_week
+        if weekly_window:
+            week_day, deadline = session_plan.source_day, event_market_open(session_plan.following)
+            root = self.path.parent / "weekly_selection"
+            ledger = root / week_day.strftime("%G-W%V") / f"{strategy_id}.jsonl"
+            if taipei_now() >= deadline:
+                raise ValueError("outside_weekly_capture_window")
+            weekly_output = WeeklyCandidates()
+            flow_generation = self._partition_generation(screener.institutional_store._data_dir)
+            if week_day not in screener.institutional_store.available_dates():
+                raise ValueError("weekly_institutional_session_pending：當日法人資料尚未入庫，可於截止前重試")
+            if not screener.margin_store.has_verified_publication(week_day):
+                raise ValueError("weekly_margin_session_pending：尚未核實兩市場當日融資券公告，可於截止前重試")
 
         daily_generation = self._daily_generation()
         census_generation = self._census_generation()
         action_evidence = self._action_coverage_evidence()
-        screen = (screener or TaiwanScreenerService(
-            daily_store=self.daily_store, calendar=self.calendar,
-            census_store=self.census_store, action_store=self.action_store,
-        )).run(
-            TaiwanScreenerRequest(preset=strategy_id)
-        )
+        req = TaiwanScreenerRequest(preset=strategy_id)
+        screen = screener.run(req) if weekly_output is None else screener.run_with_weekly_output(req, weekly_output)
         if strategy_id == FORWARD_RULE_VERSION and (
             screen.trend_indicator_basis != "pit_adjusted"
             or screen.trend_adjustment_status != "verified"
@@ -312,6 +365,8 @@ class TaiwanSelectionReviewService:
         if not screen.data_dates.daily_as_of:
             raise ValueError("沒有可鎖定的行情資料日期")
         source_day = date.fromisoformat(screen.data_dates.daily_as_of)
+        if session_plan and source_day != session_plan.source_day:
+            raise ValueError("weekly_source_session_changed")
         now = taipei_now()
         if now < market_close(source_day):
             raise ValueError("來源交易日尚未收盤。不能鎖定正式批次")
@@ -323,6 +378,8 @@ class TaiwanSelectionReviewService:
             existing = self._read_snapshots_raw()
             for snapshot in existing:
                 if snapshot.snapshot_id == batch_id:
+                    if weekly_window:
+                        finish_week(ledger, snapshot, self.calendar, self.census_store)
                     return snapshot
             if self._daily_generation() != daily_generation:
                 raise ValueError("選股期間行情資料已更新。請重新執行鎖定")
@@ -344,7 +401,7 @@ class TaiwanSelectionReviewService:
                 },
                 risk_status=row.risk_status, quote_status="available",
             ) for index, row in enumerate(screen.items[:20], start=1) if row.close is not None and row.close > 0]
-            target = self._next_potential_session(source_day)
+            target = session_plan.following if session_plan else self._next_potential_session(source_day)
             if screen.risk_target_date != target.isoformat():
                 raise ValueError("選股風險檢查日期與預定進場日不一致")
             if now >= event_market_open(target):
@@ -382,7 +439,37 @@ class TaiwanSelectionReviewService:
                 revenue_evidence_digest=(screen.revenue_evidence or {}).get("digest"),
             )
             existing.append(snapshot)
+            if weekly_window:
+                # Stage the same run's complete observations before committing its daily
+                # selection. After a crash, a retry can publish only these exact bytes.
+                try:
+                    pending = capture_week(
+                        root, source_day, strategy_id, weekly_output, existing,
+                        self.daily_store, screener.institutional_store, self.calendar, self.census_store,
+                        use_official_schedule=use_official_schedule, stage_for_batch=True,
+                    )
+                except FileExistsError:
+                    # A previous writer could freeze an all-no-signal ledger before
+                    # a formal batch existed. Keep that artifact untouched.
+                    snapshot.weekly_capture_error = "weekly_unbound_ledger_exists"
+                except ValueError as exc:
+                    # Saturday evidence is valid for a Friday daily lock until the
+                    # next open, but cannot describe Friday's closing observation.
+                    if str(exc) not in {"future_snapshot_date", "source_timestamp_missing_timezone",
+                                        "invalid_formal_batch_provenance"}:
+                        raise
+                    snapshot.weekly_capture_error = str(exc)
+                else:
+                    snapshot.weekly_records_sha256 = file_sha256(pending)
+                if (self._daily_generation() != daily_generation
+                        or self._partition_generation(screener.institutional_store._data_dir) != flow_generation
+                        or self._census_generation() != census_generation):
+                    raise ValueError("weekly_sources_changed_before_commit")
+                if taipei_now() >= deadline:
+                    raise ValueError("outside_weekly_capture_window")
             self._save_snapshots_raw(existing)
+            if weekly_window:
+                finish_week(ledger, snapshot, self.calendar, self.census_store)
             return snapshot
 
     def _action_coverage_evidence(self) -> dict[str, str] | None:
@@ -1016,8 +1103,12 @@ class TaiwanSelectionReviewService:
 
     def _daily_generation(self) -> tuple:
         """Fingerprint the partitions consumed by the canonical screener."""
+        return self._partition_generation(self.daily_store._data_dir)
+
+    @staticmethod
+    def _partition_generation(data_dir: Path) -> tuple:
         versions = []
-        for path in self.daily_store._data_dir.glob("date=*/part.parquet"):
+        for path in data_dir.glob("date=*/part.parquet"):
             try:
                 stat = path.stat()
                 versions.append((str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino))
@@ -1441,6 +1532,7 @@ def get_selection_review_service() -> TaiwanSelectionReviewService:
 
 def lock_daily_forward_batches(
     service: TaiwanSelectionReviewService | None = None, *, refresh_events: bool = True,
+    only_missing_for: date | None = None,
 ) -> dict[str, str]:
     """After-close: lock today's forward batch for every strategy (idempotent per session).
 
@@ -1450,7 +1542,32 @@ def lock_daily_forward_batches(
 
     svc = service or get_selection_review_service()
     result: dict[str, str] = {}
-    if refresh_events:
+    already_locked = set()
+    if only_missing_for is not None:
+        from app.taiwan.weekly_selection_review import file_sha256, next_session
+
+        day = only_missing_for
+        if svc.daily_store.latest_date() != day:
+            return {s: "skipped: target_session_mismatch" for s in STRATEGY_IDS}
+        week_dir = svc.path.parent / "weekly_selection" / day.strftime("%G-W%V")
+        weekly_due = None
+        for batch in svc.read_snapshots():
+            if batch.record_type != "forward_batch" or batch.source_data_date != day.isoformat():
+                continue
+            already_locked.add(batch.strategy_id)
+            if batch.weekly_capture_error:
+                result[batch.strategy_id] = f"skipped: weekly_capture_rejected ({batch.weekly_capture_error})"
+                continue
+            if not batch.weekly_records_sha256 and weekly_due is None:
+                following = next_session(day, svc.calendar, svc.census_store, use_official_schedule=svc.census_store is not None)
+                weekly_due = day.isocalendar()[:2] != following.isocalendar()[:2]
+            if batch.weekly_records_sha256 or weekly_due:
+                ledger = week_dir / f"{batch.strategy_id}.jsonl"
+                if not ledger.is_file() or file_sha256(ledger) != batch.weekly_records_sha256:
+                    continue
+            result[batch.strategy_id] = batch.snapshot_id
+    pending = [s for s in STRATEGY_IDS if s not in result]
+    if refresh_events and any(s not in already_locked for s in pending):
         # The lock gate needs a regulatory snapshot younger than its 1-hour cache, which the
         # after-close market refresh does not touch (same refresh the manual update runs).
         try:
@@ -1459,7 +1576,7 @@ def lock_daily_forward_batches(
             get_event_service().get_all_regulatory_and_official_events(force_refresh=True)
         except Exception as exc:  # the gate then fails closed per strategy
             logger.warning("regulatory refresh before forward lock failed: %s", type(exc).__name__)
-    for strategy_id in STRATEGY_IDS:
+    for strategy_id in pending:
         try:
             result[strategy_id] = svc.lock_forward_batch(strategy_id=strategy_id).snapshot_id
         except ValueError as exc:
@@ -1467,4 +1584,12 @@ def lock_daily_forward_batches(
         except Exception as exc:  # one strategy must not stop the rest
             logger.exception("forward batch lock failed for %s", strategy_id)
             result[strategy_id] = f"failed: {type(exc).__name__}"
+    if isinstance(svc, TaiwanSelectionReviewService):
+        from app.taiwan.weekly_selection_review import record_execution_opens
+
+        try:
+            record_execution_opens(svc.path.parent / "weekly_selection", svc.daily_store, svc.calendar,
+                                   svc.read_snapshots(), svc.census_store)
+        except Exception:
+            logger.exception("Weekly selection execution-open observation failed")
     return result

@@ -25,7 +25,7 @@ import polars as pl
 
 from app.taiwan.providers.base import AmountUnit, PriceSemantics, SourceMetadata, VolumeUnit
 from app.taiwan.providers.http import DEFAULT_USER_AGENT, taiwan_client
-from app.taiwan.providers.taiwan_values import parse_taiwan_date
+from app.taiwan.providers.taiwan_values import ReportDateMismatchError, require_report_date
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 
 logger = logging.getLogger(__name__)
@@ -67,24 +67,18 @@ def _parse_snapshot_number(raw: object) -> float | None:
         return None
 
 
-def _require_payload_date(payload: dict[str, Any], target_date: date, label: str) -> None:
-    """Refuse a response that states a different trade date than the one requested.
-
-    The exchanges answer an unpublished or non-trading date with the latest published day;
-    storing that under the requested date would be wrong.  A response that states no date
-    is accepted as before.
-    """
-    raw = payload.get("date")
-    if raw in (None, ""):
+def _require_payload_date(payload: dict, table: dict | None, target_date: date, label: str) -> None:
+    # Undated empty replies have no quotes to attribute to the requested session.
+    if not (table and table.get("data")) and not (payload.get("date") or payload.get("reportDate")):
         return
     try:
-        stated = parse_taiwan_date(str(raw))
-    except ValueError:
-        return
-    if stated != target_date:
+        require_report_date(payload, table or {}, target_date, label)
+    except ReportDateMismatchError as exc:
         raise OfficialSnapshotUnpublished(
-            f"{label} answered {stated} for requested {target_date}"
-        )
+            f"{label} answered {exc.reported} for requested {target_date}"
+        ) from exc
+    except ValueError as exc:
+        raise OfficialDailySnapshotError(str(exc)) from exc
 
 
 class OfficialDailySnapshotAdapter:
@@ -169,7 +163,6 @@ class OfficialDailySnapshotAdapter:
             raise OfficialSnapshotUnpublished(
                 f"TWSE MI_INDEX returned non-OK status for {target_date}: {stat}"
             )
-        _require_payload_date(payload, target_date, "TWSE MI_INDEX")
 
         tables = payload.get("tables", [])
         quote_table = None
@@ -180,6 +173,7 @@ class OfficialDailySnapshotAdapter:
                 quote_table = t
                 break
 
+        _require_payload_date(payload, quote_table, target_date, "TWSE MI_INDEX")
         if not quote_table:
             raise OfficialSnapshotUnpublished(
                 f"TWSE MI_INDEX quote table not found for {target_date}"
@@ -255,7 +249,6 @@ class OfficialDailySnapshotAdapter:
         date_str = f"{roc_year}/{target_date.month:02d}/{target_date.day:02d}"
         url = f"{TPEX_DAILY_QUOTES_URL}?date={date_str}&response=json"
         payload = self._request_json(url)
-        _require_payload_date(payload, target_date, "TPEx dailyQuotes")
 
         tables = payload.get("tables", [])
         quote_table = None
@@ -266,6 +259,7 @@ class OfficialDailySnapshotAdapter:
                 quote_table = t
                 break
 
+        _require_payload_date(payload, quote_table, target_date, "TPEx dailyQuotes")
         if not quote_table:
             raise OfficialSnapshotUnpublished(
                 f"TPEx dailyQuotes quote table not found for {target_date}"

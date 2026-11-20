@@ -34,7 +34,7 @@ from app.taiwan.research_context import (
     TaiwanStockResearchContext,
     TaiwanStockResearchContextService,
 )
-from app.taiwan.symbol import parse_symbol
+from app.taiwan.symbol import resolve_directory_instrument
 from app.taiwan.universe import get_security_master
 
 logger = logging.getLogger(__name__)
@@ -118,8 +118,6 @@ def resolve_canonical_symbols(
     """Resolve raw symbol inputs to canonical symbols, deduped, order-preserving.
 
     Returns (resolved_canonical_symbols, unsupported_raw_inputs).
-    Reuses the exact same lookup fallback chain as
-    TaiwanStockResearchContextService.get_research_context (research_context.py:333-353).
     """
     resolved: list[str] = []
     seen: set[str] = set()
@@ -127,27 +125,7 @@ def resolve_canonical_symbols(
 
     for raw in symbols:
         raw = (raw or "").strip()
-        if not raw:
-            unsupported.append(raw)
-            continue
-
-        inst = None
-        try:
-            parsed = parse_symbol(raw)
-            inst = security_master.get_instrument(parsed.canonical)
-        except Exception:
-            pass
-
-        if inst is None:
-            inst = security_master.get_instrument(f"{raw.upper()}.TWSE") or security_master.get_instrument(
-                f"{raw.upper()}.TPEX"
-            )
-
-        if inst is None:
-            matches = security_master.search(raw, limit=5)
-            if matches:
-                inst = security_master.get_instrument(matches[0]["symbol"])
-
+        inst = resolve_directory_instrument(raw, security_master)
         if inst is None:
             unsupported.append(raw)
             continue
