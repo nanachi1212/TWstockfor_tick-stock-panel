@@ -17,6 +17,7 @@ from typing import Any
 import polars as pl
 
 from app.taiwan.enrichment.institutional import (
+    InstitutionalRows,
     TaiwanInstitutionalProvider,
 )
 from app.taiwan.enrichment.margin import (
@@ -99,6 +100,7 @@ class TaiwanInstitutionalRefreshService:
             "total_rows_written": 0,
             "failed_dates": [],
             "pending_dates": [],
+            "rejected_rows": [],
         }
 
         cur = start_date
@@ -127,16 +129,25 @@ class TaiwanInstitutionalRefreshService:
                     cur,
                     self._provider.tpex.build_url(cur),
                 )
+                invalid_rows = []
+                for flows, source in ((flows_twse, "twse:t86"), (flows_tpex, "tpex:daily_trade")):
+                    if isinstance(flows, InstitutionalRows):
+                        for symbol, reason in flows.rejected.items():
+                            stats["rejected_rows"].append({"symbol": symbol, "reason": reason, "date": str(cur)})
+                            invalid_rows.append({"symbol": symbol, "date": cur, "trade_date": cur, "source": source,
+                                                 "status": "data_incomplete", "status_reason": reason})
                 gap = publication_gap(flows_twse, flows_tpex)
                 all_flows = flows_twse + flows_tpex
                 if gap:
                     stats["pending_dates"].append({"date": str(cur), "reason": gap})
                 else:
+                    if any(f.trade_date != cur or (f.meta and f.meta.trade_date != cur) for f in all_flows):
+                        raise ValueError(f"institutional provider returned a different trade date for {cur}")
                     rows = [
                         {
                             "symbol": f.symbol,
                             "date": cur,
-                            "trade_date": cur,
+                            "trade_date": f.trade_date,
                             "foreign_buy": f.foreign_buy,
                             "foreign_sell": f.foreign_sell,
                             "foreign_net": f.foreign_net,
@@ -167,7 +178,7 @@ class TaiwanInstitutionalRefreshService:
                         }
                         for f in all_flows
                     ]
-                    df = pl.DataFrame(rows)
+                    df = pl.from_dicts(rows + invalid_rows, infer_schema_length=None)
                     written = self._store.write_batch(df, partition_date=cur)
                     stats["total_rows_written"] += written
                     stats["dates_fetched"] += 1
@@ -224,7 +235,7 @@ class TaiwanMarginRefreshService:
 
             stats["dates_requested"] += 1
 
-            if cur in available:
+            if cur in available and (cur != end_date or self._store.has_verified_publication(cur)):
                 stats["dates_skipped"] += 1
                 cur += timedelta(days=1)
                 continue
@@ -246,11 +257,15 @@ class TaiwanMarginRefreshService:
                 if gap:
                     stats["pending_dates"].append({"date": str(cur), "reason": gap})
                 else:
+                    for records, source in ((margins_twse, "twse:mi_margn"), (margins_tpex, "tpex:margin_balance")):
+                        if any(m.trade_date != cur or not m.meta or m.meta.trade_date != cur
+                               or m.meta.source != source for m in records):
+                            raise ValueError(f"unverified {source} margin publication for {cur}")
                     rows = [
                         {
                             "symbol": m.symbol,
                             "date": cur,
-                            "trade_date": cur,
+                            "trade_date": m.trade_date,
                             "margin_previous_balance": m.margin_previous_balance,
                             "margin_buy": m.margin_buy,
                             "margin_sell": m.margin_sell,
@@ -265,13 +280,14 @@ class TaiwanMarginRefreshService:
                             "short_change": m.short_change,
                             "short_margin_ratio": m.short_margin_ratio,
                             "unit": m.unit,
-                            "status": m.meta.status if m.meta else "official",
-                            "source": m.meta.source if m.meta else "official",
+                            "status": m.meta.status,
+                            "source": m.meta.source,
                         }
                         for m in all_margins
                     ]
                     df = pl.DataFrame(rows)
-                    written = self._store.write_batch(df, partition_date=cur)
+                    written = self._store.write_batch(df, partition_date=cur, verified_report_dates=(
+                        margins_twse[0].meta.trade_date, margins_tpex[0].meta.trade_date))
                     stats["total_rows_written"] += written
                     stats["dates_fetched"] += 1
             except Exception as exc:

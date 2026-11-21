@@ -14,7 +14,10 @@ def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, 
     events = []
     result = SimpleNamespace(overall_status="success", daily=SimpleNamespace(status="success"),
                              institutional=SimpleNamespace(status="success"),
-                             margin=SimpleNamespace(status="success"))
+                             margin=SimpleNamespace(status="success"), target_latest_trading_date="2026-10-08",
+                             margin_publication_verified=True,
+                             freshness=SimpleNamespace(daily_as_of="2026-10-08", institutional_as_of="2026-10-08",
+                                                       margin_as_of="2026-10-08"))
 
     def refresh(**kwargs):
         events.append("refresh_finished")
@@ -190,7 +193,8 @@ def test_after_close_forward_lock_preserves_ai_and_push_chain(monkeypatch, ready
     result = SimpleNamespace(
         overall_status=status, daily=SimpleNamespace(status=status),
         institutional=SimpleNamespace(status=status), margin=SimpleNamespace(status=status),
-        freshness=SimpleNamespace(daily_as_of="2026-10-08"),
+        target_latest_trading_date="2026-10-08", margin_publication_verified=True,
+        freshness=SimpleNamespace(daily_as_of="2026-10-08", institutional_as_of="2026-10-08", margin_as_of="2026-10-08"),
     )
     monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService",
                         lambda: SimpleNamespace(run_update=lambda **kwargs: result))
@@ -235,6 +239,34 @@ def test_update_notifies_daily_data_sse_even_on_evening_early_return(monkeypatch
     daily_pipeline.run_taiwan_update(evening=True)
 
     sub.notify_daily_data.assert_called_once_with()
+
+
+def test_evening_final_inputs_retry_selections_without_rerunning_quant(monkeypatch):
+    from datetime import date
+
+    from app.taiwan import chip_ranking_tracking
+
+    day = date(2026, 11, 13)
+    stats = SimpleNamespace(status="success", dates_fetched=0)
+    result = SimpleNamespace(overall_status="success", daily=stats, institutional=stats, margin=stats,
+                             target_latest_trading_date=day.isoformat(), margin_publication_verified=False, freshness=SimpleNamespace(
+                                 daily_as_of=day.isoformat(), institutional_as_of="2026-11-12", margin_as_of=day.isoformat()))
+    monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService",
+                        lambda: SimpleNamespace(run_update=lambda **kw: result))
+    monkeypatch.setattr(chip_ranking_tracking, "freeze_latest_ranking", Mock())
+    monkeypatch.setattr(daily_pipeline, "notify_daily_data_updated", Mock())
+    quant, lock = Mock(), Mock()
+    monkeypatch.setattr(live_runner, "run_live_after_refresh", quant)
+    monkeypatch.setattr(selection_review_service, "lock_daily_forward_batches", lock)
+    daily_pipeline.run_taiwan_update(evening=True)
+    lock.assert_not_called()
+    result.freshness.institutional_as_of = day.isoformat()
+    daily_pipeline.run_taiwan_update(evening=True)
+    lock.assert_not_called()  # A legacy partition date alone does not prove publication.
+    result.margin_publication_verified = True
+    daily_pipeline.run_taiwan_update(evening=True)
+    lock.assert_called_once_with(only_missing_for=day)
+    quant.assert_not_called()
 
 
 def test_subscriber_pops_daily_data_flag_once():

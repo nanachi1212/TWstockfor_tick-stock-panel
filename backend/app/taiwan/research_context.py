@@ -54,7 +54,7 @@ from app.taiwan.market_intelligence import (
 from app.taiwan.market_rules import TickSizeModel
 from app.taiwan.providers.taiwan_values import TAIPEI
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
-from app.taiwan.symbol import parse_symbol
+from app.taiwan.symbol import resolve_directory_instrument
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
 
@@ -366,25 +366,7 @@ class TaiwanStockResearchContextService:
         symbol_input: str,
         target_date: date | None = None,
     ) -> TaiwanStockResearchContext:
-        raw = symbol_input.strip()
-        inst = None
-        # Try direct or canonical lookup
-        try:
-            parsed = parse_symbol(raw)
-            inst = self.security_master.get_instrument(parsed.canonical)
-        except Exception:
-            pass
-
-        if inst is None:
-            # Try appending .TWSE or .TPEX or searching by code
-            inst = self.security_master.get_instrument(f"{raw.upper()}.TWSE") or self.security_master.get_instrument(f"{raw.upper()}.TPEX")
-
-        if inst is None:
-            matches = self.security_master.search(raw, limit=5)
-            if matches:
-                first_sym = matches[0]["symbol"]
-                inst = self.security_master.get_instrument(first_sym)
-
+        inst = resolve_directory_instrument(symbol_input, self.security_master)
         if inst is None:
             raise ValueError(f"Symbol not found in Taiwan Security Master: {symbol_input}")
 

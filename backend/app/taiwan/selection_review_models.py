@@ -49,6 +49,8 @@ class SelectionSnapshot(BaseModel):
     source: Literal["Screener", "Buy Point"] = "Screener"
     locked_at: str | None = None
     source_data_date: str | None = None
+    weekly_records_sha256: str | None = None
+    weekly_capture_error: str | None = None
     target_trade_date: str | None = None
     target_trade_date_status: Literal["confirmed", "scheduled_unverified"] | None = None
     rule_version: str | None = None

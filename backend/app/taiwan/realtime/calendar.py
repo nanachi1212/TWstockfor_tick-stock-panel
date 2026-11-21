@@ -13,6 +13,7 @@ Operating Schedule:
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from datetime import time as dt_time
@@ -86,6 +87,13 @@ class TaiwanTradingCalendar:
     ) -> None:
         self.known_holidays = set(known_holidays) if known_holidays else set()
         self.known_trading_days = set(known_trading_days) if known_trading_days else set()
+        self._resolved_next_session: tuple[date, date] | None = None
+
+    def with_resolved_session(self, source_day: date, following: date) -> TaiwanTradingCalendar:
+        """Share one formal run's deadline without marking a potential session as confirmed trading."""
+        result = copy(self)
+        result._resolved_next_session = (source_day, following)
+        return result
 
     def add_holiday(self, d: date) -> None:
         self.known_holidays.add(d)
@@ -107,6 +115,8 @@ class TaiwanTradingCalendar:
         observed_evidence: Callable[[date], TradingDayEvidence] | None = None,
     ) -> date:
         """Next scheduled session, allowing official census to override weekend rules."""
+        if self._resolved_next_session is not None and self._resolved_next_session[0] == after:
+            return self._resolved_next_session[1]
         cursor = after + timedelta(days=1)
         for _ in range(30):
             evidence = self.day_evidence(cursor, "TWSE")

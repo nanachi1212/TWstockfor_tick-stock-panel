@@ -24,16 +24,49 @@ from app.taiwan.enrichment.models import (
     StalePolicy,
 )
 from app.taiwan.providers.http import fetch_json
-from app.taiwan.providers.taiwan_values import TAIPEI, parse_integer
+from app.taiwan.providers.taiwan_values import TAIPEI, parse_integer, require_report_date
 
 logger = logging.getLogger(__name__)
 
 
+class _InvalidFieldError(ValueError):
+    """An identifiable security's numeric value is missing or malformed."""
+
+
+class InstitutionalRows(list[InstitutionalFlow]):
+    """Valid flows plus diagnostics for the individual rows rejected by the exchange parser."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rejected: dict[str, str] = {}
+
+    def checked(self) -> InstitutionalRows:
+        if self.rejected and not self:
+            raise ValueError(f"no valid institutional rows: {self.rejected}")
+        return self
+
+
 def _required_int(val: Any, field: str) -> int:
-    parsed = parse_integer(val)
+    try:
+        parsed = parse_integer(val)
+    except (ValueError, OverflowError) as exc:
+        raise _InvalidFieldError(f"invalid required institutional field {field}") from exc
     if parsed is None:
-        raise ValueError(f"missing required institutional field {field}")
+        raise _InvalidFieldError(f"missing required institutional field {field}")
     return parsed
+
+
+def _coded_rows(rows, market, width, target_code):
+    seen = set()
+    for row in rows:
+        if not isinstance(row, (tuple, list)) or len(row) < width:
+            raise ValueError(f"{market} institutional row expected at least {width} columns")
+        code = str(row[0]).strip() if row[0] is not None else ""
+        if not code or code in seen:
+            raise ValueError(f"{market} institutional row has missing or duplicate code {code!r}")
+        seen.add(code)
+        if target_code is None or target_code == code:
+            yield code, row
 
 
 class TwseInstitutionalAdapter:
@@ -59,39 +92,38 @@ class TwseInstitutionalAdapter:
         if not rows:
             return []
 
+        trade_date = require_report_date(payload, (payload.get("tables") or [{}])[0], trade_date, "institutional")
         fetched_at = datetime.now(TAIPEI)
         is_stale = StalePolicy.is_stale(DatasetType.INSTITUTIONAL, trade_date, fetched_at)
-        results: list[InstitutionalFlow] = []
+        results = InstitutionalRows()
+        for code, r in _coded_rows(rows, "TWSE", 19, target_code):
 
-        for r in rows:
-            if len(r) < 19:
-                raise ValueError(f"TWSE institutional row has {len(r)} columns; expected at least 19")
-            code = str(r[0]).strip()
-            if target_code and code != target_code:
+            try:
+                # Official total net = foreign (ex-dealer) + foreign dealer + trust + dealer, so the
+                # foreign figures must include the 外資自營商 columns (idx 5-7) to reconcile.
+                fb = _required_int(r[2], "foreign_buy") + _required_int(r[5], "foreign_dealer_buy")
+                fs = _required_int(r[3], "foreign_sell") + _required_int(r[6], "foreign_dealer_sell")
+                fn = _required_int(r[4], "foreign_net") + _required_int(r[7], "foreign_dealer_net")
+
+                tb = _required_int(r[8], "investment_trust_buy")
+                ts = _required_int(r[9], "investment_trust_sell")
+                tn = _required_int(r[10], "investment_trust_net")
+
+                official_dealer_net = _required_int(r[11], "dealer_net")
+                dpb = _required_int(r[12], "dealer_proprietary_buy")
+                dps = _required_int(r[13], "dealer_proprietary_sell")
+                dpn = _required_int(r[14], "dealer_proprietary_net")
+                dhb = _required_int(r[15], "dealer_hedge_buy")
+                dhs = _required_int(r[16], "dealer_hedge_sell")
+                dhn = _required_int(r[17], "dealer_hedge_net")
+                db = dpb + dhb
+                ds = dps + dhs
+                dn = dpn + dhn
+
+                official_net = _required_int(r[18], "total_net")
+            except _InvalidFieldError as exc:
+                results.rejected[f"{code}.TWSE"] = str(exc)
                 continue
-
-            # Official total net = foreign (ex-dealer) + foreign dealer + trust + dealer, so the
-            # foreign figures must include the 外資自營商 columns (idx 5-7) to reconcile.
-            fb = _required_int(r[2], "foreign_buy") + _required_int(r[5], "foreign_dealer_buy")
-            fs = _required_int(r[3], "foreign_sell") + _required_int(r[6], "foreign_dealer_sell")
-            fn = _required_int(r[4], "foreign_net") + _required_int(r[7], "foreign_dealer_net")
-
-            tb = _required_int(r[8], "investment_trust_buy")
-            ts = _required_int(r[9], "investment_trust_sell")
-            tn = _required_int(r[10], "investment_trust_net")
-
-            official_dealer_net = _required_int(r[11], "dealer_net")
-            dpb = _required_int(r[12], "dealer_proprietary_buy")
-            dps = _required_int(r[13], "dealer_proprietary_sell")
-            dpn = _required_int(r[14], "dealer_proprietary_net")
-            dhb = _required_int(r[15], "dealer_hedge_buy")
-            dhs = _required_int(r[16], "dealer_hedge_sell")
-            dhn = _required_int(r[17], "dealer_hedge_net")
-            db = dpb + dhb
-            ds = dps + dhs
-            dn = dpn + dhn
-
-            official_net = _required_int(r[18], "total_net")
             computed_net = fn + tn + dn
             discrepancy = any((fn != fb - fs, tn != tb - ts, dpn != dpb - dps,
                                dhn != dhb - dhs, official_dealer_net != dn,
@@ -140,7 +172,7 @@ class TwseInstitutionalAdapter:
             )
             results.append(flow)
 
-        return results
+        return results.checked()
 
 
 class TpexInstitutionalAdapter:
@@ -165,39 +197,38 @@ class TpexInstitutionalAdapter:
         if not rows:
             return []
 
+        trade_date = require_report_date(payload, (payload.get("tables") or [{}])[0], trade_date, "institutional")
         fetched_at = datetime.now(TAIPEI)
         is_stale = StalePolicy.is_stale(DatasetType.INSTITUTIONAL, trade_date, fetched_at)
-        results: list[InstitutionalFlow] = []
+        results = InstitutionalRows()
+        for code, r in _coded_rows(rows, "TPEX", 24, target_code):
 
-        for r in rows:
-            if len(r) < 24:
-                raise ValueError(f"TPEx institutional row has {len(r)} columns; expected at least 24")
-            code = str(r[0]).strip()
-            if target_code and code != target_code:
+            try:
+                # idx 2-4 exclude foreign dealers; idx 8-10 are the 外資及陸資 total that the
+                # official grand total (idx 23) is built from.
+                fb = _required_int(r[8], "foreign_buy")
+                fs = _required_int(r[9], "foreign_sell")
+                fn = _required_int(r[10], "foreign_net")
+
+                tb = _required_int(r[11], "investment_trust_buy")
+                ts = _required_int(r[12], "investment_trust_sell")
+                tn = _required_int(r[13], "investment_trust_net")
+
+                dpb = _required_int(r[14], "dealer_proprietary_buy")
+                dps = _required_int(r[15], "dealer_proprietary_sell")
+                dpn = _required_int(r[16], "dealer_proprietary_net")
+                dhb = _required_int(r[17], "dealer_hedge_buy")
+                dhs = _required_int(r[18], "dealer_hedge_sell")
+                dhn = _required_int(r[19], "dealer_hedge_net")
+                db = _required_int(r[20], "dealer_buy")
+                ds = _required_int(r[21], "dealer_sell")
+                official_dealer_net = _required_int(r[22], "dealer_net")
+                dn = dpn + dhn
+
+                official_net = _required_int(r[23], "total_net")
+            except _InvalidFieldError as exc:
+                results.rejected[f"{code}.TPEX"] = str(exc)
                 continue
-
-            # idx 2-4 exclude foreign dealers; idx 8-10 are the 外資及陸資 total that the
-            # official grand total (idx 23) is built from.
-            fb = _required_int(r[8], "foreign_buy")
-            fs = _required_int(r[9], "foreign_sell")
-            fn = _required_int(r[10], "foreign_net")
-
-            tb = _required_int(r[11], "investment_trust_buy")
-            ts = _required_int(r[12], "investment_trust_sell")
-            tn = _required_int(r[13], "investment_trust_net")
-
-            dpb = _required_int(r[14], "dealer_proprietary_buy")
-            dps = _required_int(r[15], "dealer_proprietary_sell")
-            dpn = _required_int(r[16], "dealer_proprietary_net")
-            dhb = _required_int(r[17], "dealer_hedge_buy")
-            dhs = _required_int(r[18], "dealer_hedge_sell")
-            dhn = _required_int(r[19], "dealer_hedge_net")
-            db = _required_int(r[20], "dealer_buy")
-            ds = _required_int(r[21], "dealer_sell")
-            official_dealer_net = _required_int(r[22], "dealer_net")
-            dn = dpn + dhn
-
-            official_net = _required_int(r[23], "total_net")
             computed_net = fn + tn + dn
             discrepancy = any((fn != fb - fs, tn != tb - ts, dpn != dpb - dps,
                                dhn != dhb - dhs, official_dealer_net != dn,
@@ -246,7 +277,7 @@ class TpexInstitutionalAdapter:
             )
             results.append(flow)
 
-        return results
+        return results.checked()
 
 
 class TaiwanInstitutionalProvider:

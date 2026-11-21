@@ -22,7 +22,7 @@ import contextlib
 import json
 import logging
 from datetime import date, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
 from pydantic import BaseModel, Field
@@ -54,6 +54,9 @@ from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
 from app.taiwan.universe.models import MarketProfileBridge
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from app.taiwan.weekly_selection_review import WeeklyCandidates
 
 _DAILY_NUMERIC_COLUMNS = ("open", "high", "low", "close", "volume", "amount")
 
@@ -436,7 +439,7 @@ class TaiwanScreenerService:
             self._fundamental_chips_service = TaiwanFundamentalChipsService(cache=self.cache)
         return self._fundamental_chips_service
 
-    def run(self, req: TaiwanScreenerRequest) -> TaiwanScreenerResponse:
+    def run(self, req: TaiwanScreenerRequest, *, weekly_output: WeeklyCandidates | None = None) -> TaiwanScreenerResponse:
         if req.preset == "trend_liquidity_v1":
             req = req.model_copy(update={
                 "exchange": "ALL", "instrument": "stock",
@@ -473,6 +476,8 @@ class TaiwanScreenerService:
             )
 
         valid_symbols = universe_df["symbol"].to_list()
+        if weekly_output is not None:
+            weekly_output.symbols.update(valid_symbols)
 
         # Step 2: Batch read latest per symbol from TaiwanDailyStore
         latest_daily = self._normalize_daily_frame(
@@ -579,6 +584,7 @@ class TaiwanScreenerService:
         )
         combined = self._join_big_holders(combined, valid_symbols)
 
+        review_frame = combined if weekly_output is not None else None
         if req.preset == "trend_liquidity_v1":
             # A missing/stale quote or indicator cannot qualify as a fresh candidate.
             combined = trend_liquidity_v1_candidates(combined, latest_daily["date"].max())
@@ -674,6 +680,11 @@ class TaiwanScreenerService:
                 revenue_mismatch_count=len(revenue_evidence.mismatches) if revenue_evidence else 0,
             )
 
+        if weekly_output is not None and review_frame is not None:
+            if revenue_evidence is not None:
+                weekly_output.revenue_observed_at = revenue_evidence.latest_observed_at
+            weekly_output.observe(readiness_frame if req.preset in V2_STRATEGY_IDS else review_frame,
+                                  sorted_df, excluded if req.preset in STRATEGY_IDS else set())
         return TaiwanScreenerResponse(
             items=items,
             total=total,
@@ -708,6 +719,9 @@ class TaiwanScreenerService:
                 if revenue_evidence is not None else None
             ),
         )
+
+    def run_with_weekly_output(self, req: TaiwanScreenerRequest, output: WeeklyCandidates) -> TaiwanScreenerResponse:
+        return self.run(req, weekly_output=output)
 
     @staticmethod
     def _revenue_evidence_summary(

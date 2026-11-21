@@ -287,6 +287,8 @@ class TestOfficialTaiwanProviderContract:
         with pytest.raises(ValueError, match="malformed number"):
             parse_number("12x3")
         assert parse_taiwan_date("115/08/30") == date(2026, 8, 30)
+        assert parse_taiwan_date("115/8/3") == date(2026, 8, 3)
+        assert parse_taiwan_date("2026-8-3") == date(2026, 8, 3)
         assert parse_taiwan_date("1150830") == date(2026, 8, 30)
         close = market_close(date(2026, 8, 28))
         assert (close.hour, close.minute, str(close.tzinfo)) == (13, 30, "Asia/Taipei")

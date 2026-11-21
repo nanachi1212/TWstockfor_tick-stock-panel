@@ -14,9 +14,9 @@ import { Modal } from '@/components/Modal'
 import {
   buildPortfolioPositions,
   createPortfolioTransaction,
+  isSupportedPortfolioInstrument,
   isTaiwanPortfolioSymbol,
   isPortfolioTransaction,
-  isSupportedPortfolioInstrument,
   parsePortfolioImport,
   PORTFOLIO_CHANGED,
   readPortfolioLedger,
@@ -506,11 +506,14 @@ async function importHoldingRows(parsed: ReturnType<typeof parsePortfolioImport>
   if (parsed.errors.length) throw new Error(parsed.errors.join('；'))
   if (replace && parsed.incomplete) throw new Error('持股表格有未知或缺漏的列，已保留原帳本，請先補齊資料')
   if (!parsed.rows.length && !(replace && parsed.emptySnapshot)) throw new Error('沒有可匯入的持股；只有明確全數零股的快照可取代成空帳本')
-  const resolveInstrument = async (code: string) => {
-    const { results } = await api.taiwanSearch(code, 5)
-    const found = results.find(item => item.code.toUpperCase() === code && isSupportedPortfolioInstrument(item))
-    if (!found) throw new Error(`找不到支援的股票或 ETF：${code}，請確認代號`)
-    return found
+  const resolveInstrument = async (input: string) => {
+    const [code, exchange] = input.split('.')
+    const { results } = await api.taiwanSearch(input, 5)
+    const matches = results.filter(item => item.code.toUpperCase() === code
+      && (!exchange || item.symbol.toUpperCase() === input) && isSupportedPortfolioInstrument(item))
+    if (matches.length > 1) throw new Error(`代號 ${input} 有多個市場，請指定 .TWSE 或 .TPEX`)
+    if (!matches.length) throw new Error(`找不到代號 ${input}，請核對上市櫃市場及股票或 ETF 類型`)
+    return matches[0]
   }
   if (replace) await Promise.all([...new Set(parsed.zeroCodes)].map(resolveInstrument))
   const resolved = await Promise.all(parsed.rows.map(async row => {

@@ -59,9 +59,9 @@ def _require_taiwan_symbol(symbol: str) -> str:
     from app.taiwan.symbol import parse_symbol
 
     try:
-        return parse_symbol(symbol).canonical
+        return parse_symbol(symbol, verify_listing=True).canonical
     except ValueError as exc:
-        raise HTTPException(422, "僅支援台股代碼 CODE.TWSE / CODE.TPEX") from exc
+        raise HTTPException(422, "無法確認台股代碼或上市櫃市場，請核對正式名錄") from exc
 
 
 def _resync_auto_watch() -> None:

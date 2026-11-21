@@ -48,6 +48,7 @@ class TestInstitutionalEnrichment:
         adapter = TwseInstitutionalAdapter()
         # Mock TWSE T86 payload for 2330
         payload = {
+            "date": "20260828",
             "stat": "OK",
             "data": [
                 [
@@ -88,6 +89,7 @@ class TestInstitutionalEnrichment:
         adapter = TwseInstitutionalAdapter()
         # Intentional discrepancy: official total net says 8,000,000 but computed sum is 7,300,000
         payload = {
+            "date": "20260828",
             "stat": "OK",
             "data": [
                 [
@@ -114,6 +116,7 @@ class TestInstitutionalEnrichment:
     def test_tpex_institutional_parsing_and_integrity(self):
         adapter = TpexInstitutionalAdapter()
         payload = {
+            "date": "115/08/28",
             "aaData": [
                 [
                     "8069", "元太",
@@ -151,7 +154,7 @@ class TestInstitutionalEnrichment:
                "600,000", "200,000", "400,000", "500,000", "100,000", "400,000",
                "7,600,000"]  # 5.0M + 0.3M + 1.5M + 0.8M
         flow = TwseInstitutionalAdapter().parse_payload(
-            {"data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
+            {"date": "20260828", "data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
         )[0]
         assert (flow.foreign_buy, flow.foreign_sell, flow.foreign_net) == (15_400_000, 10_100_000, 5_300_000)
         assert flow.computed_net == 7_600_000 and flow.has_discrepancy is False
@@ -164,7 +167,7 @@ class TestInstitutionalEnrichment:
                "300,000", "100,000", "200,000", "200,000", "100,000", "100,000",
                "500,000", "200,000", "300,000", "2,400,000"]
         flow = TpexInstitutionalAdapter().parse_payload(
-            {"aaData": [row]}, date(2026, 8, 28), "https://mock.tpex/insti"
+            {"date": "115/08/28", "aaData": [row]}, date(2026, 8, 28), "https://mock.tpex/insti"
         )[0]
         assert flow.foreign_net == 1_100_000
         assert flow.computed_net == 2_400_000 and flow.has_discrepancy is False
@@ -175,16 +178,26 @@ class TestInstitutionalEnrichment:
                "0", "0", "0", "0", "0", "0", "0", "0"]
         with pytest.raises(ValueError):
             TwseInstitutionalAdapter().parse_payload(
-                {"data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
+                {"date": "20260828", "data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
             )
 
     def test_institutional_explicit_zero_is_preserved(self):
         row = ["2330", "台積電", "0.0", "0", "0", "0", "0", "0", "0", "0", "0",
                "0", "0", "0", "0", "0", "0", "0", "0"]
         flow = TwseInstitutionalAdapter().parse_payload(
-            {"data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
+            {"date": "20260828", "data": [row]}, date(2026, 8, 28), "https://mock.twse/t86"
         )[0]
         assert flow.foreign_buy == 0
+
+    def test_official_table_title_date_must_agree_with_requested_day(self):
+        day = date(2026, 8, 28)
+        payload = {"date": "20260828", "title": "115年8月27日 三大法人買賣超日報",
+                   "data": [["2330", "台積電", *(["0"] * 17)]]}
+        with pytest.raises(ValueError, match="institutional response date"):
+            TwseInstitutionalAdapter().parse_payload(payload, day, "fixture")
+        payload.pop("date")
+        payload["title"] = "115年8月28日 三大法人買賣超日報"
+        assert TwseInstitutionalAdapter().parse_payload(payload, day, "fixture")[0].trade_date == day
 
 
 # ── 2. Margin Trading & Short Selling Tests ─────────────────────
@@ -197,6 +210,7 @@ class TestMarginEnrichment:
         adapter = TwseMarginAdapter()
         # In TWSE MI_MARGN, quantities are expressed in lots (張). Multiplier is 1000.
         payload = {
+            "date": "20260828",
             "data": [
                 [
                     "2330", "台積電",
@@ -242,6 +256,7 @@ class TestMarginEnrichment:
     def test_tpex_margin_parsing(self):
         adapter = TpexMarginAdapter()
         payload = {
+            "reportDate": "115/08/28",
             "aaData": [
                 [
                     "8069", "元太",
@@ -270,13 +285,13 @@ class TestMarginEnrichment:
         row = ["2330", "台積電", raw, "0", "0", "0", "0", "", "0", "0", "0", "0", "0"]
         with pytest.raises(ValueError):
             TwseMarginAdapter().parse_payload(
-                {"data": [row]}, date(2026, 8, 28), "https://mock.twse/margin"
+                {"date": "20260828", "data": [row]}, date(2026, 8, 28), "https://mock.twse/margin"
             )
 
     def test_margin_explicit_zero_is_preserved(self):
         row = ["2330", "台積電", "0.0", "0", "0", "0", "0", "", "0", "0", "0", "0", "0"]
         margin = TwseMarginAdapter().parse_payload(
-            {"data": [row]}, date(2026, 8, 28), "https://mock.twse/margin"
+            {"date": "20260828", "data": [row]}, date(2026, 8, 28), "https://mock.twse/margin"
         )[0]
         assert margin.margin_buy == 0
 

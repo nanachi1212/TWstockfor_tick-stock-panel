@@ -507,3 +507,41 @@ def test_snapshot_http_retries_are_bounded_and_permanent_errors_fail(monkeypatch
         with pytest.raises(httpx.HTTPStatusError):
             adapter._request_json("https://www.tpex.org.tw/test")
     assert len(calls) == attempts
+
+
+@pytest.mark.parametrize("market", ["TWSE", "TPEX"])
+@pytest.mark.parametrize("envelope,table_date,accepted", [
+    ("20261120", "115/11/20", True),
+    (None, "115/11/20", True),
+    ("20261120", "115/11/19", False),
+    (None, "115/11/19", False),
+    ("bad-date", "115/11/20", False),
+    (None, None, False),
+])
+def test_quote_and_census_verify_the_same_exchange_report_date(market, envelope, table_date, accepted):
+    from app.taiwan.observed_universe import CensusSchemaError, parse_tpex_census, parse_twse_census
+
+    day = date(2026, 11, 20)
+    if market == "TWSE":
+        fields = ["證券代號", "證券名稱", "開盤價", "最高價", "最低價", "收盤價", "成交股數", "成交金額"]
+        title, code, parse = "每日收盤行情", "2330", parse_twse_census
+    else:
+        fields = ["代號", "名稱", "開盤", "最高", "最低", "收盤", "成交股數", "成交金額(元)"]
+        title, code, parse = "上櫃股票行情", "6488", parse_tpex_census
+    table = {"title": title, "fields": fields, "data": [[code, "測試", "9", "11", "9", "10", "100", "1000"]]}
+    if table_date is not None:
+        table["date"] = table_date
+    payload = {"stat": "OK", "tables": [table]}
+    if envelope is not None:
+        payload["date"] = envelope
+    adapter = OfficialDailySnapshotAdapter(security_master=mock_security_master())
+    adapter._request_json = lambda url: payload
+    fetch = adapter.fetch_twse if market == "TWSE" else adapter.fetch_tpex
+    if accepted:
+        assert fetch(day)["date"].to_list() == [day]
+        assert [r["date"] for r in parse(payload, day, "now")] == [day]
+    else:
+        with pytest.raises(OfficialDailySnapshotError):
+            fetch(day)
+        with pytest.raises(CensusSchemaError):
+            parse(payload, day, "now")
