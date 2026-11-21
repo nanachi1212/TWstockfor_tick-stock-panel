@@ -126,3 +126,17 @@ def test_decimal_exchange_prices_on_thresholds_and_unmatured_missed():
     assert result["strategies"][0]["missed_count"] == 1
     pending = build_weekly_review([skipped], lambda *_: outcomes(None, "pending"))
     assert pending["strategies"][0]["missed_count"] is None
+
+
+def test_data_incomplete_rows_are_counted_but_never_missed():
+    day = date(2026, 10, 2)
+    rows = [observation(day, symbol="1001.TWSE", decision="no_signal", reason="data_incomplete"),
+            observation(day, symbol="1002.TWSE", decision="no_signal", reason="daily_conditions_not_met")]
+    result = build_weekly_review(rows, lambda *_: outcomes(20))
+    stats = result["strategies"][0]
+    assert [m["symbol"] for m in result["missed"]] == ["1002.TWSE"]
+    assert (stats["missed_count"], stats["no_signal_count"], stats["no_signal_completed_count"],
+            stats["data_incomplete_count"]) == (1, 2, 1, 1)
+    # Nothing could be judged: the count is unknown, not a measured zero.
+    unjudged = build_weekly_review(rows[:1], lambda *_: outcomes(20))
+    assert unjudged["missed"] == [] and unjudged["strategies"][0]["missed_count"] is None

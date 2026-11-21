@@ -3,6 +3,7 @@
 後端沒在 16:30 執行時 (電腦關機、程式沒開)，日線就會停在舊日期。
 這裡在啟動後延遲幾秒檢查資料新鮮度；只要日線落後最近已確認交易日，
 就在背景執行一次既有的增量更新 (與 16:30 排程同一條流程)，不另建資料路徑。
+日線已最新但法人/融資券或正式選股鎖定沒齊 (錯過晚間排程) 時，改補跑晚間那一段。
 
 - 不在盤中補跑 (官方全市場日線要收盤後才完整)。
 - 一個行程只補跑一次，失敗只記 log，不影響啟動。
@@ -27,6 +28,7 @@ __all__ = [
     "needs_catchup",
     "needs_fundamentals_catchup",
     "needs_shareholding_catchup",
+    "pending_after_close",
     "schedule",
 ]
 
@@ -54,6 +56,37 @@ def needs_catchup() -> tuple[bool, str]:
     if freshness.daily_status == "current":
         return False, "current"
     return True, f"daily_{freshness.daily_status}:{freshness.daily_as_of or 'none'}"
+
+
+def pending_after_close() -> str | None:
+    """日線已最新時, 回傳最近交易日還沒補齊的盤後項目; 都齊了回 None。
+
+    正式選股要等法人與融資券公告齊全才鎖定, 靠的是 21:30/23:00 的晚間排程。那兩次沒跑到
+    (程式已關) 時日線早就是最新, 只看日線永遠補不到, 該日的正式批次就缺了。
+
+    日批次在下一個交易日開盤前都補得回來。週帳本不行: 它記的是週收盤當下的觀察, 隔天才取得的
+    風險/營收證據會被 capture_week 以 future_snapshot_date 拒收, 所以只有當天午夜前開機才補得到。
+    下一個交易日已開盤或某策略的證據閘門一直不過時, 這裡仍會回報待補並重跑一輪 (每個行程一次,
+    由鎖定流程自己的期限檢查拒絕), 不在這裡重做一份期限判斷。
+    """
+    from datetime import date
+
+    from app.taiwan.daily_update import TaiwanDailyUpdateService
+    from app.taiwan.selection_review_service import get_selection_review_service
+    from app.taiwan.selection_v2 import STRATEGY_IDS
+
+    service = TaiwanDailyUpdateService()
+    freshness = service.get_freshness()
+    target = freshness.target_latest_trading_date
+    if not freshness.is_fully_current:
+        return f"after_close_inputs:{target}"
+    if not service.margin_store.has_verified_publication(date.fromisoformat(target)):
+        return f"margin_unverified:{target}"
+    locked = {batch.strategy_id for batch in get_selection_review_service().read_snapshots()
+              if batch.record_type == "forward_batch" and batch.source_data_date == target}
+    if not locked.issuperset(STRATEGY_IDS):
+        return f"selection_lock:{target}"
+    return None
 
 
 def _catchup_official_evidence(app_state: Any) -> dict[str, Any]:
@@ -97,14 +130,19 @@ def _run(app_state: Any) -> None:
 
     try:
         need, reason = needs_catchup()
+        # 日線已最新但盤後項目沒齊: 只補晚間排程那一段 (融資券 + 尚未鎖定的正式選股), 不重跑 Quant 與推播。
+        evening = False
+        if reason == "current" and (pending := pending_after_close()):
+            need, reason, evening = True, pending, True
         if not need:
             _LAST.update(status="skipped", reason=reason)
             logger.info("startup catch-up skipped: %s", reason)
         else:
-            logger.info("startup catch-up: daily data stale (%s); running the shared post-close update chain", reason)
-            # 與 16:30 排程同一條流程 (資料更新 + 研究檢視表 + Quant + Auto Watch + 自動 AI 說明 + 收盤推播)
+            logger.info("startup catch-up: %s; running the %s update chain", reason,
+                        "evening" if evening else "shared post-close")
+            # 與 16:30 (或晚間) 排程同一條流程 (資料更新 + 研究檢視表 + Quant + Auto Watch + 自動 AI 說明 + 收盤推播)
             daily_pipeline.set_app_state(app_state)
-            daily_pipeline.run_taiwan_update(trigger="startup_catchup")
+            daily_pipeline.run_taiwan_update(evening=evening, trigger="startup_catchup")
             _LAST.update(status="ran", reason=reason)
             qs = getattr(app_state, "quote_service", None)
             if qs is not None and hasattr(qs, "_broadcast_quote_updated"):

@@ -58,6 +58,11 @@ CORE_INPUTS = {
     "oversold_rebound_v1": ("amount", "change_pct", "ma5", "rsi_14"),
     "multi_factor_consensus_v1": ("amount", "consensus_hit_count"),
 }
+# Core inputs derived from institutional flow. Only a strategy that reads one of these
+# depends on the same-day nets; for the others a missing net stays null in the snapshot
+# and must not turn a formal pick into no_signal.
+FLOW_INPUTS = frozenset({"foreign_net_5d", "investment_trust_net_5d", "institutional_flow_ratio_5d",
+                         "consensus_hit_count"})
 
 
 @dataclass
@@ -381,9 +386,10 @@ def capture_week(root: Path, day: date, strategy: str, evidence: WeeklyCandidate
         missing = [c for c in required if inputs[c] is None]
         if strategy == "breakout_v1" and all(inputs[c] is None for c in ("breakout_20d_strength", "breakout_60d_strength")):
             missing.append("breakout_history")
-        missing.extend(c for c, value in nets.items() if value is None)
-        if discrepancy:
-            missing.append("institutional_discrepancy")
+        if FLOW_INPUTS.intersection(required):
+            missing.extend(c for c, value in nets.items() if value is None)
+            if discrepancy:
+                missing.append("institutional_discrepancy")
         if quote_date != day or price is None:
             missing.append("official_close")
         item = selected.get(symbol)

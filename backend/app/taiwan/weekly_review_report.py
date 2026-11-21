@@ -286,6 +286,7 @@ def render_markdown(report: dict) -> str:
         f"同代號、原日線策略與型態距上次入選最多 {params['max_gap_weeks']} 個 ISO 週即合併，以首次入選週的收盤價起算。"
         "驗證週數按實際有交易的週計，主要統計採 4 週。",
         f"4 週報酬絕對值小於 {params['neutral_pct']:g}% 歸為 NEUTRAL。未發訊且 4 週漲幅至少 {params['missed_pct']:g}% 計為 MISSED。"
+        "策略核心欄位資料不足的紀錄無從判定是否過濾太嚴，另列筆數，不計入 MISSED。"
         "勝率以 WIN 組數除以可評估組數，含 NEUTRAL。期望值採每組等權的實現報酬，因此等於樣本平均。"
         "未到期與無法評估的組別均排除於績效分母。",
         "MFE、MAE 分別採起點收盤後至期末的最高、最低日價相對報酬。遇除權息採已核實的還原因子，一致調整收盤和高低價。"
@@ -332,10 +333,12 @@ def render_markdown(report: dict) -> str:
         unavailable_bench = sum(o["status"] == "completed" and o.get("benchmark_return_pct") is None for o in primary)
         no_signal = sum(s["no_signal_count"] for s in stats["strategies"])
         no_signal_due = sum(s["no_signal_completed_count"] for s in stats["strategies"])
+        incomplete = sum(s["data_incomplete_count"] for s in stats["strategies"])
         lines.extend([f"共 {count} 筆觀測，其中 {sum(r['raw_signal_count'] for r in stats['strategies'])} 筆入選"
                       f"合併為 **{len(stats['groups'])} 組**。4 週可評估 {status['completed']} 組，"
                       f"待到期 {status['pending']} 組，到期但資料不足 {status['unavailable']} 組。"
-                      f"另有 {no_signal} 筆已知未發訊，其中 {no_signal_due} 筆可評估 MISSED。", ""])
+                      f"另有 {no_signal} 筆已知未發訊，其中 {no_signal_due} 筆可評估 MISSED；"
+                      f"{incomplete} 筆因資料不足未判定。", ""])
         if unavailable_bench:
             lines.extend([f"{unavailable_bench} 個可評估組缺少起點或期末的官方指數收盤，該組的指數與超額報酬留白。", ""])
         lines.extend(["| 策略 | 入選筆數 | 組數 | 可評估 | 勝率 % | 平均報酬 % | 期望值 % | 最大單組虧損 % | pending | 不可評估 | 已知 MISSED | 樣本 |",

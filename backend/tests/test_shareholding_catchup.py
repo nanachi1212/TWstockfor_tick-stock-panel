@@ -167,6 +167,7 @@ def test_needs_shareholding_catchup_contract():
 def test_startup_catchup_run_integrates_shareholding(monkeypatch):
     """驗證 startup_catchup._run 整合集保補抓流程 (即使日常日線補抓 skipped 亦執行)。"""
     monkeypatch.setattr(startup_catchup, "needs_catchup", lambda: (False, "current"))
+    monkeypatch.setattr(startup_catchup, "pending_after_close", lambda: None)
     monkeypatch.setattr("app.taiwan.bootstrap.catch_up_from_latest_bundle", lambda: {"status": "skipped"})
     monkeypatch.setattr(startup_catchup, "needs_fundamentals_catchup", lambda: (False, "current"))
     monkeypatch.setattr(startup_catchup, "_catchup_official_evidence", lambda app_state: {"revenue": "skipped"})
@@ -243,6 +244,7 @@ def test_startup_catchup_run_warms_fundamentals_when_missed(monkeypatch):
     from app.taiwan import fundamentals_warm
 
     monkeypatch.setattr(startup_catchup, "needs_catchup", lambda: (False, "current"))
+    monkeypatch.setattr(startup_catchup, "pending_after_close", lambda: None)
     monkeypatch.setattr("app.taiwan.bootstrap.catch_up_from_latest_bundle", lambda: {"status": "skipped"})
     monkeypatch.setattr(startup_catchup, "catchup_shareholding", lambda: {"status": "skipped"})
     monkeypatch.setattr(startup_catchup, "_catchup_official_evidence", lambda app_state: {"revenue": "skipped"})

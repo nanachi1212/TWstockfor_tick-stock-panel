@@ -372,6 +372,58 @@ def test_needs_catchup_skips_during_session_and_when_current(monkeypatch):
     assert startup_catchup.needs_catchup() == (True, "daily_stale:2026-10-06")
 
 
+def test_pending_after_close_names_the_first_unfinished_step(monkeypatch):
+    import app.taiwan.daily_update as du
+    import app.taiwan.selection_review_service as review
+    from app.taiwan.selection_v2 import STRATEGY_IDS
+
+    day = "2026-10-08"
+    state = SimpleNamespace(current=False, verified=False, locked=STRATEGY_IDS[1:])
+    monkeypatch.setattr(du, "TaiwanDailyUpdateService", lambda: SimpleNamespace(
+        get_freshness=lambda: SimpleNamespace(is_fully_current=state.current, target_latest_trading_date=day),
+        margin_store=SimpleNamespace(has_verified_publication=lambda d: state.verified and d.isoformat() == day),
+    ))
+    monkeypatch.setattr(review, "get_selection_review_service", lambda: SimpleNamespace(read_snapshots=lambda: [
+        SimpleNamespace(record_type="forward_batch", strategy_id=STRATEGY_IDS[0], source_data_date="2026-10-07"),
+        *(SimpleNamespace(record_type="forward_batch", strategy_id=s, source_data_date=day) for s in state.locked),
+    ]))
+    assert startup_catchup.pending_after_close() == f"after_close_inputs:{day}"
+    state.current = True
+    assert startup_catchup.pending_after_close() == f"margin_unverified:{day}"
+    state.verified = True
+    # The previous session's batch does not stand in for the missing strategy.
+    assert startup_catchup.pending_after_close() == f"selection_lock:{day}"
+    state.locked = STRATEGY_IDS
+    assert startup_catchup.pending_after_close() is None
+
+
+@pytest.mark.parametrize("need,reason,pending,expected", [
+    (True, "daily_stale:2026-10-06", "selection_lock:2026-10-08", {"evening": False, "trigger": "startup_catchup"}),
+    (False, "current", "selection_lock:2026-10-08", {"evening": True, "trigger": "startup_catchup"}),
+    (False, "current", None, None),
+    (False, "market_open", "selection_lock:2026-10-08", None),
+])
+def test_startup_catchup_runs_evening_chain_when_only_after_close_work_is_pending(
+        monkeypatch, need, reason, pending, expected):
+    from app.jobs import daily_pipeline
+
+    calls = []
+    monkeypatch.setattr("app.taiwan.bootstrap.catch_up_from_latest_bundle", lambda: {"status": "skipped"})
+    monkeypatch.setattr(startup_catchup, "needs_catchup", lambda: (need, reason))
+    monkeypatch.setattr(startup_catchup, "pending_after_close", lambda: pending)
+    monkeypatch.setattr(startup_catchup, "catchup_shareholding", lambda: {"status": "skipped"})
+    monkeypatch.setattr(startup_catchup, "_catchup_official_evidence", lambda app_state: {})
+    monkeypatch.setattr(startup_catchup, "needs_fundamentals_catchup", lambda: (False, "current"))
+    monkeypatch.setattr(daily_pipeline, "set_app_state", lambda app_state: None)
+    monkeypatch.setattr(daily_pipeline, "run_taiwan_update", lambda **kwargs: calls.append(kwargs))
+    startup_catchup._LAST.clear()
+    startup_catchup._run(SimpleNamespace())
+    assert calls == ([expected] if expected else [])
+    result = startup_catchup.last_result()
+    assert result["status"] == ("ran" if expected else "skipped")
+    assert result["reason"] == (pending if expected and expected["evening"] else reason)
+
+
 def test_schedule_is_skipped_under_pytest_and_never_hits_network(monkeypatch):
     # pytest 會設 PYTEST_CURRENT_TEST; 啟動補跑不得在測試環境排程 (會連網並寫入共用資料目錄)。
     startup_catchup._STARTED.clear()

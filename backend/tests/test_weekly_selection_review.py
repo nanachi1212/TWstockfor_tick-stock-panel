@@ -96,7 +96,8 @@ def test_published_markets_with_one_invalid_row_allow_weekly_lock(setup, tmp_pat
     records = {r["symbol"]: r for r in weekly.read_records(captured[0])}
     assert records["2330.TWSE"]["decision"] == "signal"
     bad = records["2317.TWSE"]
-    assert (bad["decision"], bad["reason"]) == ("no_signal", "data_incomplete")
+    # This strategy does not read institutional flow: the rejected row stays null and the pick stays a signal.
+    assert (bad["decision"], bad["reason"]) == ("signal", "selected_at_week_close")
     assert bad["snapshot"]["institutional_net_shares"] == dict.fromkeys(weekly.FLOW)
 
 
@@ -115,8 +116,11 @@ def test_freeze_all_candidates_short_week_and_dropped_history(setup):
     assert signal["executable_reference_open"] is None
     assert signal["snapshot"]["institutional_net_shares"]["foreign_net"] == 0
     assert (watch["decision"], watch["reason"]) == ("watch", "outside_formal_selection_limit")
-    assert (missing["decision"], missing["reason"]) == ("no_signal", "data_incomplete")
+    # A formal pick of a strategy that never reads institutional flow keeps its signal;
+    # the missing same-day net stays null and is not listed as a missing core field.
+    assert (missing["decision"], missing["reason"]) == ("signal", "selected_at_week_close")
     assert missing["snapshot"]["institutional_net_shares"]["foreign_net"] is None
+    assert missing["snapshot"]["missing_fields"] == []
     assert (filtered["decision"], filtered["reason"]) == ("no_signal", "daily_conditions_not_met")
     for row in (dropped, gone):
         assert row["decision"] == "no_signal"
@@ -127,6 +131,15 @@ def test_freeze_all_candidates_short_week_and_dropped_history(setup):
     with pytest.raises(FileExistsError):
         weekly.capture_week(*setup.args)
     assert path.read_bytes() == original
+
+
+def test_same_day_institutional_gap_only_counts_for_strategies_that_read_flow(setup):
+    root, day, _, evidence, _, daily, inst, calendar = setup.args
+    for strategy, listed in (("oversold_rebound_v1", False), ("foreign_trend_v1", True)):
+        path = weekly.capture_week(root, day, strategy, evidence, [], daily, inst, calendar)
+        gap = next(r for r in weekly.read_records(path) if r["symbol"] == SYMBOLS[2])["snapshot"]
+        assert gap["institutional_net_shares"]["foreign_net"] is None
+        assert ("foreign_net" in gap["missing_fields"]) is listed
 
 
 @pytest.mark.parametrize("stamp, error", [

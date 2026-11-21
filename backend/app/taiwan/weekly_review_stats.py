@@ -127,7 +127,8 @@ def build_weekly_review(records: Iterable[dict], evaluate: Evaluate, *, max_gap_
     """Evaluate each signal group once, using its first week as the entry reference.
 
     Rates and thresholds are percentage points. The win-rate denominator includes every
-    evaluable four-week signal group. MISSED counts distinct no_signal decisions per week.
+    evaluable four-week signal group. MISSED counts distinct no_signal decisions per week,
+    except data_incomplete ones, which are counted separately and never classified.
     """
     if isinstance(max_gap_weeks, bool) or not isinstance(max_gap_weeks, int) or max_gap_weeks < 0:
         raise ValueError("max_gap_weeks must be a nonnegative integer")
@@ -143,7 +144,11 @@ def build_weekly_review(records: Iterable[dict], evaluate: Evaluate, *, max_gap_
         grouped = _signal_groups(rows, strategy_id, evaluate_once, max_gap_weeks, neutral_pct)
         missed_before = len(missed)
         no_signal_counts: Counter[str] = Counter()
-        for row in sorted((r for r in rows if r.decision == "no_signal"), key=lambda r: (r.day, r.symbol, r.pattern)):
+        # MISSED asks whether the rules filtered too hard. A row the strategy could not
+        # evaluate was never filtered, so it is reported as its own count instead.
+        incomplete = sum(r.decision == "no_signal" and r.reason == "data_incomplete" for r in rows)
+        for row in sorted((r for r in rows if r.decision == "no_signal" and r.reason != "data_incomplete"),
+                          key=lambda r: (r.day, r.symbol, r.pattern)):
             outcome = evaluate_once(row.symbol, row.day, row.close)[4]
             _classification(outcome, neutral_pct)
             no_signal_counts[outcome["status"]] += 1
@@ -154,9 +159,13 @@ def build_weekly_review(records: Iterable[dict], evaluate: Evaluate, *, max_gap_
                     "reference_close": row.close, "outcome": outcome, "classification": "MISSED",
                 })
         groups.extend(grouped)
-        measured_missed = len(missed) - missed_before if not no_signal_counts or no_signal_counts["completed"] else None
+        # Zero only when nothing was left unsignalled. Rows that exist but could not be
+        # judged (not yet due, or data_incomplete) leave the count unknown.
+        measured_missed = (len(missed) - missed_before
+                           if no_signal_counts["completed"] or not (no_signal_counts or incomplete) else None)
         summary = _summary(strategy_id, names[strategy_id], grouped, measured_missed)
-        summary.update(no_signal_count=no_signal_counts.total(), no_signal_completed_count=no_signal_counts["completed"],
+        summary.update(data_incomplete_count=incomplete,
+                       no_signal_count=no_signal_counts.total() + incomplete, no_signal_completed_count=no_signal_counts["completed"],
                        no_signal_pending_count=no_signal_counts["pending"], no_signal_unavailable_count=no_signal_counts["unavailable"])
         strategies.append(summary)
     return {"strategies": strategies, "groups": groups, "missed": missed, "duplicate_count": duplicates}
