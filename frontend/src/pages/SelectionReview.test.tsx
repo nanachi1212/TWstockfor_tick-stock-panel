@@ -13,6 +13,7 @@ vi.mock('@/lib/api', () => ({
       listForwardBatches: vi.fn(),
       getForwardBatchDetail: vi.fn(),
       getForwardBatchStats: vi.fn(),
+      getWeeklyReport: vi.fn(),
       lockForwardBatch: vi.fn(),
       deleteSnapshot: vi.fn(),
       getStrategyStats: vi.fn(),
@@ -153,6 +154,17 @@ describe('SelectionReview Page (A12)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('前瞻績效統計載入失敗')
     fireEvent.click(screen.getByRole('button', { name: '重新載入' }))
     expect(await screen.findByRole('heading', { name: '尚無正式前瞻批次' })).toBeInTheDocument()
+  })
+
+  it('loads the weekly review report on demand and shows errors', async () => {
+    vi.mocked(api.selectionReview.getWeeklyReport).mockRejectedValueOnce(new Error('找不到台股資料')).mockResolvedValueOnce({ report: {}, markdown: '# 台股每週選股復盤\n## 缺少週快照的週別' })
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+
+    expect(api.selectionReview.getWeeklyReport).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: '週復盤報告' }))
+    expect(await screen.findByText(/週復盤報告載入失敗：找不到台股資料/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新產生週復盤報告' }))
+    expect(await screen.findByText(/缺少週快照的週別/)).toBeInTheDocument()
   })
 
   it('shows a retry state when the formal batch list request fails', async () => {

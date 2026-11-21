@@ -213,6 +213,32 @@ def _legacy_records(batches, cutoff, evaluator, calendar, census, frozen_keys):
     return result, admitted, dict(skipped)
 
 
+def _missing_weeks(start: date, end: date, calendar: TaiwanTradingCalendar, strategies: set[str],
+                   covered: set[tuple[str, str]], rejected: list[dict]) -> list[dict]:
+    """ISO weeks with (possible) sessions whose strategy has neither a usable ledger nor admitted legacy batch."""
+    reasons: dict[tuple[str, str], list[str]] = {}
+    for row in rejected:
+        week, _, name = row["file"].partition("/")
+        reasons.setdefault((week, name.removesuffix(".jsonl")), []).append(row["reason"])
+    result = []
+    monday = start - timedelta(days=start.weekday())
+    while monday <= end:
+        days = [monday + timedelta(days=i) for i in range(7)]
+        # A ledger is written on the week's last session, so a week that can still
+        # trade on or after `end` is not due yet rather than missing.
+        due = not any(d >= end and calendar.is_trading_day(d) is not False for d in days)
+        status = [calendar.is_trading_day(d) for d in days if d <= end]
+        week = monday.strftime("%G-W%V")
+        if due and any(s is not False for s in status):
+            lacking = sorted(s for s in strategies if (week, s) not in covered)
+            if lacking:
+                result.append({"week": week, "strategies": lacking,
+                               "sessions_verified": any(s is True for s in status),
+                               "reasons": {s: reasons.get((week, s), ["weekly_ledger_missing"]) for s in lacking}})
+        monday += timedelta(days=7)
+    return result
+
+
 def generate_report(data_dir: Path, as_of: date | None = None, *, max_gap_weeks: int = 2,
                     neutral_pct: float = 1.0, missed_pct: float = 8.0) -> dict[str, Any]:
     now = taipei_now()
@@ -254,12 +280,16 @@ def generate_report(data_dir: Path, as_of: date | None = None, *, max_gap_weeks:
             for row in stats["strategies"]:
                 if row["strategy_id"] in legacy_strategies and not row["no_signal_completed_count"]:
                     row["missed_count"] = None
+    covered = {(r["week"], r["source_strategy"]["id"]) for r in [*ledger, *historical]}
+    strategies = {b.strategy_id for b in batches if b.record_type == "forward_batch" and b.as_of_date <= as_of.isoformat()}
+    strategies |= {r["source_strategy"]["id"] for r in ledger}
+    missing = _missing_weeks(min(starts), as_of, calendar, strategies, covered, rejected) if starts else []
     latest = max((p.parent.name.removeprefix("date=") for p in (taiwan / "daily").glob("date=*/part.parquet")
                   if p.parent.name.removeprefix("date=") <= as_of.isoformat()), default=None)
     return {"as_of": as_of.isoformat(), "evidence_cutoff": cutoff.isoformat(), "latest_daily_partition": latest, "parameters": params,
             "weekly_record_count": len(ledger), "historical_record_count": len(historical),
             "historical_batches": admitted, "skipped_batches": skipped, "rejected_weekly_batches": rejected,
-            "rejected_execution_opens": rejected_opens,
+            "rejected_execution_opens": rejected_opens, "missing_weeks": missing,
             "weekly": weekly, "historical": history,
             "historical_drops": [{k: r[k] for k in ("symbol", "source_strategy", "last_trading_day", "last_selected_date",
                                                     "reference_close", "reason")} for r in historical if r["decision"] == "no_signal"],
@@ -301,6 +331,19 @@ def render_markdown(report: dict) -> str:
         lines.extend([f"行情評估至 {report['as_of']}，選股紀錄讀取至 {report['evidence_cutoff']}。", ""])
     for rejected in report.get("rejected_execution_opens", []):
         lines.extend([f"開盤觀測檔 `{rejected['file']}` 未通過驗證（{rejected['reason']}），原週快照仍可評估。", ""])
+    if report.get("missing_weeks"):
+        lines.extend(["## 缺少週快照的週別", "",
+                      "以下週別有交易日（或交易日尚未核實），但沒有可用的週快照，結果為缺資料，不代表零筆或未發訊。", "",
+                      "| 週別 | 策略 | 交易日已核實 | 原因 |", "|---|---|---|---|"])
+        for row in report["missing_weeks"]:
+            by_reason: dict[str, list[str]] = {}
+            for strategy in row["strategies"]:
+                reason = "、".join("當週沒有寫入週快照" if code == "weekly_ledger_missing" else code
+                                  for code in row["reasons"][strategy])
+                by_reason.setdefault(reason, []).append(strategy)
+            for reason, names in by_reason.items():
+                lines.append(_table_row(row["week"], "、".join(names), "是" if row["sessions_verified"] else "否", reason))
+        lines.append("")
     descriptive = ("combined", "歷史名單與 T3 週快照的連續復盤") if report.get("combined") else (
         "historical", "歷史正式日選股的週收盤回顧")
     for source, title in (("weekly", "T3 正式週快照"), descriptive):
