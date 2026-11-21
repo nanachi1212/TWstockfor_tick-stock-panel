@@ -372,7 +372,7 @@ def test_needs_catchup_skips_during_session_and_when_current(monkeypatch):
     assert startup_catchup.needs_catchup() == (True, "daily_stale:2026-10-06")
 
 
-def test_pending_after_close_names_the_first_unfinished_step(monkeypatch):
+def test_pending_after_close_names_every_unfinished_step(monkeypatch):
     import app.taiwan.daily_update as du
     import app.taiwan.selection_review_service as review
     from app.taiwan.selection_v2 import STRATEGY_IDS
@@ -389,12 +389,14 @@ def test_pending_after_close_names_the_first_unfinished_step(monkeypatch):
     ]))
     assert startup_catchup.pending_after_close() == f"after_close_inputs:{day}"
     state.current = True
-    assert startup_catchup.pending_after_close() == f"margin_unverified:{day}"
+    assert startup_catchup.pending_after_close() == f"margin_unverified+selection_lock:{day}"
     state.verified = True
     # The previous session's batch does not stand in for the missing strategy.
     assert startup_catchup.pending_after_close() == f"selection_lock:{day}"
     state.locked = STRATEGY_IDS
     assert startup_catchup.pending_after_close() is None
+    state.verified = False
+    assert startup_catchup.pending_after_close() == f"margin_unverified:{day}"
 
 
 @pytest.mark.parametrize("need,reason,pending,expected", [
