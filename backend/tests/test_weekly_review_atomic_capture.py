@@ -63,14 +63,12 @@ def close_run(taiwan_data_env, monkeypatch):
                            coverage=coverage, margin_verified=margin_verified, days=days, quote=quote)
 
 
-def test_unverified_margin_week_can_retry_before_deadline(close_run):
+def test_weekly_lock_does_not_wait_for_margin_publication(close_run):
+    # No formal strategy reads margin, and it is published hours after the other inputs.
     run = close_run
     run.margin_verified[0] = False
-    with pytest.raises(ValueError, match="margin"):
-        run.service().lock_forward_batch(run.screen, STRATEGY)
-    assert not run.ledger.exists() and run.service().read_snapshots() == []
-    run.margin_verified[0] = True
     assert SYMBOL in run.service().lock_forward_batch(run.screen, STRATEGY).selected_symbols
+    assert run.ledger.is_file()
 
 
 @pytest.mark.parametrize("interrupted", [False, True])

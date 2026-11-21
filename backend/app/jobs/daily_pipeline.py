@@ -22,11 +22,11 @@ def _lock_forward_selections(update, *, only_missing: bool = False) -> None:
 
         # A request can succeed while an exchange is still publishing. Only the
         # actual persisted source dates establish readiness for this session.
+        # Margin is not part of that: no formal strategy reads it, it is published
+        # around 21:00, and the weekly ledger can only be written before midnight.
         target = update.target_latest_trading_date
         freshness = update.freshness
-        if not update.margin_publication_verified or any(
-            as_of != target for as_of in (freshness.daily_as_of, freshness.institutional_as_of, freshness.margin_as_of)
-        ):
+        if any(as_of != target for as_of in (freshness.daily_as_of, freshness.institutional_as_of)):
             logger.info("Taiwan forward batches waiting for official inputs for %s", target)
             return
         if only_missing:
@@ -116,8 +116,11 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
             logger.exception("Taiwan chip ranking freeze failed")
         # Evening catch-up exists for margin (published in the evening); only a
         # newly fetched daily date gives Quant anything new to freeze.
+        # Formal selections read daily bars and institutional flow only, so a failed
+        # margin fetch must not hold their lock; the rest of the chain still waits for it.
+        lock_ready = result.daily.status == "success" and result.institutional.status == "success"
         if evening and result.daily.dates_fetched == 0:
-            if result.overall_status == "success" and result.daily.status == "success":
+            if lock_ready:
                 _lock_forward_selections(result, only_missing=True)
             return
         # Quant is downstream and isolated: it must never roll back or
@@ -158,6 +161,8 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
                             push_digest.run("evening", result.freshness.daily_as_of))
             except Exception:
                 logger.exception("Taiwan evening push digest failed")
+        elif lock_ready:
+            _lock_forward_selections(result)
     except Exception as e:
         logger.exception("Taiwan daily update job (%s) failed: %s", trigger, e)
     finally:
