@@ -1,12 +1,15 @@
 """Freeze the original daily selection at the last session of an ISO week."""
 from __future__ import annotations
 
+import gzip
 import hashlib
+import io
 import json
 import logging
 import math
 import os
 import tempfile
+import zlib
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from functools import lru_cache
@@ -430,9 +433,24 @@ def capture_week(root: Path, day: date, strategy: str, evidence: WeeklyCandidate
     return dest
 
 
+def _read_ledger(path: Path) -> bytes:
+    """Return a ledger's canonical text bytes, whether stored gzip or legacy plain."""
+    data = path.read_bytes()
+    if data[:2] != b"\x1f\x8b":
+        return data
+    try:
+        return gzip.decompress(data)
+    except (OSError, EOFError, zlib.error) as exc:
+        raise ValueError("weekly_ledger_corrupt") from exc
+
+
 def file_sha256(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+    # Hash the uncompressed text so digests do not depend on storage encoding.
+    try:
+        data = _read_ledger(path)
+    except ValueError:
+        data = path.read_bytes()  # corrupt gzip: its raw digest cannot match a recorded one
+    return hashlib.sha256(data).hexdigest()
 
 
 def finish_week(path: Path, batch: SelectionSnapshot, calendar: TaiwanTradingCalendar,
@@ -464,7 +482,7 @@ def _publish(dest: Path, records: list[str], *, deadline: datetime | None = None
     try:
         with tempfile.NamedTemporaryFile(dir=dest.parent, delete=False) as stream:
             temporary = Path(stream.name)
-            stream.write(("\n".join(records) + "\n").encode("utf8"))
+            stream.write(gzip.compress(("\n".join(records) + "\n").encode("utf8"), mtime=0))
             stream.flush()
             os.fsync(stream.fileno())
         with file_lock(dest.with_suffix(".lock")):
@@ -483,7 +501,7 @@ def _publish(dest: Path, records: list[str], *, deadline: datetime | None = None
 
 def read_records(path: Path) -> list[dict]:
     records = []
-    with path.open(encoding="utf8") as stream:
+    with io.StringIO(_read_ledger(path).decode("utf8")) as stream:
         for line in stream:
             record = json.loads(line)
             if canonical_hash(record["snapshot"]) != record["snapshot_sha256"] or canonical_hash(
@@ -523,7 +541,7 @@ def read_execution_opens(path: Path, records: list[dict], target: date, cutoff: 
     # establish a later availability bound; a historical opening price alone cannot.
     legacy_time = max(close, datetime.fromtimestamp(companion.stat().st_mtime, TAIPEI_TZ))
     latest = close
-    with companion.open(encoding="utf8") as stream:
+    with io.StringIO(_read_ledger(companion).decode("utf8")) as stream:
         for line in stream:
             try:
                 event = json.loads(line)

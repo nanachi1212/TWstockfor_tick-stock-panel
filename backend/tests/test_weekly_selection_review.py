@@ -126,7 +126,7 @@ def test_freeze_all_candidates_short_week_and_dropped_history(setup):
         assert row["decision"] == "no_signal"
         assert row["reason"] == "dropped_before_week_close"
         assert row["last_selected_date"] == "2026-11-18"
-    assert "自由文字" not in path.read_text("utf8") and "非結構化" not in path.read_text("utf8")
+    assert "自由文字" not in weekly._read_ledger(path).decode("utf8") and "非結構化" not in weekly._read_ledger(path).decode("utf8")
     original = path.read_bytes()
     with pytest.raises(FileExistsError):
         weekly.capture_week(*setup.args)
@@ -169,7 +169,7 @@ def test_future_facts_and_corruption_are_rejected(setup):
         weekly.capture_week(*setup.args)
     setup.evidence.revenue_observed_at = None
     path = weekly.capture_week(*setup.args)
-    path.write_text(path.read_text("utf8").replace('"reference_close":11', '"reference_close":12'), "utf8")
+    path.write_text(weekly._read_ledger(path).decode("utf8").replace('"reference_close":11', '"reference_close":12'), "utf8")
     with pytest.raises(ValueError, match="digest_mismatch"):
         weekly.read_records(path)
 
@@ -190,7 +190,7 @@ def test_actual_next_open_is_observed_separately_and_never_rewrites_decision(set
     assert not companion.exists()
     setup.clock[0] = datetime(2026, 11, 23, 16, tzinfo=TAIPEI_TZ)
     weekly.record_execution_opens(*args)
-    values = [json.loads(line) for line in companion.read_text("utf8").splitlines()]
+    values = [json.loads(line) for line in weekly._read_ledger(companion).decode("utf8").splitlines()]
     assert [v["record_sha256"] for v in values] == [r["record_sha256"] for r in weekly.read_records(path)]
     assert all(v["executable_reference_open"] == 100 and v["session"] == "2026-11-23" for v in values)
     saved = companion.read_bytes()
@@ -250,7 +250,7 @@ def test_legacy_open_reader_checks_availability_time_and_complete_membership(set
     records = weekly.read_records(path)
     companion = path.with_suffix(".opens.jsonl")
     lines = []
-    for line in companion.read_text("utf8").splitlines():
+    for line in weekly._read_ledger(companion).decode("utf8").splitlines():
         event = json.loads(line)
         del event["observation_sha256"], event["observed_at"]
         event["observation_sha256"] = weekly.canonical_hash(event)
@@ -394,3 +394,34 @@ def test_formal_entry_freezes_original_daily_output(taiwan_data_env, monkeypatch
     assert (chosen["decision"], chosen["reference_close"], chosen["formal_batch_id"]) == ("signal", 81, batch.snapshot_id)
     assert chosen["snapshot"]["daily_inputs"]["rsi_14"] <= 35
     assert any(r["decision"] == "no_signal" for r in rows)
+
+
+def test_ledger_is_gzip_on_disk_and_legacy_plain_text_reads_identically(tmp_path):
+    import gzip
+    import hashlib
+    import json
+
+    from app.taiwan.quant.live_contract import canonical_hash, canonical_json
+
+    rows = []
+    for i in range(200):
+        record = {"symbol": f"{2300 + i}.TWSE", "snapshot": {"close": i, "note": "收盤"}}
+        record["snapshot_sha256"] = canonical_hash(record["snapshot"])
+        record["record_sha256"] = canonical_hash(record)
+        rows.append(canonical_json(record))
+    plain = ("\n".join(rows) + "\n").encode("utf8")
+
+    packed = tmp_path / "2026-W48" / "s.jsonl"
+    weekly._publish(packed, rows)
+    raw = packed.read_bytes()
+    assert raw[:2] == b"\x1f\x8b" and gzip.decompress(raw) == plain
+    assert raw == gzip.compress(plain, mtime=0)
+    assert len(raw) < len(plain)
+
+    legacy = tmp_path / "2026-W47" / "s.jsonl"
+    legacy.parent.mkdir()
+    legacy.write_bytes(plain)
+
+    expected = hashlib.sha256(plain).hexdigest()
+    assert weekly.file_sha256(packed) == weekly.file_sha256(legacy) == expected
+    assert weekly.read_records(packed) == weekly.read_records(legacy) == [json.loads(r) for r in rows]

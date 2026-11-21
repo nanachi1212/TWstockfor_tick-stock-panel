@@ -81,13 +81,15 @@ def pending_after_close() -> str | None:
     target = freshness.target_latest_trading_date
     if not freshness.is_fully_current:
         return f"after_close_inputs:{target}"
+    # Both can be outstanding at once; name every one so the reported reason is exact.
+    pending = []
     if not service.margin_store.has_verified_publication(date.fromisoformat(target)):
-        return f"margin_unverified:{target}"
+        pending.append("margin_unverified")
     locked = {batch.strategy_id for batch in get_selection_review_service().read_snapshots()
               if batch.record_type == "forward_batch" and batch.source_data_date == target}
     if not locked.issuperset(STRATEGY_IDS):
-        return f"selection_lock:{target}"
-    return None
+        pending.append("selection_lock")
+    return f"{'+'.join(pending)}:{target}" if pending else None
 
 
 def _catchup_official_evidence(app_state: Any) -> dict[str, Any]:
