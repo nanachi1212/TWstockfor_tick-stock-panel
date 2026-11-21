@@ -220,6 +220,30 @@ def test_after_close_forward_lock_preserves_ai_and_push_chain(monkeypatch, ready
         push.assert_not_called()
 
 
+@pytest.mark.parametrize("evening", [False, True])
+def test_failed_margin_fetch_does_not_hold_the_selection_lock(monkeypatch, evening):
+    from app.taiwan import auto_watch, chip_ranking_tracking
+
+    ok = SimpleNamespace(status="success", dates_fetched=0)
+    result = SimpleNamespace(
+        overall_status="partial", daily=ok, institutional=ok, margin=SimpleNamespace(status="failed"),
+        target_latest_trading_date="2026-10-08",
+        freshness=SimpleNamespace(daily_as_of="2026-10-08", institutional_as_of="2026-10-08", margin_as_of="2026-10-07"),
+    )
+    monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService",
+                        lambda: SimpleNamespace(run_update=lambda **kwargs: result))
+    monkeypatch.setattr(daily_pipeline, "_refresh_after_close_research", Mock())
+    monkeypatch.setattr(chip_ranking_tracking, "freeze_latest_ranking", Mock())
+    monkeypatch.setattr(live_runner, "run_live_after_refresh", Mock())
+    monkeypatch.setattr(daily_pipeline, "notify_daily_data_updated", Mock())
+    watch, lock = Mock(), Mock()
+    monkeypatch.setattr(auto_watch, "sync_watchlist_plans", watch)
+    monkeypatch.setattr(selection_review_service, "lock_daily_forward_batches", lock)
+    daily_pipeline.run_taiwan_update(evening=evening, trigger="startup_catchup")
+    lock.assert_called_once()
+    watch.assert_not_called()  # Everything else after the close still waits for a complete refresh.
+
+
 def test_update_notifies_daily_data_sse_even_on_evening_early_return(monkeypatch):
     from app.services.quote_service import QuoteService
 
@@ -259,12 +283,11 @@ def test_evening_final_inputs_retry_selections_without_rerunning_quant(monkeypat
     monkeypatch.setattr(live_runner, "run_live_after_refresh", quant)
     monkeypatch.setattr(selection_review_service, "lock_daily_forward_batches", lock)
     daily_pipeline.run_taiwan_update(evening=True)
-    lock.assert_not_called()
+    lock.assert_not_called()  # Institutional flow for this session is not stored yet.
     result.freshness.institutional_as_of = day.isoformat()
+    result.freshness.margin_as_of = "2026-11-12"
     daily_pipeline.run_taiwan_update(evening=True)
-    lock.assert_not_called()  # A legacy partition date alone does not prove publication.
-    result.margin_publication_verified = True
-    daily_pipeline.run_taiwan_update(evening=True)
+    # Daily and institutional are in; margin is still unpublished and nothing waits for it.
     lock.assert_called_once_with(only_missing_for=day)
     quant.assert_not_called()
 

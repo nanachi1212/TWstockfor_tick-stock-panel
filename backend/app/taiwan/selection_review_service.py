@@ -338,8 +338,6 @@ class TaiwanSelectionReviewService:
             flow_generation = self._partition_generation(screener.institutional_store._data_dir)
             if week_day not in screener.institutional_store.available_dates():
                 raise ValueError("weekly_institutional_session_pending：當日法人資料尚未入庫，可於截止前重試")
-            if not screener.margin_store.has_verified_publication(week_day):
-                raise ValueError("weekly_margin_session_pending：尚未核實兩市場當日融資券公告，可於截止前重試")
 
         daily_generation = self._daily_generation()
         census_generation = self._census_generation()

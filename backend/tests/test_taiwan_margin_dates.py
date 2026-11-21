@@ -29,7 +29,7 @@ def market(tmp_path):
     return store, refresh, evidence, twse, tpex
 
 
-def test_previous_session_responses_cannot_release_the_scheduled_lock(market, monkeypatch):
+def test_previous_session_responses_are_never_stored_as_the_target_session(market):
     store, refresh, evidence, twse, tpex = market
     twse["date"] = tpex["date"] = "20261119"
     twse["tables"][1]["title"] = "115年11月19日 融資融券彙總 (全部)"
@@ -37,13 +37,10 @@ def test_previous_session_responses_cannot_release_the_scheduled_lock(market, mo
     published = SimpleNamespace(available_dates=lambda: [DAY], partial_dates=set)
     update = TaiwanDailyUpdateService(daily_store=published, inst_store=published, margin_store=store,
                                      margin_service=refresh, evidence_store=evidence)
-    locks = []
-    monkeypatch.setattr("app.taiwan.selection_review_service.lock_daily_forward_batches",
-                        lambda **kwargs: locks.append(kwargs))
     result = update.run_update(target_date=DAY)
-    if result.daily.status == result.overall_status == "success":
-        _lock_forward_selections(result, only_missing=True)
-    assert (store.available_dates(), result.margin.status, locks) == ([], "failed", [])
+    # The failed refresh is reported; whether the selection lock may proceed is the pipeline's call.
+    assert (store.available_dates(), result.margin.status, result.overall_status) == ([], "failed", "partial")
+    assert not result.margin_publication_verified
 
 
 @pytest.mark.parametrize("exchange", ["twse", "tpex"])
@@ -115,12 +112,11 @@ def test_daily_update_rechecks_only_legacy_target_until_both_exchanges_publish(m
     first = update.run_update(target_date=DAY)
     assert first.margin.pending_dates and not first.margin_publication_verified
     _lock_forward_selections(first, only_missing=True)
-    assert locks == []
+    # The formal lock reads no margin data, so a pending publication does not hold it back.
+    assert locks == [{"only_missing_for": DAY}]
     tpex["tables"][0]["data"] = rows
     second = update.run_update(target_date=DAY)
     assert second.margin.dates_fetched == 1 and second.margin_publication_verified
-    _lock_forward_selections(second, only_missing=True)
-    assert locks == [{"only_missing_for": DAY}]
     third = update.run_update(target_date=DAY)
     assert third.margin.dates_skipped == 1 and third.margin_publication_verified
     assert attempts == [(DAY, DAY), (DAY, DAY)]
