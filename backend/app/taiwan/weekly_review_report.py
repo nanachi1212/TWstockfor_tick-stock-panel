@@ -213,6 +213,14 @@ def _legacy_records(batches, cutoff, evaluator, calendar, census, frozen_keys):
     return result, admitted, dict(skipped)
 
 
+_MISSING_REASON_TEXT = {
+    "weekly_ledger_missing": "當週沒有寫入週快照",
+    # The weekly row describes the close of the week's last session; evidence fetched
+    # on a later day would be look-ahead for returns measured from that close.
+    "future_snapshot_date": "週收盤日過後才補鎖，為避免用到事後資料而不寫入",
+}
+
+
 def _missing_weeks(start: date, end: date, calendar: TaiwanTradingCalendar, strategies: set[str],
                    covered: set[tuple[str, str]], rejected: list[dict]) -> list[dict]:
     """ISO weeks with (possible) sessions whose strategy has neither a usable ledger nor admitted legacy batch."""
@@ -338,8 +346,7 @@ def render_markdown(report: dict) -> str:
         for row in report["missing_weeks"]:
             by_reason: dict[str, list[str]] = {}
             for strategy in row["strategies"]:
-                reason = "、".join("當週沒有寫入週快照" if code == "weekly_ledger_missing" else code
-                                  for code in row["reasons"][strategy])
+                reason = "、".join(_MISSING_REASON_TEXT.get(code, code) for code in row["reasons"][strategy])
                 by_reason.setdefault(reason, []).append(strategy)
             for reason, names in by_reason.items():
                 lines.append(_table_row(row["week"], "、".join(names), "是" if row["sessions_verified"] else "否", reason))

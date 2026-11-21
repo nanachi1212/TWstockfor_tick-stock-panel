@@ -363,6 +363,16 @@ def test_week_with_sessions_but_no_ledger_is_listed_as_missing(tmp_path):
     assert "## 缺少週快照的週別" in markdown and "2026-W47" in markdown
 
 
+def test_week_locked_after_its_close_day_explains_why_no_ledger_was_written(tmp_path):
+    user = _data_dir(tmp_path)
+    late = {**formal(), "weekly_capture_error": "future_snapshot_date"}
+    (user / "taiwan_selection_snapshots.json").write_text(json.dumps([late]), encoding="utf8")
+    report = generate_report(tmp_path, date(2026, 11, 16))
+    week46, = report["missing_weeks"]
+    assert week46["week"] == "2026-W46" and week46["reasons"]["breakout_v1"] == ["future_snapshot_date"]
+    assert "週收盤日過後才補鎖" in render_markdown(report)
+
+
 def test_rejected_ledger_week_is_missing_with_its_reason(tmp_path):
     user = _data_dir(tmp_path)
     batch = formal()
