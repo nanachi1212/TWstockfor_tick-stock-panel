@@ -346,3 +346,49 @@ def test_group_shows_first_sealed_execution_open_and_keeps_friday_return_base(tm
     group, = damaged["weekly"]["groups"]
     assert group["execution_open_status"] == "invalid" and group["executable_reference_open"] is None
     assert damaged["weekly_record_count"] == 1 and damaged["rejected_weekly_batches"] == []
+
+
+def test_week_with_sessions_but_no_ledger_is_listed_as_missing(tmp_path):
+    user = _data_dir(tmp_path)
+    _save_bound_fixture(user, [_ledger_record()], formal())
+    # The ledger is written on the week's last session, so W47 is not due while it can still trade.
+    assert generate_report(tmp_path, date(2026, 11, 20))["missing_weeks"] == []
+    # W47 has weekdays and the strategy is known, but nothing was captured that week.
+    report = generate_report(tmp_path, date(2026, 11, 21))
+    assert report["weekly_record_count"] == 1
+    missing, = report["missing_weeks"]
+    assert missing["week"] == "2026-W47" and missing["strategies"] == ["breakout_v1"]
+    assert missing["reasons"]["breakout_v1"] == ["weekly_ledger_missing"]
+    markdown = render_markdown(report)
+    assert "## 缺少週快照的週別" in markdown and "2026-W47" in markdown
+
+
+def test_rejected_ledger_week_is_missing_with_its_reason(tmp_path):
+    user = _data_dir(tmp_path)
+    batch = formal()
+    _save_bound_fixture(user, [_ledger_record()], batch)
+    (user / "weekly_selection" / "2026-W46" / "breakout_v1.jsonl").write_bytes(b"tampered")
+    report = generate_report(tmp_path, date(2026, 11, 16))
+    week46 = next(m for m in report["missing_weeks"] if m["week"] == "2026-W46")
+    assert week46["reasons"]["breakout_v1"] == ["weekly_batch_digest_mismatch"]
+
+
+def test_weekly_report_endpoint_returns_report_and_markdown(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.taiwan import router
+
+    _data_dir(tmp_path)
+    app = FastAPI()
+    app.include_router(router)
+    app.state.repo = SimpleNamespace(store=SimpleNamespace(data_dir=tmp_path))
+    with TestClient(app) as client:
+        body = client.get("/api/taiwan/selection-review/weekly-report").json()
+        assert set(body) == {"report", "markdown"} and "missing_weeks" in body["report"]
+        assert body["markdown"].startswith("# 台股每週選股復盤")
+    empty = FastAPI()
+    empty.include_router(router)
+    empty.state.repo = SimpleNamespace(store=SimpleNamespace(data_dir=tmp_path / "nope"))
+    with TestClient(empty) as client:
+        assert client.get("/api/taiwan/selection-review/weekly-report").status_code == 409

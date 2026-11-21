@@ -145,6 +145,22 @@ function ForwardStats({ stats, formatPct, strategyId }: { stats: ForwardBatchSta
   </section>
 }
 
+function WeeklyReport() {
+  const [open, setOpen] = useState(false)
+  const query = useQuery({
+    queryKey: ['selection-review', 'weekly-report'],
+    queryFn: () => api.selectionReview.getWeeklyReport(),
+    enabled: open,
+  })
+  return <section aria-label="週復盤報告" className="space-y-2 rounded-xl border border-border/60 bg-card p-3">
+    <button type="button" onClick={() => open ? query.refetch() : setOpen(true)} className="text-sm font-medium text-primary hover:underline">{open ? '重新產生週復盤報告' : '週復盤報告'}</button>
+    {open && (query.isFetching ? <p className="text-xs text-muted-foreground">週復盤報告產生中…</p>
+      : query.isError ? <p role="alert" className="text-sm text-destructive">週復盤報告載入失敗：{query.error instanceof Error ? query.error.message : '未知錯誤'}</p>
+      : query.data?.markdown ? <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words text-xs">{query.data.markdown}</pre>
+      : <p className="text-xs text-muted-foreground">尚無週復盤報告內容。</p>)}
+  </section>
+}
+
 function formatRate(value: number | null | undefined) {
   return value == null ? '尚無樣本' : `${value.toFixed(1)}%`
 }
@@ -350,6 +366,7 @@ export function SelectionReview() {
           {forwardStatsQuery.isError ? (
             <div role="alert" className="space-y-2 rounded-xl border border-destructive/30 p-4 text-sm"><p>前瞻績效統計載入失敗，尚無法確認累積表現。</p><button type="button" onClick={() => forwardStatsQuery.refetch()} className="text-primary underline">重新載入</button></div>
           ) : forwardStatsQuery.data ? <ForwardStats stats={forwardStatsQuery.data} strategyId={forwardStrategy} formatPct={formatPct} /> : null}
+          <WeeklyReport />
           {selectedForwardBatchId ? (
             <div className="space-y-3">
               <button type="button" onClick={() => setSearchParams({ tab: 'forward' })} className="text-xs text-primary hover:underline">返回正式批次清單</button>

@@ -1012,6 +1012,17 @@ def get_selection_forward_batch_stats(strategy_id: str | None = Query(default=No
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.get("/selection-review/weekly-report")
+def get_selection_weekly_report(request: Request):
+    from app.taiwan.weekly_review_report import generate_report, render_markdown
+
+    try:
+        report = generate_report(request.app.state.repo.store.data_dir)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return {"report": report, "markdown": render_markdown(report)}
+
+
 @router.get("/selection-review/forward-batches")
 def list_selection_forward_batches(strategy_id: str | None = Query(default=None)):
     from app.taiwan.selection_review_service import get_selection_review_service

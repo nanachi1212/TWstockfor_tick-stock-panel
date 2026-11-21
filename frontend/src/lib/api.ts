@@ -3741,6 +3741,8 @@ export const api = {
       request<SnapshotReviewDetail>(`/api/taiwan/selection-review/forward-batches/${encodeURIComponent(batchId)}`),
     getForwardBatchStats: (strategyId?: string) =>
       request<ForwardBatchStats>(`/api/taiwan/selection-review/forward-batches/stats${strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : ''}`),
+    getWeeklyReport: () =>
+      request<{ report: Record<string, unknown>; markdown: string }>('/api/taiwan/selection-review/weekly-report'),
     saveSnapshot: (payload: SaveSelectionSnapshotRequest) =>
       request<SelectionSnapshot>('/api/taiwan/selection-review/snapshots', {
         method: 'POST',
