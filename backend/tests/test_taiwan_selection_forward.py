@@ -1025,3 +1025,133 @@ def test_paper_return_uses_verified_cash_dividend_price_factor():
         {"open": 90.0, "close": 90.0}, [action],
     )
     assert value == pytest.approx(0.0)
+
+
+def _restriction_case(tmp_path, monkeypatch, events, status="available",
+                      saved_at="2026-08-04T12:00:00+08:00"):
+    snapshot = SelectionSnapshot(
+        snapshot_id="forward-restricted", created_at="2026-08-03T08:30:00+00:00",
+        locked_at="2026-08-03T16:30:00+08:00",
+        strategy_id="trend_liquidity_v1", strategy_name="趨勢流動性 v1",
+        as_of_date="2026-08-03", source_data_date="2026-08-03",
+        target_trade_date="2026-08-04", market_context_summary="",
+        record_type="forward_batch", evaluation_basis="next_open",
+        items=[SelectionSnapshotItem(symbol="8069.TPEX", name="元太", rank=1, price=100),
+               SelectionSnapshotItem(symbol="2330.TWSE", name="台積電", rank=2, price=100)],
+    )
+
+    def item(symbol, rank, raw):
+        return HorizonReviewItem(symbol=symbol, name=symbol, rank=rank, entry_price=100,
+                                 entry_status="completed", h1d_status="completed",
+                                 h1d_raw_return_pct=raw, h1d_return_pct=raw,
+                                 h1d_bm_status="unavailable")
+
+    review = SnapshotReviewDetail(snapshot=snapshot, evaluated_items=[
+        item("8069.TPEX", 1, 5.0), item("2330.TWSE", 2, -1.0),
+    ])
+
+    class Risk(TaiwanEventService):
+        def __init__(self):
+            pass
+
+        def get_cached_regulatory_snapshot(self, *, any_age=False):
+            assert any_age  # an old snapshot still covers the sessions it was taken after
+            return events, status, saved_at
+
+    svc = TaiwanSelectionReviewService(path=tmp_path / "snapshots.json")
+    svc._save_snapshots_raw([snapshot])
+    monkeypatch.setattr("app.taiwan.events_service.get_event_service", lambda: Risk())
+    monkeypatch.setattr(svc, "_forward_review_inputs", lambda: ((), (), ()))
+    monkeypatch.setattr(svc, "_get_forward_batch_review", lambda _: review)
+    return svc
+
+
+def _disposition(event_date: str, published_at: str | None = None) -> MarketEvent:
+    return MarketEvent(
+        id=f"disposition-8069-{event_date}", symbol="8069.TPEX", code="8069", name="元太",
+        exchange="TPEX", event_date=event_date, event_type="disposition",
+        event_type_label="處置證券", title="處置", summary="處置", source="tpex:disposal",
+        retrieved_at="2026-08-04T23:00:00+08:00", published_at=published_at,
+        details={"period": "115/08/04～115/08/17"},
+    )
+
+
+def test_disposition_announced_after_lock_before_entry_open_is_excluded(tmp_path, monkeypatch):
+    # Announced on the source day after the 16:30 lock; applies to the 08-04 entry session.
+    svc = _restriction_case(tmp_path, monkeypatch, [_disposition("2026-08-03")])
+    stats = svc.get_forward_batch_stats()
+    full = stats.horizons["1D"]["full_batch"]
+    assert stats.entry_restriction_status == "available"
+    assert stats.entry_restricted_count == 1
+    assert full.entry_restricted_count == 1
+    assert full.pick_count == 1
+    assert full.evaluable_count == 1
+    assert full.average_return_pct == pytest.approx(-1.0)
+    assert full.hit_rate == 0.0
+    assert stats.h1d_avg_return_pct == pytest.approx(-1.0)
+    detail = svc.get_snapshot_review("forward-restricted")
+    marked = {item.symbol: item for item in detail.evaluated_items}
+    assert marked["8069.TPEX"].entry_restricted is True
+    assert marked["8069.TPEX"].entry_restriction_reason == "處置股"
+    assert marked["2330.TWSE"].entry_restricted is False
+    assert detail.entry_restricted_count == 1
+    assert detail.h1d_evaluated_count == 1
+    assert detail.h1d_avg_return_pct == pytest.approx(-1.0)
+    # The locked record itself is not rewritten.
+    assert "entry_restricted" not in svc.path.read_text(encoding="utf-8")
+
+
+def test_disposition_announced_after_entry_open_does_not_mark(tmp_path, monkeypatch):
+    late = [_disposition("2026-08-04", published_at="2026-08-04T10:00:00+08:00"),
+            _disposition("2026-08-04")]  # same-day, no announcement time: unprovable
+    svc = _restriction_case(tmp_path, monkeypatch, late)
+    stats = svc.get_forward_batch_stats()
+    assert stats.entry_restriction_status == "available"
+    assert stats.entry_restricted_count == 0
+    assert stats.horizons["1D"]["full_batch"].evaluable_count == 2
+    detail = svc.get_snapshot_review("forward-restricted")
+    assert not any(item.entry_restricted for item in detail.evaluated_items)
+
+
+def test_unavailable_regulatory_data_marks_nothing_and_says_so(tmp_path, monkeypatch):
+    svc = _restriction_case(tmp_path, monkeypatch, [_disposition("2026-08-03")],
+                            status="unavailable")
+    stats = svc.get_forward_batch_stats()
+    assert stats.entry_restriction_status == "unavailable"
+    assert stats.entry_restricted_count == 0
+    assert stats.horizons["1D"]["full_batch"].evaluable_count == 2
+    detail = svc.get_snapshot_review("forward-restricted")
+    assert detail.entry_restriction_status == "unavailable"
+    assert not any(item.entry_restricted for item in detail.evaluated_items)
+
+
+@pytest.mark.parametrize("saved_at", [
+    "2026-08-04T08:00:00+08:00",  # taken before the entry open: later announcements unseen
+    "2026-08-09T12:00:00+08:00",  # taken long after: an expired disposition may be gone
+    None,
+])
+def test_snapshot_outside_the_entry_window_leaves_the_batch_unchecked(tmp_path, monkeypatch, saved_at):
+    svc = _restriction_case(tmp_path, monkeypatch, [_disposition("2026-08-03")], saved_at=saved_at)
+    stats = svc.get_forward_batch_stats()
+    assert stats.entry_restriction_status == "unavailable"
+    assert (stats.entry_restricted_count, stats.entry_restriction_unchecked_count) == (0, 1)
+    assert stats.horizons["1D"]["full_batch"].evaluable_count == 2
+
+
+def test_in_window_recheck_is_kept_after_the_snapshot_moves_on(tmp_path, monkeypatch):
+    svc = _restriction_case(tmp_path, monkeypatch, [_disposition("2026-08-03")])
+    assert svc.get_forward_batch_stats().entry_restricted_count == 1
+    record = json.loads((tmp_path / "forward_entry_rechecks.json").read_text(encoding="utf-8"))
+    assert record["forward-restricted"]["marks"] == {"8069.TPEX": "處置股"}
+    # A newer snapshot no longer lists the expired disposition; the recorded check still applies.
+    later = _restriction_case(tmp_path, monkeypatch, [], saved_at="2026-08-20T12:00:00+08:00")
+    stats = later.get_forward_batch_stats()
+    assert (stats.entry_restriction_status, stats.entry_restricted_count) == ("available", 1)
+
+
+def test_daily_lock_records_rechecks_without_anyone_opening_the_review(tmp_path, monkeypatch):
+    svc = _restriction_case(tmp_path, monkeypatch, [_disposition("2026-08-03")])
+    assert svc.record_entry_rechecks() == 1
+    record = json.loads((tmp_path / "forward_entry_rechecks.json").read_text(encoding="utf-8"))
+    assert record["forward-restricted"]["marks"] == {"8069.TPEX": "處置股"}
+    assert svc.record_entry_rechecks() == 0  # already recorded

@@ -795,11 +795,14 @@ class TaiwanEventService:
             with self._mops_lock:
                 self._mops_refreshing = False
 
-    def get_cached_regulatory_snapshot(self) -> tuple[list[MarketEvent], str, str | None]:
-        """Read a fresh official-event snapshot without refreshing external sources."""
+    def get_cached_regulatory_snapshot(self, *, any_age: bool = False) -> tuple[list[MarketEvent], str, str | None]:
+        """Read a fresh official-event snapshot without refreshing external sources.
+
+        any_age: also return an older snapshot; the caller judges what its saved time covers.
+        """
         now = datetime.now(UTC).timestamp()
         cached = self._memory_cache.get("official")
-        if cached is not None and 0 <= now - cached[0] < self._cache_ttl:
+        if cached is not None and (any_age or 0 <= now - cached[0] < self._cache_ttl):
             return cached[1], self.last_status, datetime.fromtimestamp(cached[0], UTC).isoformat()
 
         cache_file = settings.data_dir / "taiwan" / "events_cache" / "regulatory_events.json"
@@ -808,7 +811,7 @@ class TaiwanEventService:
         try:
             raw = json.loads(cache_file.read_text(encoding="utf-8"))
             saved_at = float(raw["saved_at"])
-            if not 0 <= now - saved_at < self._cache_ttl:
+            if not any_age and not 0 <= now - saved_at < self._cache_ttl:
                 return [], "unavailable", None
             events = [MarketEvent(**item) for item in raw["events"]]
             status = raw.get("status")

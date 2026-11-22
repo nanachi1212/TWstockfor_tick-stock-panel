@@ -152,6 +152,10 @@ class HorizonReviewItem(BaseModel):
     entry_status: HorizonStatus = "pending"
     price_adjustment: str = "raw_reference_close"
     status_reasons: dict[str, str] = Field(default_factory=dict)
+    # Evaluation-time recheck: restricted for the entry session by an event announced
+    # before that session's open. The locked batch record itself is never changed.
+    entry_restricted: bool = False
+    entry_restriction_reason: str | None = None
 
 
 class ForwardCohortStats(BaseModel):
@@ -174,6 +178,8 @@ class ForwardCohortStats(BaseModel):
     median_excess_return_pct: float | None = None
     beat_benchmark_count: int = 0
     beat_benchmark_rate: float | None = None
+    # Picks excluded from every count/rate above because their entry was restricted.
+    entry_restricted_count: int = 0
 
 
 class ForwardTimelineMetric(BaseModel):
@@ -240,6 +246,9 @@ class SnapshotReviewDetail(BaseModel):
     h20d_pending_count: int = 0
     h20d_unavailable_count: int = 0
     cohorts: dict[str, dict[str, ForwardCohortStats]] = Field(default_factory=dict)
+    # None = not a forward batch; "unavailable" = regulatory data missing, nothing was checked.
+    entry_restriction_status: Literal["available", "partial", "unavailable"] | None = None
+    entry_restricted_count: int = 0
 
 
 class ForwardBatchStats(BaseModel):
@@ -283,6 +292,10 @@ class ForwardBatchStats(BaseModel):
     hit_rate_definition: str = "未四捨五入報酬率 > 0%"
     horizons: dict[str, dict[str, ForwardCohortStats]] = Field(default_factory=dict)
     timeline: list[ForwardBatchTimeline] = Field(default_factory=list)
+    entry_restriction_status: Literal["available", "partial", "unavailable"] | None = None
+    entry_restricted_count: int = 0
+    # Batches whose entry session no saved regulatory snapshot covers; not checked, not clear.
+    entry_restriction_unchecked_count: int = 0
 
 
 class SnapshotListItem(BaseModel):

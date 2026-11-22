@@ -3958,6 +3958,9 @@ export interface HorizonReviewItem {
   entry_status?: HorizonStatus
   price_adjustment?: string
   status_reasons?: Record<string, string>
+  /** Evaluation-time recheck: restricted by an event announced before the entry open. */
+  entry_restricted?: boolean
+  entry_restriction_reason?: string | null
 }
 
 export interface SnapshotReviewDetail {
@@ -3994,6 +3997,8 @@ export interface SnapshotReviewDetail {
   h20d_pending_count?: number
   h20d_unavailable_count?: number
   cohorts?: Record<string, Record<'top10' | 'full_batch', ForwardCohortStats>>
+  entry_restriction_status?: 'available' | 'partial' | 'unavailable' | null
+  entry_restricted_count?: number
 }
 
 export interface SnapshotListItem {
@@ -4075,6 +4080,9 @@ export interface ForwardBatchStats {
   hit_rate_definition: string
   horizons?: Record<string, Record<'top10' | 'full_batch', ForwardCohortStats>>
   timeline?: ForwardBatchTimeline[]
+  entry_restriction_status?: 'available' | 'partial' | 'unavailable' | null
+  entry_restricted_count?: number
+  entry_restriction_unchecked_count?: number
 }
 
 export interface ForwardCohortStats {
@@ -4095,6 +4103,7 @@ export interface ForwardCohortStats {
   median_excess_return_pct: number | null
   beat_benchmark_count: number
   beat_benchmark_rate: number | null
+  entry_restricted_count?: number
 }
 
 export interface ForwardTimelineMetric {

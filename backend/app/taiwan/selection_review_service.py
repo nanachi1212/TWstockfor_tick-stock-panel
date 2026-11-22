@@ -87,6 +87,9 @@ def _storage_path() -> Path:
     return p
 
 
+_ENTRY_RECHECK_WINDOW = timedelta(days=4)
+
+
 class TaiwanSelectionReviewService:
     """Service for managing screener snapshots and calculating review horizons."""
 
@@ -756,7 +759,13 @@ class TaiwanSelectionReviewService:
                     setattr(result, f"{prefix}_excess_pct", round(raw - bm_raw, 2))
             evaluated.append(result)
 
-        detail = SnapshotReviewDetail(snapshot=snapshot, evaluated_items=evaluated)
+        return self._summarize_forward_detail(
+            SnapshotReviewDetail(snapshot=snapshot, evaluated_items=evaluated)
+        )
+
+    def _summarize_forward_detail(self, detail: SnapshotReviewDetail) -> SnapshotReviewDetail:
+        evaluated = [item for item in detail.evaluated_items if not item.entry_restricted]
+        detail.entry_restricted_count = len(detail.evaluated_items) - len(evaluated)
         for horizon in (1, 5, 20):
             prefix = f"h{horizon}d"
             returns = [getattr(item, f"{prefix}_raw_return_pct") for item in evaluated
@@ -856,7 +865,7 @@ class TaiwanSelectionReviewService:
         maturity_by_snapshot: dict[str, bool] | None = None,
     ) -> ForwardCohortStats:
         prefix = f"h{horizon}d"
-        picks = pending = unavailable = positive = 0
+        picks = pending = unavailable = positive = restricted = 0
         matured_batches = 0
         returns: list[float] = []
         benchmark: list[float] = []
@@ -864,6 +873,8 @@ class TaiwanSelectionReviewService:
         beat_benchmark = 0
         for review in reviews:
             items = self._cohort_items(review.evaluated_items, cohort)
+            restricted += sum(item.entry_restricted for item in items)
+            items = [item for item in items if not item.entry_restricted]
             picks += len(items)
             pending += sum(getattr(item, f"{prefix}_status") == "pending" for item in items)
             unavailable += sum(getattr(item, f"{prefix}_status") == "unavailable" for item in items)
@@ -911,6 +922,7 @@ class TaiwanSelectionReviewService:
             beat_benchmark_count=beat_benchmark,
             beat_benchmark_rate=(round(beat_benchmark / len(excess) * 100, 1)
                                  if excess else None),
+            entry_restricted_count=restricted,
         )
 
     def _build_batch_cohorts(self, review: SnapshotReviewDetail) -> dict[str, dict[str, ForwardCohortStats]]:
@@ -964,6 +976,12 @@ class TaiwanSelectionReviewService:
 
         inputs = self._forward_review_inputs()
         reviews = [self._cached_forward_review(snapshot, inputs) for snapshot in batches]
+        checked = {review.entry_restriction_status for review in reviews}
+        stats.entry_restriction_status = ("unavailable" if checked == {"unavailable"}
+                                          else "available" if checked == {"available"} else "partial")
+        stats.entry_restriction_unchecked_count = sum(
+            review.entry_restriction_status == "unavailable" for review in reviews)
+        stats.entry_restricted_count = sum(review.entry_restricted_count for review in reviews)
         maturity_by_horizon = {
             horizon: {
                 snapshot.snapshot_id: self._is_forward_horizon_matured(snapshot, horizon)
@@ -1008,7 +1026,8 @@ class TaiwanSelectionReviewService:
         for horizon in (1, 5, 20):
             prefix = f"h{horizon}d"
             full = stats.horizons[f"{horizon}D"]["full_batch"]
-            items = [item for review in reviews for item in review.evaluated_items]
+            items = [item for review in reviews for item in review.evaluated_items
+                     if not item.entry_restricted]
             reference_returns = [getattr(item, f"{prefix}_reference_close_return_pct") for item in items
                                  if getattr(item, f"{prefix}_reference_close_status") == "completed"]
             setattr(stats, f"{prefix}_evaluated_count", full.evaluable_count)
@@ -1038,7 +1057,7 @@ class TaiwanSelectionReviewService:
         now = taipei_now()
         phase = (now.date(), now >= market_close(now.date()))
         if cached and cached[0] in (fingerprint, (fingerprint, phase)):
-            return cached[1]
+            return self._with_entry_restrictions(cached[1])
         review = self._get_forward_batch_review(snapshot)
         terminal = all(
             item.entry_status != "pending"
@@ -1050,7 +1069,132 @@ class TaiwanSelectionReviewService:
             self._completed_forward_reviews[snapshot.snapshot_id] = (
                 fingerprint if terminal else (fingerprint, phase), review,
             )
-        return review
+        return self._with_entry_restrictions(review)
+
+    def _entry_regulatory_events(self) -> tuple[list, str, datetime | None]:
+        """Read the saved official-event snapshot once per request, whatever its age; never fetches."""
+        memo = _REQUEST_MEMO.get()
+        if memo is not None and (self, "regulatory") in memo:
+            return memo[(self, "regulatory")]
+        from app.taiwan.events_service import get_event_service
+
+        try:
+            events, status, as_of = get_event_service().get_cached_regulatory_snapshot(any_age=True)
+            saved_at = datetime.fromisoformat(as_of) if as_of else None
+        except Exception as exc:
+            logger.warning("Regulatory snapshot unavailable for forward review: %s", exc)
+            events, status, saved_at = [], "unavailable", None
+        if status not in ("available", "partial") or saved_at is None:
+            events, status, saved_at = [], "unavailable", None
+        if memo is not None:
+            memo[(self, "regulatory")] = (events, status, saved_at)
+        return events, status, saved_at
+
+    @staticmethod
+    def _announced_before_open(event, target: date) -> bool:
+        if event.published_at:
+            try:
+                return datetime.fromisoformat(event.published_at) < event_market_open(target)
+            except (ValueError, TypeError):
+                pass  # unusable timestamp: fall back to the date rule below
+        # Official regulatory feeds carry no announcement time, only a date (the
+        # announcement/list date). Only a date strictly before the entry day provably
+        # precedes the 09:00 open; same-day or later dates do not count. Wrongly
+        # excluding a tradeable pick would drop exactly the bad-news names and flatter
+        # the statistics, so an unprovable announcement time never marks a pick.
+        return event.event_date < target.isoformat()
+
+    def _with_entry_restrictions(self, review: SnapshotReviewDetail) -> SnapshotReviewDetail:
+        """Re-check locked picks against events announced before the entry open.
+
+        The cached review and the stored batch stay untouched; a copy is marked.
+        """
+        status, marks = self._entry_recheck(review.snapshot)
+        return self._mark_entry_restrictions(review, status, marks)
+
+    def record_entry_rechecks(self) -> int:
+        """Check every unrecorded forward batch the current snapshot covers; returns how many.
+
+        Runs after the lock refreshes the regulatory feed, so a batch is checked even when
+        nobody opens the review page while a snapshot still covers its entry session.
+        """
+        recorded = self._entry_rechecks()
+        with request_memo():  # read the regulatory snapshot once for the whole pass
+            return sum(self._entry_recheck(batch)[0] != "unavailable" for batch in self.read_snapshots()
+                       if batch.record_type == "forward_batch" and batch.snapshot_id not in recorded)
+
+    def _entry_recheck(self, snapshot: SelectionSnapshot) -> tuple[str, dict[str, str]]:
+        from app.taiwan.events_service import get_event_service
+
+        recorded = self._entry_rechecks().get(snapshot.snapshot_id)
+        if recorded is not None:
+            return recorded["status"], recorded["marks"]
+        events, status, saved_at = self._entry_regulatory_events()
+        marks: dict[str, str] = {}
+        target = date.fromisoformat(snapshot.target_trade_date) if snapshot.target_trade_date else None
+        # The official feed lists events that are currently in force. A snapshot taken before
+        # the entry open cannot hold later announcements, and one taken long after may have
+        # dropped an expired disposition (periods run at least 5 sessions from entry at the
+        # latest). Outside that window this batch is reported as not checked, never as clear.
+        if target is None or saved_at is None or not (
+                event_market_open(target) <= saved_at <= event_market_open(target) + _ENTRY_RECHECK_WINDOW):
+            return "unavailable", {}
+        try:
+            known = [ev for ev in events if self._announced_before_open(ev, target)]
+            event_svc = get_event_service()
+            for item in snapshot.items:
+                # Same rule as the screener's lock-time exclusion.
+                risk = event_svc.check_symbol_risk_status(item.symbol, target_date=target, events=known)
+                if risk["is_disposition"]:
+                    marks[item.symbol] = "處置股"
+                elif risk["is_suspended"] or risk.get("has_risk_event", False):
+                    marks[item.symbol] = str(risk.get("risk_reason") or "監管限制")
+        except Exception as exc:
+            logger.warning("Entry restriction recheck failed for %s: %s", snapshot.snapshot_id, exc)
+            return "unavailable", {}
+        # Keep the in-window result: a later snapshot no longer covers this entry session.
+        self._record_entry_recheck(snapshot.snapshot_id, status, marks, saved_at)
+        return status, marks
+
+    def _entry_recheck_path(self) -> Path:
+        return self.path.with_name("forward_entry_rechecks.json")
+
+    def _entry_rechecks(self) -> dict[str, dict]:
+        try:
+            return json.loads(self._entry_recheck_path().read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            logger.warning("Entry restriction recheck record unreadable: %s", exc)
+            return {}
+
+    def _record_entry_recheck(self, snapshot_id: str, status: str, marks: dict[str, str],
+                              saved_at: datetime | None) -> None:
+        try:
+            with self._write_guard():
+                records = self._entry_rechecks()
+                if snapshot_id in records:
+                    return
+                records[snapshot_id] = {"status": status, "marks": marks,
+                                        "events_saved_at": saved_at.isoformat() if saved_at else None}
+                path = self._entry_recheck_path()
+                temp = path.with_suffix(".tmp")
+                temp.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+                temp.replace(path)
+        except OSError as exc:
+            logger.warning("Entry restriction recheck not recorded for %s: %s", snapshot_id, exc)
+
+    def _mark_entry_restrictions(self, review: SnapshotReviewDetail, status: str,
+                                 marks: dict[str, str]) -> SnapshotReviewDetail:
+        detail = review.model_copy(update={
+            "entry_restriction_status": status,
+            "evaluated_items": [
+                item.model_copy(update={"entry_restricted": item.symbol in marks,
+                                        "entry_restriction_reason": marks.get(item.symbol)})
+                for item in review.evaluated_items
+            ],
+        })
+        return self._summarize_forward_detail(detail) if marks else detail
 
     def _forward_review_inputs(self) -> tuple:
         """Read local versions once; each batch selects its own date window below."""
@@ -1574,6 +1718,11 @@ def lock_daily_forward_batches(
             get_event_service().get_all_regulatory_and_official_events(force_refresh=True)
         except Exception as exc:  # the gate then fails closed per strategy
             logger.warning("regulatory refresh before forward lock failed: %s", type(exc).__name__)
+    if refresh_events and isinstance(svc, TaiwanSelectionReviewService):
+        try:
+            logger.info("Forward entry restriction rechecks recorded: %d", svc.record_entry_rechecks())
+        except Exception:
+            logger.exception("Forward entry restriction recheck failed")
     for strategy_id in pending:
         try:
             result[strategy_id] = svc.lock_forward_batch(strategy_id=strategy_id).snapshot_id
