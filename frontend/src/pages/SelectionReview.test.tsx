@@ -219,6 +219,51 @@ describe('SelectionReview Page (A12)', () => {
     expect(screen.queryByText('0.00%')).not.toBeInTheDocument()
   })
 
+  it('badges picks restricted before entry and shows the excluded count', async () => {
+    const summary = {
+      batch_count: 1, matured_batch_count: 0, pick_count: 1, evaluable_count: 0,
+      pending_count: 1, unavailable_count: 0, positive_return_count: 0,
+      hit_rate: null, average_return_pct: null, median_return_pct: null,
+      benchmark_evaluable_count: 0, average_benchmark_return_pct: null,
+      excess_evaluable_count: 0, average_excess_return_pct: null,
+      median_excess_return_pct: null, beat_benchmark_count: 0, beat_benchmark_rate: null,
+      entry_restricted_count: 1,
+    }
+    vi.mocked(api.selectionReview.getForwardBatchStats).mockResolvedValue({
+      batches_count: 1, picks_count: 2, entry_restriction_status: 'partial', entry_restricted_count: 1, entry_restriction_unchecked_count: 2,
+      horizons: { '1D': { top10: summary, full_batch: summary }, '5D': { top10: summary, full_batch: summary }, '20D': { top10: summary, full_batch: summary } },
+      timeline: [],
+    } as any)
+    const pendingItem = (symbol: string, name: string, restricted: boolean) => ({
+      symbol, name, rank: 1, entry_price: 100, paper_entry_price: null, entry_status: 'pending',
+      entry_restricted: restricted, entry_restriction_reason: restricted ? '處置股' : null,
+      h1d_status: 'pending', h5d_status: 'pending', h20d_status: 'pending',
+      h1d_return_pct: null, h5d_return_pct: null, h20d_return_pct: null,
+      h1d_bm_return_pct: null, h5d_bm_return_pct: null, h20d_bm_return_pct: null,
+      h1d_excess_pct: null, h5d_excess_pct: null, h20d_excess_pct: null,
+    })
+    vi.mocked(api.selectionReview.getForwardBatchDetail).mockResolvedValue({
+      snapshot: { snapshot_id: 'forward_x', record_type: 'forward_batch', items: [], target_trade_date: '2026-09-28' },
+      evaluated_items: [pendingItem('8069.TPEX', '元太', true), pendingItem('2330.TWSE', '台積電', false)],
+      entry_restriction_status: 'available', entry_restricted_count: 1,
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward&batch_id=forward_x']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('進場前已公告受限（處置股）')).toBeInTheDocument()
+    expect(screen.getAllByText('進場前已公告受限（處置股）')).toHaveLength(1)
+    expect(screen.getByText(/已排除進場前已公告受限 1 檔，不計入命中率、報酬與筆數；另有 2 批尚無涵蓋進場日的監管紀錄/)).toBeInTheDocument()
+    expect(screen.getByText(/已排除進場前已公告受限 1 檔，不計入下方統計/)).toBeInTheDocument()
+  })
+
+  it('says regulatory recheck is unavailable instead of reporting zero excluded', async () => {
+    vi.mocked(api.selectionReview.getForwardBatchStats).mockResolvedValue({
+      batches_count: 1, picks_count: 1, entry_restriction_status: 'unavailable', entry_restricted_count: 0,
+      horizons: {}, timeline: [],
+    } as any)
+    render(<QueryClientProvider client={createTestQueryClient()}><MemoryRouter initialEntries={['/selection-review?tab=forward']}><SelectionReview /></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText(/還沒有涵蓋進場日的監管事件紀錄/)).toBeInTheDocument()
+    expect(screen.queryByText(/已排除進場前已公告受限/)).not.toBeInTheDocument()
+  })
+
   it('renders snapshot list and displays metrics correctly', async () => {
     const mockSnapshots = [
       {

@@ -50,6 +50,8 @@ export interface SelectionForwardBatchReviewView {
     referencePrice: number | null
     paperEntryPrice: number | null
     paperEntryPriceStatus: 'completed' | 'tracking' | 'missing'
+    entryRestricted?: boolean
+    entryRestrictionReason?: string | null
     entryReason?: string
     referenceCloseReturns: Record<'1D' | '5D' | '20D', { status: 'completed' | 'tracking' | 'missing'; returnPct: number | null; reason?: string }>
     paperEntryReturns: Record<'1D' | '5D' | '20D', { status: 'completed' | 'tracking' | 'missing'; returnPct: number | null }>
@@ -64,6 +66,8 @@ export interface SelectionForwardBatchReviewView {
     selectedCount: number
     priceAdjustment: string | null
     costAssumption: string | null
+    entryRestrictionStatus?: 'available' | 'partial' | 'unavailable' | null
+    entryRestrictedCount?: number
   }
 }
 
@@ -166,6 +170,9 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
           <h3 className="text-sm font-semibold">正式批次績效，採用後端評估結果</h3>
           <p className="text-xs text-muted-foreground">整批統計共 {batchReview.metadata.selectedCount} 檔，顯示 Top {batchItems.length} 不會改變統計範圍。{batchReview.metadata.lockedAt ? `鎖定時間 ${batchReview.metadata.lockedAt}。` : ''}預定進場 {batchReview.metadata.targetTradeDate ?? '資料不足'}{batchReview.metadata.targetTradeDateStatus === 'scheduled_unverified' ? '（交易日未確認）' : ''}。</p>
           <p className="text-xs text-muted-foreground">實驗性選股，紙上開盤價不保證成交，未扣成本與滑價。報酬調整口徑：{batchReview.metadata.priceAdjustment ?? '後端未提供'}，不代表股利總報酬。{batchReview.metadata.costAssumption ? ` ${batchReview.metadata.costAssumption}` : ''}</p>
+          {batchReview.metadata.entryRestrictionStatus === 'unavailable'
+            ? <p role="status" className="text-xs text-amber-600">還沒有涵蓋進場日的監管事件紀錄，尚未複查鎖定後才公告的處置／停止交易。</p>
+            : batchReview.metadata.entryRestrictionStatus ? <p role="status" className="text-xs text-muted-foreground">已排除進場前已公告受限 {batchReview.metadata.entryRestrictedCount ?? 0} 檔，不計入下方統計。</p> : null}
           <div className="grid gap-2 md:grid-cols-3">
             {(['1D', '5D', '20D'] as const).map(horizon => {
               const result = batchReview.statistics[horizon]
@@ -214,7 +221,7 @@ export function SelectionForwardPanel({ preview = null, onDryRun, onRefreshData,
           <div className="overflow-x-auto rounded-lg border border-border/60">
             <table className="w-full min-w-[980px] text-left text-xs">
               <thead className="bg-muted/40 text-muted-foreground"><tr><th rowSpan={2} className="px-3 py-2">標的</th><th rowSpan={2} className="px-3 py-2 text-right">鎖定參考收盤</th><th rowSpan={2} className="px-3 py-2 text-right">紙上進場價</th>{(['1D', '5D', '20D'] as const).map(h => <th key={h} colSpan={4} className="px-3 py-2 text-center">{h}</th>)}</tr><tr>{(['1D', '5D', '20D'] as const).flatMap(h => [<th key={`${h}-reference`} className="px-3 py-1 text-right">參考收盤漲跌</th>, <th key={`${h}-return`} className="px-3 py-1 text-right">紙上報酬</th>, <th key={`${h}-benchmark`} className="px-3 py-1 text-right">0050</th>, <th key={`${h}-excess`} className="px-3 py-1 text-right">超額</th>])}</tr></thead>
-              <tbody className="divide-y divide-border/40">{batchItems.map(item => <tr key={item.symbol}><td className="px-3 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} className="hover:text-primary hover:underline">{item.name} ({item.symbol})</Link></td><td className="px-3 py-2 text-right">{item.referencePrice ?? '資料不足'}</td><td className="px-3 py-2 text-right">{formatPrice(item.paperEntryPrice, item.paperEntryPriceStatus, item.entryReason)}</td>{(['1D', '5D', '20D'] as const).flatMap(horizon => [<td key={`${horizon}-reference`} className="px-3 py-2 text-right">{formatEvaluation(item.referenceCloseReturns[horizon])}</td>, <td key={`${horizon}-return`} className="px-3 py-2 text-right">{formatEvaluation(item.paperEntryReturns[horizon])}</td>, <td key={`${horizon}-benchmark`} className="px-3 py-2 text-right">{formatEvaluation(item.benchmarkReturns[horizon])}</td>, <td key={`${horizon}-excess`} className="px-3 py-2 text-right">{formatEvaluation(item.excessReturns[horizon])}</td>])}</tr>)}</tbody>
+              <tbody className="divide-y divide-border/40">{batchItems.map(item => <tr key={item.symbol}><td className="px-3 py-2"><Link to={`/stocks/${encodeURIComponent(item.symbol)}`} className="hover:text-primary hover:underline">{item.name} ({item.symbol})</Link>{item.entryRestricted && <span title={item.entryRestrictionReason ?? undefined} className="ml-1.5 inline-block rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">進場前已公告受限{item.entryRestrictionReason ? `（${item.entryRestrictionReason}）` : ''}</span>}</td><td className="px-3 py-2 text-right">{item.referencePrice ?? '資料不足'}</td><td className="px-3 py-2 text-right">{formatPrice(item.paperEntryPrice, item.paperEntryPriceStatus, item.entryReason)}</td>{(['1D', '5D', '20D'] as const).flatMap(horizon => [<td key={`${horizon}-reference`} className="px-3 py-2 text-right">{formatEvaluation(item.referenceCloseReturns[horizon])}</td>, <td key={`${horizon}-return`} className="px-3 py-2 text-right">{formatEvaluation(item.paperEntryReturns[horizon])}</td>, <td key={`${horizon}-benchmark`} className="px-3 py-2 text-right">{formatEvaluation(item.benchmarkReturns[horizon])}</td>, <td key={`${horizon}-excess`} className="px-3 py-2 text-right">{formatEvaluation(item.excessReturns[horizon])}</td>])}</tr>)}</tbody>
             </table>
           </div>
         </div>

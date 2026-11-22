@@ -53,6 +53,8 @@ function toForwardBatchReview(detail: SnapshotReviewDetail): SelectionForwardBat
       referencePrice: item.entry_price,
       paperEntryPrice: item.paper_entry_price ?? null,
       paperEntryPriceStatus: reviewStatus(item.entry_status ?? 'pending'),
+      entryRestricted: item.entry_restricted ?? false,
+      entryRestrictionReason: item.entry_restriction_reason ?? null,
       entryReason: item.status_reasons?.entry,
       referenceCloseReturns: {
         '1D': { status: reviewStatus(item.h1d_reference_close_status ?? 'pending'), returnPct: item.h1d_reference_close_return_pct ?? null, reason: item.status_reasons?.h1d_reference_close },
@@ -83,6 +85,8 @@ function toForwardBatchReview(detail: SnapshotReviewDetail): SelectionForwardBat
       selectedCount: detail.snapshot.items.length,
       priceAdjustment: detail.snapshot.price_adjustment ?? null,
       costAssumption: detail.snapshot.cost_assumption ?? null,
+      entryRestrictionStatus: detail.entry_restriction_status ?? null,
+      entryRestrictedCount: detail.entry_restricted_count ?? 0,
     },
   }
 }
@@ -99,6 +103,12 @@ function metricStatus(status: 'completed' | 'pending' | 'unavailable' | undefine
 function excessStatus(stock: 'completed' | 'pending' | 'unavailable', benchmark: 'completed' | 'pending' | 'unavailable', value: number | null) {
   if (value !== null) return 'completed'
   return stock === 'pending' || benchmark === 'pending' ? 'tracking' : 'missing'
+}
+
+function EntryRestrictionNote({ status, count, unchecked }: { status?: 'available' | 'partial' | 'unavailable' | null; count?: number; unchecked?: number }) {
+  if (!status) return null
+  if (status === 'unavailable') return <p role="status" className="mt-3 text-xs text-amber-600">還沒有涵蓋進場日的監管事件紀錄，尚未複查鎖定後才公告的處置／停止交易，統計可能含進場受限標的。</p>
+  return <p role="status" className="mt-3 text-xs text-muted-foreground">已排除進場前已公告受限 {count ?? 0} 檔，不計入命中率、報酬與筆數{unchecked ? `；另有 ${unchecked} 批尚無涵蓋進場日的監管紀錄，未複查` : status === 'partial' ? '（監管事件來源部分可用）' : ''}。</p>
 }
 
 function ForwardStats({ stats, formatPct, strategyId }: { stats: ForwardBatchStats; formatPct: (value: number | null | undefined) => string; strategyId: string }) {
@@ -127,6 +137,7 @@ function ForwardStats({ stats, formatPct, strategyId }: { stats: ForwardBatchSta
           <div className="rounded-lg bg-muted/30 p-3"><dt className="text-muted-foreground">候選總數</dt><dd className="mt-1 text-lg font-semibold">{stats.picks_count}</dd></div>
           <div className="rounded-lg bg-muted/30 p-3"><dt className="text-muted-foreground">20D 可評估數</dt><dd className="mt-1 text-lg font-semibold">{full20?.evaluable_count ?? 0}</dd></div>
         </dl>
+        <EntryRestrictionNote status={stats.entry_restriction_status} count={stats.entry_restricted_count} unchecked={stats.entry_restriction_unchecked_count} />
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         {horizons.map(horizon => <section key={horizon} className="rounded-xl border border-border/60 bg-card p-3"><h3 className="font-semibold">{horizon}</h3><div className="mt-2 grid gap-2 sm:grid-cols-2 md:grid-cols-1"><div><p className="text-xs font-medium">Top10</p>{renderCohort(stats.horizons?.[horizon]?.top10)}</div><div><p className="text-xs font-medium">Top20／整批</p>{renderCohort(stats.horizons?.[horizon]?.full_batch)}</div></div></section>)}
