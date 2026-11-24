@@ -29,6 +29,7 @@ from app.api import (
 from app.api import auth as auth_api
 from app.api import settings as settings_api
 from app.api.routes import router as core_router
+from app.backend_identity import API_TITLE, after_close_ready
 from app.capabilities import CapabilityDenied, detect_capabilities
 from app.config import settings
 from app.extensions.loader import (
@@ -129,11 +130,12 @@ async def _application_lifespan(app: FastAPI):
         logger.warning("scheduler not started: %s", e)
         app.state.scheduler = None
 
+    app.state.startup_catchup_ready = False
     # 啟動補更新 (錯過 16:30 時補跑一次) 與 Telegram 反向查詢機器人 (預設關閉)。
     try:
         from app.taiwan import startup_catchup, telegram_bot
 
-        startup_catchup.schedule(app.state)
+        app.state.startup_catchup_ready = startup_catchup.schedule(app.state)
         if telegram_bot.is_enabled():
             telegram_bot.get_bot().start()
     except Exception as e:
@@ -155,6 +157,8 @@ async def _application_lifespan(app: FastAPI):
     )
 
     try:
+        if getattr(app.state, "require_after_close_scheduler", False) and not after_close_ready(app.state):
+            raise RuntimeError("After-close backend cannot start without the scheduler and startup catch-up")
         yield
     finally:
         if app.state.scheduler:
@@ -179,7 +183,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Nanachi 的台股監控看板",
+    title=API_TITLE,
     version=__version__,
     description="台股選股、監控與 AI 分析面板",
     lifespan=lifespan,

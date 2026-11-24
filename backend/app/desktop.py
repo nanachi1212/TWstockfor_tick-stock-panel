@@ -15,7 +15,6 @@
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import socket
@@ -25,14 +24,19 @@ import time
 import traceback
 from pathlib import Path
 
+from app.backend_identity import (
+    BACKEND_PORT,
+    LOOPBACK,
+    project_backend_ready,
+    reserve_backend_listener,
+)
 from app.log_sanitizer import SanitizingFormatter as _SanitizingFormatter
 from app.log_sanitizer import sanitize_log as _sanitize_log
 
 logger = logging.getLogger(__name__)
 
 _APP_NAME = "Nanachi 台股看板"
-_API_TITLE = "Nanachi 的台股監控看板"
-_BASE_PORT = 3018
+_BASE_PORT = BACKEND_PORT
 _EXISTING_BACKEND_TIMEOUT = 30.0
 _SHUTDOWN_TIMEOUT = 15.0
 
@@ -270,12 +274,6 @@ def _current_pid() -> int:
     return os.getpid()
 
 
-def _port_is_open(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.25)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
-
-
 def _create_server(port: int):
     """建立既有 FastAPI app 的 uvicorn server, 不複製 routing。"""
     import uvicorn
@@ -284,7 +282,7 @@ def _create_server(port: int):
 
     config = uvicorn.Config(
         app,
-        host="127.0.0.1",  # 僅本機, 不暴露外網 (桌面版無需遠端存取)
+        host=LOOPBACK,  # 僅本機, 不暴露外網 (桌面版無需遠端存取)
         port=port,
         log_level="info",
         access_log=False,    # 桌面版不需要存取日誌
@@ -293,10 +291,11 @@ def _create_server(port: int):
     return uvicorn.Server(config)
 
 
-def _run_uvicorn(server, done_event: threading.Event) -> None:
+def _run_uvicorn(server, done_event: threading.Event, listener: socket.socket) -> None:
     """背景執行 owned uvicorn, 退出時通知 lifecycle 管理端。"""
     try:
-        server.run()
+        with listener:
+            server.run(sockets=[listener])
     except Exception:
         # server.run() 內部跑 lifespan 啟動鏈, 任一步拋異常都會冒到這裡。
         # 不捕獲則執行緒靜默死亡, 主執行緒 _wait_for_server 傻等滿 60s 後報「超時」,
@@ -306,34 +305,12 @@ def _run_uvicorn(server, done_event: threading.Event) -> None:
         done_event.set()
 
 
-def _read_json(port: int, path: str) -> dict | None:
-    import urllib.error
-    import urllib.request
-
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as response:
-            if response.status != 200:
-                return None
-            payload = json.loads(response.read().decode("utf-8"))
-            return payload if isinstance(payload, dict) else None
-    except (urllib.error.URLError, OSError, UnicodeError, ValueError):
-        return None
-
-
 def _project_backend_ready(port: int = _BASE_PORT) -> bool:
-    """以 health 與 OpenAPI 身分共同確認 3018 是本專案 backend。"""
+    """確認後端身分及使用同一份資料；桌面操作不要求盤後排程就緒。"""
     from app import __version__
+    from app.config import settings
 
-    health = _read_json(port, "/health")
-    schema = _read_json(port, "/openapi.json")
-    return bool(
-        health
-        and health.get("status") == "ok"
-        and health.get("version") == __version__
-        and schema
-        and schema.get("info", {}).get("title") == _API_TITLE
-        and schema.get("info", {}).get("version") == __version__
-    )
+    return project_backend_ready(port, settings.data_dir, __version__)
 
 
 def _wait_for_server(port: int, timeout: float = 60.0) -> bool:
@@ -465,23 +442,31 @@ def main() -> int:
         def start_backend() -> str:
             nonlocal server, server_thread
             port = _BASE_PORT
-            if _port_is_open(port):
-                # A backend that is still warming up (autostart at login) answers /openapi.json
-                # slower than one probe allows; only call the port foreign after retrying.
+            try:
+                listener = reserve_backend_listener(port)
+            except OSError as exc:
+                # Check an existing or warming backend without starting a second lifespan.
                 if not _wait_for_server(port, timeout=_EXISTING_BACKEND_TIMEOUT):
-                    raise RuntimeError(f"連接埠 {port} 已被其他程式使用, 未啟動也未終止該程式")
+                    raise RuntimeError(
+                        f"連接埠 {port} 無法使用，且無法確認既有後端版本及資料目錄相符"
+                    ) from exc
                 logger.info("使用既有本專案 backend: 127.0.0.1:%d", port)
             else:
                 logger.info("啟動 desktop entry owned backend: 127.0.0.1:%d", port)
-                server = _create_server(port)
-                done = threading.Event()
-                server_thread = threading.Thread(
-                    target=_run_uvicorn,
-                    args=(server, done),
-                    daemon=False,
-                    name="uvicorn-desktop-owned",
-                )
-                server_thread.start()
+                try:
+                    server = _create_server(port)
+                    done = threading.Event()
+                    server_thread = threading.Thread(
+                        target=_run_uvicorn,
+                        args=(server, done, listener),
+                        daemon=False,
+                        name="uvicorn-desktop-owned",
+                    )
+                    server_thread.start()
+                except BaseException:
+                    listener.close()
+                    server_thread = None
+                    raise
                 if not _wait_for_server(port, timeout=60.0):
                     raise RuntimeError("後端健康檢查逾時, 詳情請查看 desktop.log")
 
