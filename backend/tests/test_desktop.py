@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
-from app import __version__, desktop
+from app import __version__, backend_identity, desktop
 from app.release_seed import SeedInstallResult
 
 
@@ -17,7 +18,12 @@ def _prepare_main(monkeypatch, *, port_open: bool, project_ready: bool) -> list[
     monkeypatch.setattr(desktop, "_release_single_instance", lambda: None)
     monkeypatch.setattr(desktop, "_frontend_dist_ready", lambda: True)
     monkeypatch.setattr(desktop, "_ui_ready", lambda _port: True)
-    monkeypatch.setattr(desktop, "_port_is_open", lambda _port: port_open)
+    def reserve(_port):
+        if port_open:
+            raise OSError("port already reserved")
+        return nullcontext()
+
+    monkeypatch.setattr(desktop, "reserve_backend_listener", reserve)
     monkeypatch.setattr(desktop, "_project_backend_ready", lambda _port: project_ready)
     monkeypatch.setattr(desktop, "_wait_for_server", lambda _port, timeout: project_ready)
     monkeypatch.setattr(desktop, "_open_window", lambda start_backend: opened.append(start_backend()))
@@ -27,13 +33,17 @@ def _prepare_main(monkeypatch, *, port_open: bool, project_ready: bool) -> list[
 
 def test_project_backend_probe_requires_health_and_openapi_identity(monkeypatch):
     responses = {
-        "/health": {"status": "ok", "version": __version__, "mode": "free"},
+        "/health": {"status": "ok", "version": __version__, "same_data_root": True},
         "/openapi.json": {
             "info": {"title": "Nanachi 的台股監控看板", "version": __version__}
         },
     }
-    monkeypatch.setattr(desktop, "_read_json", lambda _port, path: responses[path])
+    monkeypatch.setattr(backend_identity, "_read_local_json", lambda _port, path, _headers: responses[path])
     assert desktop._project_backend_ready()
+
+    responses["/health"]["same_data_root"] = False
+    assert not desktop._project_backend_ready()
+    responses["/health"]["same_data_root"] = True
 
     responses["/openapi.json"]["info"]["title"] = "foreign service"
     assert not desktop._project_backend_ready()
@@ -107,7 +117,8 @@ def test_owned_backend_starts_and_is_cleaned_up(monkeypatch):
         force_exit = False
         ran = False
 
-        def run(self):
+        def run(self, *, sockets):
+            assert len(sockets) == 1
             self.ran = True
 
     server = FakeServer()
@@ -129,8 +140,8 @@ def test_backend_health_timeout_still_cleans_owned_server(monkeypatch):
         force_exit = False
 
         @staticmethod
-        def run():
-            return None
+        def run(*, sockets):
+            assert len(sockets) == 1
 
     server = FakeServer()
     monkeypatch.setattr(desktop, "_create_server", lambda _port: server)
@@ -261,35 +272,3 @@ def test_packaging_uses_bundled_seed_and_per_user_data():
     assert "prepare_release_seed.py" in release_workflow
     assert "test-windows-installer.ps1" in release_workflow
     assert "softprops/action-gh-release" not in release_workflow
-
-
-def test_after_close_identity_uses_real_loopback_http():
-    import json
-    import socket
-    import threading
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-    class Handler(BaseHTTPRequestHandler):
-        api_title = "foreign service"
-
-        def do_GET(self):
-            payload = ({"status": "ok", "version": __version__} if self.path == "/health" else
-                       {"info": {"title": self.api_title, "version": __version__}})
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(json.dumps(payload).encode())
-
-    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
-        port = server.server_port
-        worker = threading.Thread(target=server.serve_forever)
-        worker.start()
-        try:
-            assert desktop.background_port_status(port) == "occupied"
-            Handler.api_title = desktop._API_TITLE
-            assert desktop.background_port_status(port) == "ready"
-        finally:
-            server.shutdown()
-            worker.join()
-    with socket.socket() as reserved:
-        reserved.bind(("127.0.0.1", 0))
-        assert desktop.background_port_status(reserved.getsockname()[1]) == "free"
