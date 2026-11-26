@@ -53,7 +53,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
+import re
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -92,6 +94,9 @@ _CENSUS_SCHEMA: dict[str, Any] = {
     "raw_code": pl.Utf8,
     "exchange": pl.Utf8,
     "observed": pl.Boolean,
+    "official_direction": pl.String,
+    "next_upper_limit": pl.Float64,
+    "next_lower_limit": pl.Float64,
     "raw_name": pl.Utf8,
     "raw_source_category": pl.Utf8,
     "open": pl.Float64,
@@ -223,8 +228,20 @@ class ObservedUniverseStore:
         files = [f for f in files
                  if (start is None or date.fromisoformat(f.parent.name[5:]) >= start)
                  and (end is None or date.fromisoformat(f.parent.name[5:]) <= end)]
-        frames = [pl.read_parquet(f, columns=columns) for f in files]
-        frames = [f for f in frames if f.height]
+        frames = []
+        optional = ("official_direction", "next_upper_limit", "next_lower_limit")
+        for path in files:
+            try:
+                frame = pl.read_parquet(path, columns=columns)
+            except pl.exceptions.ColumnNotFoundError:
+                if not columns or not set(columns).intersection(optional):
+                    raise
+                frame = pl.read_parquet(path)
+            if frame.height:
+                missing = [col for col in optional if col not in frame.columns and (columns is None or col in columns)]
+                if missing:
+                    frame = frame.with_columns(pl.lit(None, dtype=_CENSUS_SCHEMA[col]).alias(col) for col in missing)
+                frames.append(frame.select(columns) if columns is not None else frame)
         return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame(schema=_CENSUS_SCHEMA)
 
     def _verification_path(self, exchange: str) -> Path:
@@ -474,6 +491,8 @@ def parse_twse_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
     except ValueError as exc:
         raise CensusSchemaError(f"TWSE MI_INDEX schema changed on {day}: {exc}; fields={fields}") from exc
 
+    i_sign = fields.index("漲跌(+/-)") if "漲跌(+/-)" in fields else None
+    i_delta = fields.index("漲跌價差") if "漲跌價差" in fields else None
     category = str(table.get("title") or "")
     if table.get("data") or payload.get("date") or payload.get("reportDate"):
         _check_census_date(payload, table, day, "TWSE MI_INDEX")
@@ -491,6 +510,12 @@ def parse_twse_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
             "low": _num(raw[i_low]), "close": _num(raw[i_close]),
             "volume": _num(raw[i_vol]), "amount": _num(raw[i_amt]),
         })
+        if i_sign is not None and i_sign < len(raw):
+            sign = re.sub(r"<[^>]*>", "", str(raw[i_sign])).strip()
+            direction = {"+": "up", "-": "down"}.get(sign, "uncompared")
+            if sign == "" and i_delta is not None and i_delta < len(raw) and _num(raw[i_delta]) == 0:
+                direction = "flat"
+            row["official_direction"] = direction
         rows.append(row)
     return rows
 
@@ -524,6 +549,11 @@ def parse_tpex_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
         except ValueError as exc:
             raise CensusSchemaError(f"TPEx dailyQuotes schema changed on {day}: {exc}; fields={fields}") from exc
 
+        i_delta = fields.index("漲跌") if "漲跌" in fields else None
+        normalized = ["".join(str(field).split()) for field in fields]
+        limits = {key: normalized.index(label) for key, label in (
+            ("next_upper_limit", "次日漲停價"), ("next_lower_limit", "次日跌停價")
+        ) if label in normalized}
         category = str(table.get("title") or "")
         _check_census_date(payload, table, day, "TPEx dailyQuotes")
         for raw in data:
@@ -547,6 +577,14 @@ def parse_tpex_census(payload: dict[str, Any], day: date, retrieved_at: str) -> 
                 "low": _num(raw[i_low]), "close": _num(raw[i_close]),
                 "volume": _num(raw[i_vol]), "amount": _num(raw[i_amt]),
             })
+            if i_delta is not None and i_delta < len(raw):
+                change = _num(raw[i_delta])
+                if change is None or not math.isfinite(change):
+                    row["official_direction"] = "uncompared"
+                else:
+                    row["official_direction"] = "up" if change > 0 else "down" if change < 0 else "flat"
+            for key, index in limits.items():
+                row[key] = _num(raw[index]) if index < len(raw) else None
             rows.append(row)
     if not rows and (payload.get("date") or payload.get("reportDate")):
         _check_census_date(payload, {}, day, "TPEx dailyQuotes")

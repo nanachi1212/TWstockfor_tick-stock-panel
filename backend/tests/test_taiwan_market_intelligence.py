@@ -48,10 +48,13 @@ def mock_calendar():
     return cal
 
 
-def test_deterministic_breadth_fixture(mock_calendar):
+def test_deterministic_breadth_fixture(mock_calendar, monkeypatch):
     """3 symbols: 1 up, 1 down, 1 flat, plus 1 uncompared and 1 zero-volume."""
     d_curr = date(2026, 8, 28)
     d_prev = date(2026, 8, 27)
+    monkeypatch.setattr("app.taiwan.market_intelligence.resolve_target_latest_trading_date", lambda _: d_curr)
+    for prior_day in (21, 24, 25, 26, 27):
+        mock_calendar.add_trading_day(date(2026, 8, prior_day))
 
     # Mock daily store
     mock_daily = MagicMock()
@@ -108,7 +111,7 @@ def test_deterministic_breadth_fixture(mock_calendar):
         name="測試股",
         instrument_type="stock",
         listing_status="active",
-        listing_date="2020/01/01",
+        listing_date="2026/08/27",
         isin="TW000SYM1000",
         industry="半導體業",
         cfi_code="ESVUFR",
@@ -144,6 +147,11 @@ def test_deterministic_breadth_fixture(mock_calendar):
     assert totals.decline_count == 1  # SYM2 19.0 < 20.0
     assert totals.flat_count == 2  # SYM3 30.0 == 30.0, SYM5 50.0 == 50.0
     assert totals.uncompared_count == 1  # SYM4 missing prev close
+    assert totals.official_compared_count == 0
+    assert totals.inferred_compared_count == 4
+    # SYM1 closes 10% above the prior close within its first five sessions.
+    assert totals.upper_limit_count == 0
+    assert snapshot.data_quality.price_limit_unavailable_count == 5
     assert totals.turnover == 307000.0
 
 
@@ -412,8 +420,9 @@ def test_empty_historical_daily_snapshot_never_uses_future_freshness(partition_o
     assert snapshot.data_quality.overall_status == "partial"
 
 
-def test_incomplete_market_flows_keep_nulls_and_real_zero_distinct():
+def test_incomplete_market_flows_keep_nulls_and_real_zero_distinct(monkeypatch):
     day = date(2026, 11, 17)
+    monkeypatch.setattr("app.taiwan.market_intelligence.resolve_target_latest_trading_date", lambda _: day)
     daily, inst, margin, master = (MagicMock() for _ in range(4))
     daily.available_dates.return_value = []
     daily.read_range.return_value = master.to_dataframe.return_value = pl.DataFrame()
@@ -444,10 +453,11 @@ def test_previous_session_does_not_skip_missing_weekday(mock_calendar):
     assert svc.get_previous_trading_date(target) == missing
 
 
-def test_single_symbol_partition_stays_partial_until_full_snapshot(tmp_path):
+def test_single_symbol_partition_stays_partial_until_full_snapshot(tmp_path, monkeypatch):
     from app.taiwan.daily_store import TaiwanDailyStore
 
     day = date(2026, 11, 17)
+    monkeypatch.setattr("app.taiwan.market_intelligence.resolve_target_latest_trading_date", lambda _: day)
     symbols = ["2330.TWSE", "2317.TWSE"]
     rows = pl.DataFrame({
         "symbol": symbols, "date": [day] * 2, "open": [100.0] * 2, "high": [100.0] * 2,
@@ -478,3 +488,138 @@ def test_single_symbol_partition_stays_partial_until_full_snapshot(tmp_path):
     assert snapshot.data_quality.daily.status == "current"
     assert snapshot.data_quality.overall_status == "complete"
     assert snapshot.market_totals.turnover == 200
+
+
+def test_historical_market_uses_dated_membership_and_exchange_reference(taiwan_data_env, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.taiwan.daily_store import TaiwanDailyStore
+    from app.taiwan.historical_classification import HistoricalClassificationStore
+    from app.taiwan.observed_universe import TWSE_SOURCE, ObservedUniverseStore
+
+    day, previous = date(2026, 8, 28), date(2026, 8, 27)
+    monkeypatch.setattr("app.taiwan.market_intelligence.resolve_target_latest_trading_date",
+                        lambda _: date(2026, 11, 26))
+    census = ObservedUniverseStore()
+    classified = HistoricalClassificationStore()
+    # A and B traded then. Today's active list lacks B; C appears only after this snapshot.
+    codes = ["2330", "9999"]
+    for d, closes in [(previous, [100., 10.]), (day, [90., 11.])]:
+        census.write("TWSE", d, [{
+            "date": d, "raw_code": code, "exchange": "TWSE", "observed": True, "source": TWSE_SOURCE,
+            "close": close, "volume": 1., "amount": close
+        } for code, close in zip(codes, closes, strict=True)])
+        path = census.partition_path("TWSE", d)
+        legacy = pl.read_parquet(path).drop("official_direction")
+        legacy.write_parquet(path)
+    for when, members in [(previous, codes), (date(2026, 10, 1), ["8888"])]:
+        classified.write(when, [{
+            "code": c, "exchange": "TWSE", "instrument_type": "stock", "classification_effective_from": when,
+            "classification_status": "verified", "classification_source": "official_test_fixture"
+        } for c in members])
+    master = MagicMock()
+    svc = TaiwanMarketIntelligenceService(daily_store=TaiwanDailyStore(taiwan_data_env["data_dir"] / "only_history"),
+                                         evidence_store=census, security_master=master)
+    event = SimpleNamespace(symbol="2330.TWSE", source="TWT49U", status="verified",
+                            effective_date=day, raw_fields='{"除權息參考價":"90.00","漲停價格":"99","跌停價格":"81"}', reference_price=90.01)
+    monkeypatch.setattr(svc.action_store, "events_for_price_reference", lambda day: (event,))
+    monkeypatch.setattr("app.api.taiwan.TaiwanMarketIntelligenceService", lambda: svc)
+    response = TestClient(app).get("/api/taiwan/market-intelligence", params={"date": day.isoformat()})
+    assert response.status_code == 200
+    assert response.json()["by_exchange"]["twse"]["uncompared_count"] == 1
+    snapshot = svc.get_snapshot(day)
+    assert snapshot.by_exchange.twse.supported_count == 2
+    assert snapshot.by_exchange.twse.uncompared_count == 1
+    assert snapshot.data_quality.missing_symbols_count == 0
+    assert snapshot.by_exchange.twse.flat_count == 0
+    assert snapshot.by_exchange.twse.advance_count == 1
+    assert snapshot.by_exchange.twse.official_compared_count == 0
+    assert snapshot.by_exchange.twse.inferred_compared_count == 1
+    assert snapshot.data_quality.price_limit_unavailable_count == 1
+    assert snapshot.by_exchange.twse.upper_limit_count == 0
+    assert snapshot.by_exchange.twse.lower_limit_count == 0
+    assert snapshot.data_quality.universe_status == "partial"  # no TPEx census
+    master.to_dataframe.assert_not_called()
+    master.get_instrument.assert_not_called()
+    event.raw_fields = '{"除權息參考價":"85","漲停價格":"90","跌停價格":"75"}'
+    at_limit = svc.get_snapshot(day).market_totals
+    assert (at_limit.upper_limit_count, at_limit.uncompared_count) == (1, 1)
+    event.status = "data_insufficient"
+    unverified = svc.get_snapshot(day)
+    assert unverified.data_quality.price_limit_unavailable_count == snapshot.data_quality.price_limit_unavailable_count + 1
+    assert unverified.by_exchange.twse.uncompared_count == 1
+    assert unverified.by_exchange.twse.decline_count == unverified.by_exchange.twse.lower_limit_count == 0
+
+
+def test_twse_2330_official_ex_date_and_ordinary_day(taiwan_data_env, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.taiwan.daily_store import TaiwanDailyStore
+    from app.taiwan.observed_universe import ObservedUniverseStore, parse_twse_census
+
+    # Source: TWSE MI_INDEX and TWT49U; only the fields used by this contract are kept.
+    # Ordinary Sept 17 is +45. Sept 16 is X (not comparable), even though close > ex reference.
+    observations = [
+        (date(2026, 9, 15), 2385., "+", 5.),
+        (date(2026, 9, 16), 2380., "X", 0.),
+        (date(2026, 9, 17), 2425., "+", 45.),
+    ]
+    fields = ["證券代號", "證券名稱", "收盤價", "開盤價", "最高價", "最低價", "成交股數", "成交金額", "漲跌(+/-)", "漲跌價差"]
+    census, daily = ObservedUniverseStore(), TaiwanDailyStore()
+    for day, close, sign, diff in observations:
+        payload = {"stat": "OK", "date": day.strftime("%Y%m%d"), "tables": [{
+            "title": "每日收盤行情", "fields": fields,
+            "data": [["2330", "台積電", close, None, None, None, 1, close, f"<p>{sign}</p>", diff]]}]}
+        rows = parse_twse_census(payload, day, "test")
+        census.write("TWSE", day, rows)
+        daily.write_batch(pl.DataFrame({"symbol": ["2330.TWSE"], "date": [day], "close": [close],
+                                        "open": [close], "high": [close], "low": [close], "volume": [1.],
+                                        "amount": [close], "quote_ts": [None]}))
+    svc = TaiwanMarketIntelligenceService(daily_store=daily, evidence_store=census)
+    event = SimpleNamespace(source="TWT49U", status="verified", symbol="2330.TWSE",
+                            effective_date=observations[1][0],
+                            raw_fields='{"除權息參考價":"2,377.99","開盤競價基準":"2,380","漲停價格":"2,615","跌停價格":"2,145"}')
+    monkeypatch.setattr(svc.action_store, "events_for_price_reference",
+                        lambda day: (event,) if day == event.effective_date else ())
+    monkeypatch.setattr("app.api.taiwan.TaiwanMarketIntelligenceService", lambda: svc)
+    for day, up, incomparable in [(observations[1][0], 0, 1), (observations[2][0], 1, 0)]:
+        response = TestClient(app).get("/api/taiwan/market-intelligence", params={"date": day.isoformat()})
+        assert response.status_code == 200
+        totals = response.json()["market_totals"]
+        assert (totals["advance_count"], totals["uncompared_count"]) == (up, incomparable)
+        assert totals["official_compared_count"] == up
+        assert totals["inferred_compared_count"] == 0
+        assert response.json()["data_quality"]["price_limit_unavailable_count"] == up
+        assert totals["lower_limit_count"] == totals["upper_limit_count"] == 0
+
+
+def test_tpex_next_day_limits_apply_only_to_the_adjacent_session(taiwan_data_env, monkeypatch):
+    from app.taiwan.historical_classification import HistoricalClassificationStore
+    from app.taiwan.observed_universe import ObservedUniverseStore, parse_tpex_census
+
+    # TPEx dailyQuotes 2026-11-24/25. On the 25th 3664 hit the upper bound, 1815 the lower.
+    before, target = date(2026, 11, 24), date(2026, 11, 25)
+    monkeypatch.setattr("app.taiwan.market_intelligence.resolve_target_latest_trading_date",
+                        lambda _: date(2026, 11, 26))
+    cases = {before: [("3664", 7.08, "+0.64", 7.78, 6.38), ("1815", 112.50, "+10.00", 123.50, 101.50)],
+             target: [("3664", 7.78, "+0.70", 8.55, 7.01), ("1815", 101.50, "-11.00", 111.50, 91.40)]}
+    census = ObservedUniverseStore()
+    fields = ["代號", "名稱", "收盤", "漲跌", "次日 漲停價", "次日 跌停價", "開盤", "最高", "最低", "成交股數", "成交金額(元)"]
+    for d, securities in cases.items():
+        payload = {"date": d.strftime("%Y%m%d"), "tables": [{"title": "上櫃股票行情", "fields": fields,
+                   "data": [[c, c, close, diff, upper, lower, close, close, close, 1, close]
+                            for c, close, diff, upper, lower in securities]}]}
+        census.write("TPEX", d, parse_tpex_census(payload, d, "test"))
+    HistoricalClassificationStore().write(before, [
+        {"code": code, "exchange": "TPEX", "instrument_type": "stock", "classification_effective_from": before,
+         "classification_status": "verified", "classification_source": "test"}
+        for code, *_ in cases[before]])
+    svc = TaiwanMarketIntelligenceService(evidence_store=census)
+    monkeypatch.setattr("app.api.taiwan.TaiwanMarketIntelligenceService", lambda: svc)
+    for d, expected, missing in [(before, 0, 2), (target, 1, 0)]:
+        result = TestClient(app).get("/api/taiwan/market-intelligence", params={"date": d.isoformat()})
+        assert result.status_code == 200
+        totals = result.json()["market_totals"]
+        assert totals["official_compared_count"] == totals["snapshot_row_count"] == 2
+        assert totals["upper_limit_count"] == totals["lower_limit_count"] == expected
+        assert result.json()["data_quality"]["price_limit_unavailable_count"] == missing

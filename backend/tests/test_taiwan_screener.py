@@ -447,11 +447,11 @@ class TestTaiwanScreenerCore:
 def test_ex_day_change_uses_reference_price_and_unverified_event_is_unavailable():
     day = date(2026, 8, 3)
     events = [
-        SimpleNamespace(symbol="A.TWSE", effective_date=day, status="verified", reference_price=90.0),
+        SimpleNamespace(symbol="A.TWSE", effective_date=day, source="TWT49U", status="verified", reference_price=100.0, raw_fields='{"除權息參考價": "90.0"}'),
         SimpleNamespace(symbol="B.TWSE", effective_date=day, status="data_insufficient", reference_price=None),
     ]
     svc = TaiwanScreenerService.__new__(TaiwanScreenerService)
-    svc.action_store = SimpleNamespace(read_verified_window=lambda start, end: tuple(events))
+    svc.action_store = SimpleNamespace(events_for_price_reference=lambda day: tuple(events))
     latest = pl.DataFrame({
         "symbol": ["A.TWSE", "B.TWSE", "C.TWSE"], "_max_d": [day] * 3,
         "close": [90.0, 90.0, 90.0], "prev_close": [100.0] * 3, "change_pct": [-0.10] * 3,

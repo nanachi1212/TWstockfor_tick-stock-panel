@@ -1,4 +1,11 @@
 // 數字 / 價格 / 漲跌幅 / 台北時間 格式化。全站只有這一份實作 (§6.0.2 等寬數字)。
+import type { MarketBreadthStats } from './api'
+
+export function marketDirectionCoverage(totals: MarketBreadthStats): string {
+  const { official_compared_count: official, inferred_compared_count: inferred } = totals
+  if (official == null || inferred == null) return '漲跌來源涵蓋數未提供'
+  return `觀測 ${totals.snapshot_row_count} 檔，官方漲跌 ${official} 檔、以前收推算 ${inferred} 檔、不可比 ${totals.uncompared_count} 檔`
+}
 
 type Num = number | null | undefined
 

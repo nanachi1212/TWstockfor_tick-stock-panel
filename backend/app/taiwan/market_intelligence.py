@@ -23,6 +23,7 @@ from typing import Literal
 import polars as pl
 from pydantic import BaseModel
 
+from app.taiwan.corporate_actions import CorporateActionStore, announced_price_limits
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.daily_update import (
     DatasetFreshnessStatus,
@@ -30,7 +31,9 @@ from app.taiwan.daily_update import (
 )
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
 from app.taiwan.margin_store import TaiwanMarginStore
-from app.taiwan.observed_universe import ObservedUniverseStore
+from app.taiwan.observed_universe import TPEX_SOURCE, TWSE_SOURCE, ObservedUniverseStore
+from app.taiwan.pit_universe import PitUniverse
+from app.taiwan.providers.taiwan_values import parse_taiwan_date
 from app.taiwan.realtime.calendar import TaiwanTradingCalendar, taipei_now
 from app.taiwan.research_metrics import research_sessions
 from app.taiwan.universe import TaiwanSecurityMaster, get_security_master
@@ -67,6 +70,8 @@ class MarketBreadthStats(BaseModel):
     decline_count: int = 0
     flat_count: int = 0
     uncompared_count: int = 0
+    official_compared_count: int = 0
+    inferred_compared_count: int = 0
     upper_limit_count: int = 0
     lower_limit_count: int = 0
     turnover: float = 0.0  # in TWD (元)
@@ -173,6 +178,8 @@ class DataQualityReport(BaseModel):
     institutional: DatasetQualityMeta
     margin: DatasetQualityMeta
     indexes: DatasetQualityMeta
+    universe_status: Literal["verified", "partial", "unavailable"] = "verified"
+    price_limit_unavailable_count: int = 0
     universe_supported_symbols: int = 0
     daily_snapshot_symbols: int = 0
     missing_symbols_count: int = 0
@@ -210,6 +217,7 @@ class TaiwanMarketIntelligenceService:
         self.calendar = calendar or TaiwanTradingCalendar()
         self.evidence_store = evidence_store or ObservedUniverseStore()
         self.daily_store = daily_store or TaiwanDailyStore()
+        self.action_store = CorporateActionStore()
         self.inst_store = inst_store or TaiwanInstitutionalStore()
         self.margin_store = margin_store or TaiwanMarginStore()
         self.security_master = security_master or get_security_master()
@@ -232,13 +240,23 @@ class TaiwanMarketIntelligenceService:
         traded_count = len(traded)
         turnover = float(df["amount"].sum() or 0.0)
 
-        # Comparable with previous close
-        comparable = df.filter(pl.col("prev_close").is_not_null())
-        uncompared_count = snapshot_rows - len(comparable)
-
-        advance_count = len(comparable.filter(pl.col("close") > pl.col("prev_close")))
-        decline_count = len(comparable.filter(pl.col("close") < pl.col("prev_close")))
-        flat_count = len(comparable.filter(pl.col("close") == pl.col("prev_close")))
+        # An exchange X (not comparable) is distinct from zero price movement.
+        has_close = pl.col("close").is_finite() & (pl.col("close") > 0)
+        direction = pl.when(has_close).then(
+            pl.coalesce(
+                pl.col("official_direction"),
+                pl.when(pl.col("prev_close") > 0).then(
+                    pl.when(pl.col("close") > pl.col("prev_close")).then(pl.lit("up"))
+                    .when(pl.col("close") < pl.col("prev_close")).then(pl.lit("down"))
+                    .otherwise(pl.lit("flat"))
+                ),
+            )
+        ).otherwise(pl.lit("uncompared"))
+        counts = df.select(direction.alias("direction")).group_by("direction").len()
+        by_direction = dict(counts.iter_rows())
+        advance_count, decline_count, flat_count = (by_direction.get(k, 0) for k in ("up", "down", "flat"))
+        uncompared_count = snapshot_rows - advance_count - decline_count - flat_count
+        official_count = df.filter(has_close & pl.col("official_direction").is_in(["up", "down", "flat"])).height
 
         # Limit counts
         limit_ups = len(df.filter(pl.col("is_limit_up") == True))  # noqa: E712  polars expression
@@ -252,14 +270,55 @@ class TaiwanMarketIntelligenceService:
             decline_count=decline_count,
             flat_count=flat_count,
             uncompared_count=uncompared_count,
+            official_compared_count=official_count,
+            inferred_compared_count=snapshot_rows - uncompared_count - official_count,
             upper_limit_count=limit_ups,
             lower_limit_count=limit_downs,
             turnover=turnover,
         )
 
+    def _official_census(self, day: date) -> pl.DataFrame:
+        rows = self.evidence_store.read_range(None, day, day)
+        return rows.filter(
+            (pl.col("date") == day) & pl.col("observed")
+            & (((pl.col("exchange") == "TWSE") & (pl.col("source") == TWSE_SOURCE))
+               | ((pl.col("exchange") == "TPEX") & (pl.col("source") == TPEX_SOURCE)))
+        )
+
+    def _historical_market(self, day: date):
+        # Daily partitions only contain supported instruments. Keep those dated observations
+        # as a partial fallback for a missing census; never add today's active list.
+        daily = self.daily_store.read_range(None, day, day)
+        historical = self._official_census(day)
+        truth = PitUniverse(census=self.evidence_store).as_of(day, observed=historical)
+        classified = truth.filter(pl.col("instrument_type_status") == "verified")
+        supported = classified.filter(pl.col("instrument_type").is_in(["stock", "etf"])).select(
+            pl.col("market_symbol").alias("symbol"), "exchange", "instrument_type")
+        markets = set(historical["exchange"].to_list())
+        unknown = truth.filter(pl.col("instrument_type_status") != "verified")
+        # Include only observations already known to be supported from a dated daily partition.
+        # If the census exists for a market, it controls membership for that market.
+        if not daily.is_empty():
+            dated = daily.select("symbol").unique().with_columns(
+                pl.col("symbol").str.split(".").list.last().alias("exchange"),
+                pl.lit(None, dtype=pl.String).alias("instrument_type"))
+            inferred = dated.filter(~pl.col("exchange").is_in(sorted(markets))
+                                    | pl.col("symbol").is_in(unknown["market_symbol"].to_list()))
+            supported = pl.concat([supported, inferred])
+        prices = historical.select(
+            (pl.col("raw_code") + "." + pl.col("exchange")).alias("symbol"), "close", "volume", "amount", "official_direction"
+        ).join(supported.select("symbol"), on="symbol", how="semi")
+        if not daily.is_empty():
+            daily = daily.select("symbol", "close", "volume", "amount").join(supported.select("symbol"), on="symbol", how="semi")
+            prices = pl.concat([prices, daily.join(prices.select("symbol"), on="symbol", how="anti")], how="diagonal_relaxed")
+        complete = markets == {"TWSE", "TPEX"} and unknown.is_empty()
+        status = "verified" if complete else "partial" if not supported.is_empty() else "unavailable"
+        return supported, prices, status
+
     def get_snapshot(self, target_date: date | None = None) -> TaiwanMarketIntelligenceSnapshot:
         """Build a deterministic Taiwan Market Intelligence Snapshot for target_date."""
-        target = target_date or resolve_target_latest_trading_date(self.calendar)
+        latest_session = resolve_target_latest_trading_date(self.calendar)
+        target = target_date or latest_session
         # The resolved target stays the freshness reference even when the
         # figures below fall back to the latest available day; comparing the
         # fallback day with itself used to report stale data as current.
@@ -275,17 +334,42 @@ class TaiwanMarketIntelligenceService:
 
         prev_d = self.get_previous_trading_date(target)
 
-        # 1. Load Security Master supported universe
-        universe_df = self.security_master.to_dataframe(supported_only=True)
-        if not universe_df.is_empty():
-            universe_df = universe_df.filter(pl.col("listing_status") == "active")
-            universe_df = universe_df.filter(pl.col("instrument_type").is_in(["stock", "etf"]))
-        supported_symbols = universe_df["symbol"].to_list() if not universe_df.is_empty() else []
-        supported_count = len(supported_symbols)
-
-        # 2. Load DailyStore current date and previous date (NO look-ahead)
-        curr_daily = self.daily_store.read_range(supported_symbols, target, target)
-        prev_daily = self.daily_store.read_range(supported_symbols, prev_d, prev_d) if prev_d else pl.DataFrame()
+        historical = target != latest_session
+        if historical:
+            universe_df, curr_daily, universe_status = self._historical_market(target)
+        else:
+            universe_df = self.security_master.to_dataframe(supported_only=True)
+            if not universe_df.is_empty():
+                universe_df = universe_df.filter(
+                    (pl.col("listing_status") == "active") & pl.col("instrument_type").is_in(["stock", "etf"]))
+            live_symbols = universe_df["symbol"].to_list() if not universe_df.is_empty() else []
+            curr_daily = self.daily_store.read_range(live_symbols, target, target)
+            if not curr_daily.is_empty():
+                directions = self._official_census(target).select(
+                    (pl.col("raw_code") + "." + pl.col("exchange")).alias("symbol"), "official_direction")
+                curr_daily = curr_daily.join(directions, on="symbol", how="left")
+            universe_status = "verified" if live_symbols else "unavailable"
+        supported_count = len(universe_df)
+        symbols = universe_df["symbol"].to_list() if supported_count else []
+        prev_daily = self.daily_store.read_range(symbols, prev_d, prev_d) if prev_d else pl.DataFrame()
+        prior_announcements = {}
+        if prev_d and not curr_daily.is_empty():
+            previous_census = self._official_census(prev_d)
+            for row in previous_census.filter(pl.col("exchange") == "TPEX").select(
+                "raw_code", "next_upper_limit", "next_lower_limit"
+            ).drop_nulls().iter_rows():
+                code, upper, lower = row
+                # A full order-entry range (such as a foreign bond ETF) cannot
+                # establish a daily fluctuation limit.
+                valid = 0 < lower < upper and not (lower == 0.01 and upper >= 9995)
+                prior_announcements[f"{code}.TPEX"] = (upper, lower) if valid else None
+        if historical and prev_d and not curr_daily.is_empty():
+            # Delisted securities can survive only in the historical exchange census.
+            prior = previous_census.select(
+                (pl.col("raw_code") + "." + pl.col("exchange")).alias("symbol"), "close")
+            if not prev_daily.is_empty():
+                prior = pl.concat([prior, prev_daily.select("symbol", "close").join(prior.select("symbol"), on="symbol", how="anti")], how="vertical_relaxed")
+            prev_daily = prior
 
         daily_as_of = target if not curr_daily.is_empty() else None
         # Check daily status
@@ -301,6 +385,7 @@ class TaiwanMarketIntelligenceService:
         matched_symbols_count = len(curr_daily)
         missing_count = max(0, supported_count - matched_symbols_count)
 
+        limit_unavailable = 0
         # 3. Compute price limits and comparisons
         if not curr_daily.is_empty():
             # Join previous close
@@ -313,6 +398,16 @@ class TaiwanMarketIntelligenceService:
             else:
                 joined = curr_daily.with_columns(pl.lit(None).cast(pl.Float64).alias("prev_close"))
 
+            events = self.action_store.events_for_price_reference(target)
+            action_limits = {e.symbol: announced_price_limits(e) for e in events}
+            if action_limits:
+                # Old partitions have no exchange direction. An ex-date alone cannot
+                # establish an official advance/decline; never manufacture one.
+                joined = joined.with_columns(
+                    pl.when(pl.col("symbol").is_in(list(action_limits)) & pl.col("official_direction").is_null())
+                    .then(pl.lit("uncompared")).otherwise(pl.col("official_direction")).alias("official_direction")
+                )
+
             # Join metadata
             meta_sub = universe_df.select(["symbol", "exchange", "instrument_type"])
             joined = joined.join(meta_sub, on="symbol", how="left")
@@ -320,32 +415,51 @@ class TaiwanMarketIntelligenceService:
             # Determine limit-up / limit-down per row
             limit_up_flags = []
             limit_down_flags = []
+            confirmed = sorted({d for d in daily_available if d < target}
+                               | set(self.calendar.recent_confirmed_sessions(target - timedelta(days=1), 5)))
+            fifth_prior_session = confirmed[-5] if len(confirmed) >= 5 else None
             for r in joined.iter_rows(named=True):
                 sym = r["symbol"]
                 close = r.get("close")
                 prev_close = r.get("prev_close")
-                inst = self.security_master.get_instrument(sym)
-
-                if inst is None or close is None or prev_close is None or prev_close <= 0:
+                if close is None or close <= 0:
+                    bounds = None
+                elif sym in action_limits:
+                    bounds = action_limits[sym]
+                elif sym in prior_announcements:
+                    bounds = prior_announcements[sym]
+                elif prev_close is None or prev_close <= 0 or r["official_direction"] == "uncompared":
+                    bounds = None
+                elif historical:
+                    # A dated instrument type does not establish that session's limits
+                    # (e.g. initial trading sessions or historical exchange rule changes).
+                    bounds = None
+                else:
+                    inst = self.security_master.get_instrument(sym)
+                    try:
+                        if inst and inst.instrument_type == "stock" and (
+                            not fifth_prior_session or not inst.listing_date
+                            or parse_taiwan_date(inst.listing_date) > fifth_prior_session
+                        ):
+                            # Initial trading sessions may be exempt; the current registry
+                            # alone cannot distinguish an IPO from an exchange transfer.
+                            bounds = None
+                        else:
+                            bounds = MarketProfileBridge.calc_limits(prev_close, inst) if inst else None
+                    except ValueError:
+                        bounds = None
+                if bounds is not None:
+                    upper, lower = bounds
+                    if (upper is not None and close > upper) or (lower is not None and close < lower):
+                        bounds = None
+                if bounds is None:
+                    limit_unavailable += 1
                     limit_up_flags.append(False)
                     limit_down_flags.append(False)
                     continue
-
-                try:
-                    limit_pct = MarketProfileBridge.get_price_limit_pct(inst)
-                except ValueError:
-                    limit_up_flags.append(False)
-                    limit_down_flags.append(False)
-                    continue
-
-                if limit_pct is None:  # NO_LIMIT instruments (e.g. foreign ETF) never count as hit limit
-                    limit_up_flags.append(False)
-                    limit_down_flags.append(False)
-                    continue
-
-                upper, lower = MarketProfileBridge.calc_limits(prev_close, inst)
-                is_up = bool(upper is not None and close >= upper)
-                is_dn = bool(lower is not None and close <= lower)
+                upper, lower = bounds
+                is_up = upper is not None and close == upper
+                is_dn = lower is not None and close == lower
                 limit_up_flags.append(is_up)
                 limit_down_flags.append(is_dn)
 
@@ -458,7 +572,7 @@ class TaiwanMarketIntelligenceService:
 
         # 7. Data Quality & Overall Status
         dataset_statuses = [daily_status, inst_status, m_status]
-        if all(s == "current" for s in dataset_statuses):
+        if all(s == "current" for s in dataset_statuses) and universe_status == "verified":
             overall_status = "complete"
         elif any(s != "unavailable" for s in dataset_statuses):
             overall_status = "partial"
@@ -494,6 +608,8 @@ class TaiwanMarketIntelligenceService:
                         else "stale" if index_dates else "unavailable"),
                 source="taiwan_benchmark_store",
             ),
+            universe_status=universe_status,
+            price_limit_unavailable_count=limit_unavailable,
             universe_supported_symbols=supported_count,
             daily_snapshot_symbols=matched_symbols_count,
             missing_symbols_count=missing_count,

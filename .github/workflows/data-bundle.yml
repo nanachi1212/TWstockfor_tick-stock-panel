@@ -33,17 +33,8 @@ jobs:
           uv sync --frozen
 
       - name: Download current bundle
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/in"
-          gh release download data-latest --repo "$REPO" --pattern data-latest.json --dir "$RUNNER_TEMP/in"
-          pointer="$RUNNER_TEMP/in/data-latest.json"
-          tag=$(jq -r .tag "$pointer")
-          asset=$(jq -r .asset "$pointer")
-          gh release download "$tag" --repo "$REPO" --pattern "$asset" --dir "$RUNNER_TEMP/in"
-          echo "$(jq -r .sha256 "$pointer")  $RUNNER_TEMP/in/$asset" | sha256sum -c -
-          echo "BUNDLE=$RUNNER_TEMP/in/$asset" >> "$GITHUB_ENV"
-          echo "PREV_AS_OF=$(jq -r .data_as_of "$pointer")" >> "$GITHUB_ENV"
+        working-directory: backend
+        run: uv run python ../scripts/publish_data_bundle.py download "$RUNNER_TEMP/in"
 
       - name: Fetch newer official sessions
         working-directory: backend
@@ -57,29 +48,15 @@ jobs:
           uv run python ../scripts/build_release_seed.py --source "$RUNNER_TEMP/data/taiwan" \
             --output "$RUNNER_TEMP/out/bundle.zip" | tee "$RUNNER_TEMP/build.log"
           echo "as_of=$(sed -n 's/^data_as_of=//p' "$RUNNER_TEMP/build.log")" >> "$GITHUB_OUTPUT"
-          first=$(ls "$RUNNER_TEMP/data/taiwan/daily" | sort | head -1 | sed 's/^date=//')
+          first=$(find "$RUNNER_TEMP/data/taiwan/daily" -maxdepth 1 -type d -name 'date=*' -printf '%f\n' | sort | sed -n '1s/^date=//p')
           echo "first=$first" >> "$GITHUB_OUTPUT"
 
       - name: Publish release and repoint data-latest
         env:
           AS_OF: ${{ steps.build.outputs.as_of }}
           FIRST: ${{ steps.build.outputs.first }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$AS_OF" > "$PREV_AS_OF" ]]; then
-            echo "No new trading day ($AS_OF <= $PREV_AS_OF); nothing to publish."
-            exit 0
-          fi
-          tag="data-daily-$AS_OF"
-          asset="nanachi-tw-daily-${FIRST}_to_${AS_OF}.zip"
-          mv "$RUNNER_TEMP/out/bundle.zip" "$RUNNER_TEMP/out/$asset"
-          sha=$(sha256sum "$RUNNER_TEMP/out/$asset" | cut -d' ' -f1)
-          gh release create "$tag" "$RUNNER_TEMP/out/$asset" --repo "$REPO" --target "$GITHUB_SHA" \
-            --title "$tag" --latest=false \
-            --notes "台股公開資料包（自動產生），日 K ${FIRST} ~ ${AS_OF}，另含最近 60 個交易日的三大法人、融資融券、交易日普查與處置紀錄。只含官方公開資料，已通過隱私檢查。SHA256: $sha"
-          jq -n --arg tag "$tag" --arg asset "$asset" --arg sha "$sha" --arg as_of "$AS_OF" \
-            '{tag: $tag, asset: $asset, sha256: $sha, data_as_of: $as_of}' > "$RUNNER_TEMP/out/data-latest.json"
-          gh release upload data-latest "$RUNNER_TEMP/out/data-latest.json" --repo "$REPO" --clobber
+        working-directory: backend
+        run: uv run python ../scripts/publish_data_bundle.py publish "$RUNNER_TEMP/out/bundle.zip"
 
       - name: Keep the newest 10 daily bundles
         run: |

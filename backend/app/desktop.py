@@ -336,6 +336,13 @@ def _project_backend_ready(port: int = _BASE_PORT) -> bool:
     )
 
 
+def background_port_status(port: int = _BASE_PORT) -> str:
+    """Used by the after-close task before it decides to start a scheduler."""
+    if not _port_is_open(port):
+        return "free"
+    return "ready" if _project_backend_ready(port) else "occupied"
+
+
 def _wait_for_server(port: int, timeout: float = 60.0) -> bool:
     """輪詢 health 介面直到後端就緒或超時。
 

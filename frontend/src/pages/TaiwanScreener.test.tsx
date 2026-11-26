@@ -612,6 +612,18 @@ function buildMarketIntelligence(overrides: Partial<Record<string, any>> = {}) {
 }
 
 describe('Market Intelligence date honesty (Data Freshness & Source Labels batch)', () => {
+  it('shows the number of official and inferred comparisons and omits unverified limit totals', async () => {
+    const data = buildMarketIntelligence()
+    vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence({
+      market_totals: { ...data.market_totals, snapshot_row_count: 3, official_compared_count: 1, inferred_compared_count: 1, uncompared_count: 1 },
+      data_quality: { ...data.data_quality, price_limit_unavailable_count: 3 },
+    }) as any)
+    renderScreener()
+    expect(await screen.findByText('觀測 3 檔，官方漲跌 1 檔、以前收推算 1 檔、不可比 1 檔')).toBeInTheDocument()
+    expect(screen.getByText('漲跌停可判定 0 / 3 檔')).toBeInTheDocument()
+    expect(screen.getByText('— 漲停')).toBeInTheDocument()
+  })
+
   it('shows an explicit "no complete data" notice when data_quality.overall_status is not complete, instead of silently presenting all-zero stats as today\'s real market', async () => {
     vi.mocked(api.taiwanMarketIntelligence).mockResolvedValue(buildMarketIntelligence() as any)
     renderScreener()

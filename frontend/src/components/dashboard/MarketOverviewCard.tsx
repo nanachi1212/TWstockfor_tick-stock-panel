@@ -1,6 +1,6 @@
 import { Loader2, TrendingUp } from 'lucide-react'
 import { type IndexSnapshot, type TaiwanMarketIntelligenceSnapshot } from '@/lib/api'
-import { fmtBigNum, fmtPct, priceColorClass, todayTaipei } from '@/lib/format'
+import { fmtBigNum, fmtPct, marketDirectionCoverage, priceColorClass, todayTaipei } from '@/lib/format'
 import { cn } from '@/lib/cn'
 import { SectionTitle } from './SectionTitle'
 import { isDailyCurrent } from './dashboardFormat'
@@ -46,6 +46,7 @@ export type TaiwanDailyStatus = 'current' | 'stale' | 'unavailable'
 export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus }: { snapshot?: TaiwanMarketIntelligenceSnapshot | null; loading: boolean; error: boolean; marketDailyStatus: TaiwanDailyStatus }) {
   const intel = { data: snapshot, isLoading: loading, isError: error }
   const totals = intel.data?.market_totals
+  const limitsMissing = intel.data?.data_quality.price_limit_unavailable_count
   // 分母為 0 (全市場無漲跌平資料, 例如尚未下載當日資料) 時不可判讀強弱, ratio
   // 保持 null —— 避免把「無資料」誤判成「偏弱」而顯示假結論。
   const countedTotal = totals ? totals.advance_count + totals.decline_count + totals.flat_count : 0
@@ -57,6 +58,7 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
   // 把同一個既有 badge 樣式語意搬來這裡。
   const dailyBreadthAvailable = Boolean(
     isDailyCurrent(intel.data?.data_quality.daily?.status, marketDailyStatus)
+    && (!intel.data?.data_quality.universe_status || intel.data.data_quality.universe_status === 'verified')
     && (totals?.snapshot_row_count ?? 0) > 0,
   )
   const dailyDataIncomplete = intel.data ? !dailyBreadthAvailable : false
@@ -128,11 +130,12 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
           </div>
           <div className="mt-2">
             <TaiwanBreadthBar advance={totals.advance_count} decline={totals.decline_count} flat={totals.flat_count} />
+            <p className="mt-1 text-xs text-muted">{marketDirectionCoverage(totals)}</p>
           </div>
           <div className="mt-2 grid grid-cols-3 gap-1.5">
             <MiniMetric
               label="漲停 / 跌停"
-              value={`${totals.upper_limit_count} / ${totals.lower_limit_count}`}
+              value={limitsMissing === totals.snapshot_row_count ? '—' : `${totals.upper_limit_count} / ${totals.lower_limit_count}`}
               cls={totals.upper_limit_count >= totals.lower_limit_count ? 'text-bull' : 'text-bear'}
             />
             <MiniMetric label="成交額" value={fmtBigNum(totals.turnover)} />
@@ -146,6 +149,9 @@ export function MarketOverviewCard({ snapshot, loading, error, marketDailyStatus
               <MiniMetric label="外資買賣超" value="—" />
             )}
           </div>
+          {limitsMissing != null && limitsMissing > 0 && (
+            <p className="mt-1 text-xs text-muted">漲跌停可判定 {totals.snapshot_row_count - limitsMissing} / {totals.snapshot_row_count} 檔</p>
+          )}
           {totals.traded_count > 0 && label && (
             <p className="mt-2 text-xs text-secondary">
               {label === '偏強'

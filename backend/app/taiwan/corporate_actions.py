@@ -261,6 +261,55 @@ def derive_factor(event: CorporateActionEvent) -> CorporateActionEvent:
         return insufficient(event, str(exc))
 
 
+def _trading_reference(event: CorporateActionEvent) -> float | None:
+    if event.status != "verified":
+        return None
+    if event.source not in {"TWT49U", "exDailyQ"}:
+        return event.reference_price
+    # Corporate-action factors may use unrounded or cash-subscription-adjusted prices.
+    # Exchange trading comparisons need the published ex-rights/ex-dividend reference.
+    try:
+        price = _number(json.loads(event.raw_fields)["除權息參考價"])
+    except (ValueError, TypeError, KeyError):
+        return None
+    return float(price) if price > 0 else None
+
+
+def announced_price_limits(event: CorporateActionEvent) -> tuple[float, float] | None:
+    """Use the bounds from the exchange notice; a price adjustment factor is not a limit."""
+    if event.status != "verified":
+        return None
+    try:
+        raw = json.loads(event.raw_fields)
+        if not isinstance(raw, dict):
+            return None
+        upper = _number(raw.get("漲停價格", raw.get("漲停價")))
+        lower = _number(raw.get("跌停價格", raw.get("跌停價")))
+    except (ValueError, TypeError):
+        return None
+    return (float(upper), float(lower)) if 0 < lower < upper else None
+
+
+def apply_ex_day_reference(frame: pl.DataFrame, day: date, events: Iterable[CorporateActionEvent]) -> pl.DataFrame:
+    """Apply verified exchange reference prices only to rows on the event day."""
+    if not events:
+        return frame
+    prices = {e.symbol: _trading_reference(e)
+              for e in events if e.effective_date == day}
+    if not prices:
+        return frame
+    overrides = pl.DataFrame(
+        {"symbol": list(prices), "_ex_ref": list(prices.values()), "_ex": [True] * len(prices)},
+        schema={"symbol": pl.String, "_ex_ref": pl.Float64, "_ex": pl.Boolean},
+    )
+    is_event = pl.col("_ex").fill_null(False) & (pl.col("_max_d") == day)
+    return frame.join(overrides, on="symbol", how="left").with_columns(
+        pl.when(is_event).then(pl.col("_ex_ref")).otherwise(pl.col("prev_close")).alias("prev_close"),
+        pl.when(is_event).then(pl.col("close") / pl.col("_ex_ref") - 1)
+        .otherwise(pl.col("change_pct")).alias("change_pct"),
+    ).drop("_ex_ref", "_ex")
+
+
 def _equivalent_observations(group: list[CorporateActionEvent]) -> bool:
     keys = {(e.event_type, e.status, e.previous_close, e.reference_price, e.factor,
              e.cash_dividend, e.free_share_ratio, e.reduction_ratio, e.precision_method)
@@ -383,6 +432,12 @@ class CorporateActionStore:
             return None
         events = tuple(e for e in coverage[2] if start <= e.effective_date <= end)
         return None if any(e.status == "provider_error" for e in events) else events
+
+    def events_for_price_reference(self, day: date) -> tuple[CorporateActionEvent, ...]:
+        """An incomplete calendar cannot erase already observed, unresolved ex-dates."""
+        coverage = self.read_verified_coverage()
+        observations = coverage[2] if coverage is not None else self.read()
+        return tuple(event for event in observations if event.effective_date == day)
 
     def read_verified_coverage(self) -> tuple[date, date, tuple[CorporateActionEvent, ...]] | None:
         """One immutable locally validated snapshot for multi-window consumers.

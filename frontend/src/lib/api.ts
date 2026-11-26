@@ -1301,6 +1301,8 @@ export interface MarketBreadthStats {
   decline_count: number
   flat_count: number
   uncompared_count: number
+  official_compared_count?: number
+  inferred_compared_count?: number
   upper_limit_count: number
   lower_limit_count: number
   turnover: number
@@ -1361,6 +1363,8 @@ export interface TaiwanMarketIntelligenceSnapshot {
     overall_status: 'complete' | 'partial' | 'unavailable'
     daily: { dataset: string; as_of: string | null; status: 'current' | 'stale' | 'partial' | 'unavailable'; source: string }
     indexes: { dataset: string; as_of: string | null; status: 'current' | 'stale' | 'unavailable'; source: string }
+    universe_status?: 'verified' | 'partial' | 'unavailable'
+    price_limit_unavailable_count?: number
     universe_supported_symbols: number
     daily_snapshot_symbols: number
     missing_symbols_count: number

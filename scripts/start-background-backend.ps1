@@ -24,25 +24,18 @@ function Write-TaskLog([string]$Message) {
     Add-Content -LiteralPath $Log -Value "$(Get-Date -Format o) $Message" -Encoding UTF8
 }
 
-function Test-BackendPort {
-    $client = New-Object System.Net.Sockets.TcpClient
-    try {
-        $pending = $client.BeginConnect('127.0.0.1', $BackendPort, $null, $null)
-        return $pending.AsyncWaitHandle.WaitOne(1000) -and $client.Connected
-    }
-    catch { return $false }
-    finally { $client.Close() }
-}
-
 try {
-    if (Test-BackendPort) {
-        Write-TaskLog "backend already running on port $BackendPort; nothing to do"
-        exit 0
-    }
     $Uv = Get-Command 'uv.exe' -ErrorAction Stop
-    Write-TaskLog "starting background backend on port $BackendPort"
     Push-Location $BackendDir
     try {
+        $portStatus = & $Uv.Source run --project $BackendDir python -c 'from app.desktop import background_port_status; print(background_port_status())'
+        if ($LASTEXITCODE -ne 0) { throw "Backend identity probe failed (exit $LASTEXITCODE)." }
+        if ($portStatus -eq 'ready') {
+            Write-TaskLog "verified backend already running on port $BackendPort; nothing to do"
+            exit 0
+        }
+        if ($portStatus -ne 'free') { throw "Port $BackendPort is occupied without a verified project backend." }
+        Write-TaskLog "starting background backend on port $BackendPort"
         & $Uv.Source run --project $BackendDir python -m uvicorn app.main:app --host 127.0.0.1 --port $BackendPort
         $code = $LASTEXITCODE
     }

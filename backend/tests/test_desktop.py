@@ -261,3 +261,35 @@ def test_packaging_uses_bundled_seed_and_per_user_data():
     assert "prepare_release_seed.py" in release_workflow
     assert "test-windows-installer.ps1" in release_workflow
     assert "softprops/action-gh-release" not in release_workflow
+
+
+def test_after_close_identity_uses_real_loopback_http():
+    import json
+    import socket
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        api_title = "foreign service"
+
+        def do_GET(self):
+            payload = ({"status": "ok", "version": __version__} if self.path == "/health" else
+                       {"info": {"title": self.api_title, "version": __version__}})
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        port = server.server_port
+        worker = threading.Thread(target=server.serve_forever)
+        worker.start()
+        try:
+            assert desktop.background_port_status(port) == "occupied"
+            Handler.api_title = desktop._API_TITLE
+            assert desktop.background_port_status(port) == "ready"
+        finally:
+            server.shutdown()
+            worker.join()
+    with socket.socket() as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        assert desktop.background_port_status(reserved.getsockname()[1]) == "free"

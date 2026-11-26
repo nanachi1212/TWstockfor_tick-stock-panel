@@ -29,7 +29,11 @@ from pydantic import BaseModel, Field
 
 from app.indicators.pipeline import volume_ratio_expr
 from app.taiwan.adjust import adjust_prices_as_of
-from app.taiwan.corporate_actions import CorporateActionStore, event_market_open
+from app.taiwan.corporate_actions import (
+    CorporateActionStore,
+    apply_ex_day_reference,
+    event_market_open,
+)
 from app.taiwan.daily_store import TaiwanDailyStore
 from app.taiwan.finmind_cache import FinMindCache
 from app.taiwan.institutional_store import TaiwanInstitutionalStore
@@ -858,36 +862,14 @@ class TaiwanScreenerService:
         """On an ex-dividend/ex-rights day the official reference price replaces the raw previous close.
 
         Raw close-to-close would show a fake drop. A verified event supplies the reference price;
-        an unverified one makes the change unavailable. Without verified coverage nothing changes.
+        an unresolved event makes the change unavailable.
         """
         try:
-            events = self.action_store.read_verified_window(day, day)
+            events = self.action_store.events_for_price_reference(day)
         except Exception as exc:
             logger.debug("Corporate action lookup failed for ex-day change: %s", exc)
             return latest
-        if not events:
-            return latest
-        overrides = pl.DataFrame(
-            {
-                "symbol": [e.symbol for e in events],
-                "_max_d": [e.effective_date for e in events],
-                "_ref": [e.reference_price if e.status == "verified" else None for e in events],
-                "_ex": [True] * len(events),
-            },
-            schema={"symbol": pl.String, "_max_d": pl.Date, "_ref": pl.Float64, "_ex": pl.Boolean},
-        ).unique(subset=["symbol", "_max_d"], keep="first")
-        # _ex marks a row with an event; a null _ref on such a row means the event is unverified.
-        return (
-            latest.join(overrides, on=["symbol", "_max_d"], how="left")
-            .with_columns(
-                pl.when(pl.col("_ex").fill_null(False))
-                .then(pl.when(pl.col("_ref").is_not_null()).then(pl.col("close") / pl.col("_ref") - 1.0))
-                .otherwise(pl.col("change_pct")).alias("change_pct"),
-                pl.when(pl.col("_ex").fill_null(False)).then(pl.col("_ref"))
-                .otherwise(pl.col("prev_close")).alias("prev_close"),
-            )
-            .drop("_ref", "_ex")
-        )
+        return apply_ex_day_reference(latest, day, events)
 
     def _compute_trend_indicators(
         self, symbols: list[str], as_of: date,

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart3, TrendingUp, TrendingDown } from 'lucide-react'
 import { api } from '@/lib/api'
-import { fmtBigNum, fmtLots, priceColorClass } from '@/lib/format'
+import { fmtBigNum, fmtLots, marketDirectionCoverage, priceColorClass } from '@/lib/format'
 
 export function ScreenerMarketIntelPanel() {
   const { data: intelData, isError } = useQuery({
@@ -9,6 +9,9 @@ export function ScreenerMarketIntelPanel() {
     queryFn: () => api.taiwanMarketIntelligence(),
     staleTime: 5 * 60 * 1000,
   })
+  const limitsMissing = intelData?.data_quality?.price_limit_unavailable_count
+  const observedCount = intelData?.market_totals.snapshot_row_count ?? 0
+  const noKnownLimits = observedCount === 0 || limitsMissing === observedCount
   return (
     <>
   {isError && !intelData && (
@@ -57,17 +60,18 @@ export function ScreenerMarketIntelPanel() {
             <span className="text-zinc-400">{intelData.market_totals.flat_count}</span>
           </div>
           <span className="text-xs text-zinc-500 mt-1">上漲 / 下跌 / 平盤</span>
+          <span className="text-xs text-zinc-500 mt-1">{marketDirectionCoverage(intelData.market_totals)}</span>
         </div>
 
         {/* Limit Up / Limit Down */}
         <div className="bg-zinc-950/70 border border-zinc-800/80 rounded-lg p-2.5 flex flex-col justify-between">
           <span className="text-zinc-400 text-xs">漲跌停家數</span>
           <div className="flex items-center gap-2 mt-1 font-mono font-medium">
-            <span className="text-bull font-bold">{intelData.market_totals.upper_limit_count} 漲停</span>
+            <span className="text-bull font-bold">{noKnownLimits ? '—' : intelData.market_totals.upper_limit_count} 漲停</span>
             <span className="text-zinc-600">|</span>
-            <span className="text-bear font-bold">{intelData.market_totals.lower_limit_count} 跌停</span>
+            <span className="text-bear font-bold">{noKnownLimits ? '—' : intelData.market_totals.lower_limit_count} 跌停</span>
           </div>
-          <span className="text-xs text-zinc-500 mt-1">法定價格限制 (排除無限制)</span>
+          <span className="text-xs text-zinc-500 mt-1">{limitsMissing == null ? '漲跌停涵蓋數未提供' : `漲跌停可判定 ${observedCount - limitsMissing} / ${observedCount} 檔`}</span>
         </div>
 
         {/* Exchange Breakdown (TWSE vs TPEx) */}
