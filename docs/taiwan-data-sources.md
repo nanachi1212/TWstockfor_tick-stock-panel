@@ -505,3 +505,15 @@ for each status. ETFs are always unsupported for company fundamental factors.
 隔離目錄驗證（2026-09-26）：把基本包與 TWSE 歷史包解壓到暫存 `DATA_DIR`，4,207 個檔案雜湊與 manifest 全部一致；以既有
 `read_primary_oos_preflight()`、`TaiwanDailyStore.read_all()`、`CorporateActionStore().read()`、`InstrumentEvidenceStore().load()`
 讀取，資料健康度、分類計數、事件數（22,651）與正式目錄逐項相同（日 K 1,416,933 列）。
+
+### 回補舊版普查的官方方向與次日界限
+
+在 `backend` 目錄執行下列命令。`--source` 指向已解出的 `observed_universe` 目錄，`--output` 指向尚未建立的獨立目錄。可重複指定交易日期，預設同時處理 TWSE 與 TPEx，也可加 `--exchange TWSE` 或 `--exchange TPEX`。
+
+```powershell
+uv run --frozen python -m scripts.backfill_census_fields --source ".\review\source\taiwan\observed_universe" --output ".\review\census-copy" --date 2026-11-24 --date 2026-11-25
+```
+
+工具重查指定交易日的 TWSE MI_INDEX 與 TPEx dailyQuotes，按代號逐列核對來源、日期、交易所、原始開高低收、成交量與成交額，只補官方漲跌方向和上櫃次日漲跌停價的缺值。要判斷上櫃當日漲跌停，請同時回補前一交易日。輸出只包含指定且核對成功的普查分區，可供 `ObservedUniverseStore` 讀取。每個分區的 `audit.json` 記錄來源檔、正規化官方資料及輸出檔的 SHA-256，以及官方資料筆數、補入數和仍缺少的筆數。空分區維持原本的交易日證據。
+
+同一命令重跑會核對已完成分區並回報 `unchanged`。網路中斷、代號集合、行情、已有欄值或雜湊不符的分區會回報 `failed`，整次命令的退出碼為 1，其餘已完成分區仍可讀取。如要保留並比較交易所事後修訂的版本，另指定新的輸出目錄。輸出副本適用於行情驗證，歷史普查的月驗證標記仍屬於原來源資料。
