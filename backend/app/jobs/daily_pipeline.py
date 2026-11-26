@@ -4,14 +4,16 @@
 """
 from __future__ import annotations
 
+import json
 import logging
-from datetime import date
+from datetime import date, time, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.capabilities import CapabilitySet
 from app.repository import KlineRepository
+from app.taiwan.realtime.calendar import taipei_now
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +84,8 @@ def _refresh_after_close_research() -> dict[str, object]:
     return result
 
 
-def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> None:
+def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled",
+                      target_date: date | None = None, inputs_only: bool = False):
     """台股盤後更新 + 後續鏈 (研究檢視表、Quant、Auto Watch、自動 AI 說明、收盤推播)。
 
     16:30/晚間排程與啟動補更新共用這一條, 避免補更新只刷資料卻漏掉盤後產出。
@@ -99,7 +102,7 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
                 logger.exception("Taiwan security master refresh failed; cached list kept")
         from app.taiwan.daily_update import TaiwanDailyUpdateService
         svc = TaiwanDailyUpdateService()
-        result = svc.run_update(refresh_daily=True)
+        result = svc.run_update(refresh_daily=True, target_date=target_date)
         logger.info(
             "Taiwan daily update (%s) finished: overall=%s, daily=%s, inst=%s, margin=%s",
             trigger, result.overall_status, result.daily.status, result.institutional.status, result.margin.status,
@@ -119,10 +122,10 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
         # Formal selections read daily bars and institutional flow only, so a failed
         # margin fetch must not hold their lock; the rest of the chain still waits for it.
         lock_ready = result.daily.status == "success" and result.institutional.status == "success"
-        if evening and result.daily.dates_fetched == 0:
+        if evening and (inputs_only or result.daily.dates_fetched == 0):
             if lock_ready:
                 _lock_forward_selections(result, only_missing=True)
-            return
+            return result
         # Quant is downstream and isolated: it must never roll back or
         # relabel the completed market-data refresh.
         try:
@@ -163,6 +166,7 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
                 logger.exception("Taiwan evening push digest failed")
         elif lock_ready:
             _lock_forward_selections(result)
+        return result
     except Exception as e:
         logger.exception("Taiwan daily update job (%s) failed: %s", trigger, e)
     finally:
@@ -170,23 +174,95 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled") -> N
         notify_daily_data_updated()
 
 
+def run_due_after_close(evening: bool = False, *, trigger: str = "scheduled") -> str:
+    """Coalesce a delayed cron/boot run against the last eligible Taipei session."""
+    from app.taiwan.backfill_worker import WorkerBusyError, WorkerLock
+    from app.taiwan.daily_update import resolve_target_latest_trading_date
+    from app.taiwan.data_root import taiwan_data_root
+    from app.taiwan.realtime import get_market_status
+    from app.taiwan.startup_catchup import pending_after_close
+
+    now = taipei_now()
+    if get_market_status(now, require_verified_trading_day=True).value in {
+        "pre_open", "open", "scheduled_open_unverified", "post_close",
+    }:
+        return "market_open"
+    target = resolve_target_latest_trading_date(as_of_dt=now)
+    if target == now.date() and now.time() < time(16, 30):
+        return "before_due"
+    root = taiwan_data_root()
+    marker = root / "after_close_primary.json"
+    try:
+        with WorkerLock(root / "after_close_update.lock", max_age=timedelta(0)):
+            recorded = {}
+            if marker.is_file():
+                try:
+                    recorded = json.loads(marker.read_text("utf-8"))
+                except ValueError:
+                    logger.warning("Invalid primary after-close record %s", marker)
+            if not isinstance(recorded, dict):
+                recorded = {}
+            session = target.isoformat()
+            attempted = session in (recorded.get("attempted_for"), recorded.get("primary_daily_as_of"))
+            same_day = target == now.date()
+            # A delayed primary cron and the 19:30 cron may reach the executor together.
+            # Whichever obtains the lock first owns the missed primary pass. A failed
+            # earlier attempt instead leaves 19:30 to repair inputs and selections only.
+            primary = same_day and not attempted and (not evening or trigger != "startup_catchup")
+            if not primary and not pending_after_close():
+                return "current"
+            late_job = evening and trigger == "scheduled" and same_day and now.time() >= time(21, 30)
+
+            def save_attempt(status):
+                recorded["attempt_status"] = status
+                temporary = marker.with_suffix(".tmp")
+                temporary.write_text(json.dumps(recorded), "utf-8")
+                temporary.replace(marker)
+
+            if primary:
+                recorded.update(attempted_for=session, trigger=trigger, started_at=now.isoformat(),
+                                finished_at=None, market_update_status=None)
+                save_attempt("started")
+            result = run_taiwan_update(evening=not primary, trigger=trigger, target_date=target,
+                                       inputs_only=not primary and not late_job)
+            if primary:
+                recorded["finished_at"] = taipei_now().isoformat()
+            if result is None:
+                if primary:
+                    save_attempt("failed")
+                return "failed"
+            daily_current = (result.target_latest_trading_date == session and result.freshness.daily_as_of == session
+                             and result.freshness.daily_status == "current")
+            if primary:
+                recorded["market_update_status"] = result.overall_status
+                if daily_current and result.daily.status == "success":
+                    # Evidence of the main pass and daily partition, not a receipt for every downstream service.
+                    recorded["primary_daily_as_of"] = session
+                save_attempt("returned" if daily_current and result.daily.status == "success" else "incomplete")
+            if not daily_current or (primary and result.daily.status != "success"):
+                return "incomplete"
+            return "ran" if result.overall_status == "success" else "incomplete"
+    except WorkerBusyError:
+        return "already_running"
+
+
 def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:
     """啟動排程器 (Asia/Taipei)。
 
-    工作日 16:30 台股盤後增量更新 (+21:30/23:00 融資融券補抓)、10:00/14:00 買點評估。
+    工作日 16:30 台股盤後增量更新，19:30/21:30/23:00 補資料與正式選股，10:00/14:00 買點評估。
     """
     scheduler = AsyncIOScheduler(timezone="Asia/Taipei")
 
     # 台股盤後增量更新 (Taiwan Full-Market Daily OHLCV + Institutional + Margin Update)
     # 每天 16:30 Asia/Taipei 觸發。
     # 官方全市場快照端點極速更新: Daily (TWSE 1 + TPEx 1) + Inst (2) + Margin (2) = ~6 次 HTTP 請求 / 日
-    _scheduled_taiwan_update = run_taiwan_update
+    _scheduled_taiwan_update = run_due_after_close
 
     scheduler.add_job(
         _scheduled_taiwan_update,
         trigger=CronTrigger(day_of_week="mon-fri", hour=16, minute=30, timezone="Asia/Taipei"),
         id="taiwan_daily_update",
-        misfire_grace_time=3600,
+        misfire_grace_time=None,
         coalesce=True,
         max_instances=1,
         replace_existing=True,
@@ -267,13 +343,13 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
 
     # 融資融券官方於「當日晚間」公布 (無固定時點), 16:30 批次必然取不到當日資料。
     # 晚間沿用同一個增量更新器補抓; 已存在的日期不會重抓 (每次僅 ~2 次 HTTP)。
-    for hour, minute in ((21, 30), (23, 0)):
+    for hour, minute in ((19, 30), (21, 30), (23, 0)):
         scheduler.add_job(
             _scheduled_taiwan_update,
-            kwargs={"evening": True},
+            kwargs={"evening": True, "trigger": "scheduled_1930"} if hour == 19 else {"evening": True},
             trigger=CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone="Asia/Taipei"),
             id=f"taiwan_evening_update_{hour:02d}{minute:02d}",
-            misfire_grace_time=1800,
+            misfire_grace_time=None,
             coalesce=True,
             max_instances=1,
             replace_existing=True,
@@ -354,7 +430,7 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     )
 
     scheduler.start()
-    logger.info("scheduler started; taiwan@16:30 (+21:30/23:00 catch-up), buy-points@10:00/14:00 mon-fri")
+    logger.info("scheduler started; taiwan@16:30 (+19:30/21:30/23:00 catch-up), buy-points@10:00/14:00 mon-fri")
     return scheduler
 
 

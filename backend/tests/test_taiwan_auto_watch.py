@@ -293,15 +293,20 @@ def test_sync_api_and_get_contract_with_empty_watchlist(engine, monkeypatch):
 
 
 @pytest.mark.parametrize("status", ["success", "partial", "failed"])
-def test_scheduler_sync_only_after_success_and_quant_failure_is_isolated(monkeypatch, status):
+def test_scheduler_sync_only_after_success_and_quant_failure_is_isolated(monkeypatch, status, taiwan_data_env):
+    from datetime import datetime
+
     from app.taiwan import auto_watch, selection_review_service
     from app.taiwan.quant import live_runner
 
     scheduler = Mock()
+    monkeypatch.setattr(daily_pipeline, "taipei_now", lambda: datetime.fromisoformat("2026-10-08T16:30:00+08:00"))
     monkeypatch.setattr(daily_pipeline, "AsyncIOScheduler", lambda **_kwargs: scheduler)
     events = []
     result = SimpleNamespace(overall_status=status, daily=SimpleNamespace(status=status),
-                             institutional=SimpleNamespace(status=status), margin=SimpleNamespace(status=status))
+                             institutional=SimpleNamespace(status=status), margin=SimpleNamespace(status=status),
+                             target_latest_trading_date="2026-10-08", freshness=SimpleNamespace(
+                                 daily_as_of="2026-10-08", daily_status="current", institutional_as_of="2026-10-08"))
     monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService", lambda: SimpleNamespace(
         run_update=lambda **_kwargs: events.append("update") or result,
     ))

@@ -1,3 +1,4 @@
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -9,6 +10,7 @@ from app.taiwan.quant import live_runner
 
 
 def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, taiwan_data_env):
+    monkeypatch.setattr(daily_pipeline, "taipei_now", lambda: datetime.fromisoformat("2026-10-08T16:30:00+08:00"))
     scheduler = Mock()
     monkeypatch.setattr(daily_pipeline, "AsyncIOScheduler", lambda **kwargs: scheduler)
     events = []
@@ -16,7 +18,7 @@ def test_scheduler_market_refresh_is_complete_before_quant_failure(monkeypatch, 
                              institutional=SimpleNamespace(status="success"),
                              margin=SimpleNamespace(status="success"), target_latest_trading_date="2026-10-08",
                              margin_publication_verified=True,
-                             freshness=SimpleNamespace(daily_as_of="2026-10-08", institutional_as_of="2026-10-08",
+                             freshness=SimpleNamespace(daily_as_of="2026-10-08", daily_status="current", institutional_as_of="2026-10-08",
                                                        margin_as_of="2026-10-08"))
 
     def refresh(**kwargs):

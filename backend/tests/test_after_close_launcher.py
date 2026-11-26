@@ -137,14 +137,18 @@ class AfterCloseLauncherTests(unittest.TestCase):
 
     def assert_task_xml(self, xml, expected_store):
         task = ElementTree.fromstring(xml)
-        start = datetime.fromisoformat(task.findtext(".//t:StartBoundary", namespaces=TASK_NS))
-        self.assertEqual(start.utcoffset(), timedelta(hours=8))
-        self.assertEqual((start.hour, start.minute), (16, 35))
-        days = task.findall(".//t:DaysOfWeek/*", TASK_NS)
-        self.assertEqual(
-            [day.tag.split("}")[-1] for day in days],
-            ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-        )
+        triggers = task.findall("t:Triggers/t:CalendarTrigger", TASK_NS)
+        self.assertEqual(len(triggers), 2)
+        for trigger, expected_time in zip(triggers, [(16, 35), (19, 30)], strict=True):
+            start = datetime.fromisoformat(trigger.findtext("t:StartBoundary", namespaces=TASK_NS))
+            self.assertEqual(start.utcoffset(), timedelta(hours=8))
+            self.assertEqual((start.hour, start.minute), expected_time)
+            self.assertEqual(trigger.findtext("t:Enabled", namespaces=TASK_NS), "true")
+            days = trigger.findall("t:ScheduleByWeek/t:DaysOfWeek/*", TASK_NS)
+            self.assertEqual(
+                [day.tag.split("}")[-1] for day in days],
+                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+            )
         self.assertEqual(task.findtext(".//t:StartWhenAvailable", namespaces=TASK_NS), "true")
         self.assertEqual(task.findtext(".//t:MultipleInstancesPolicy", namespaces=TASK_NS), "IgnoreNew")
         args = task.findtext(".//t:Arguments", namespaces=TASK_NS)
@@ -158,6 +162,7 @@ class AfterCloseLauncherTests(unittest.TestCase):
         xml = script.split('$taskXml = @"\n', 1)[1].split('\n"@', 1)[0]
         variables = {
             "boundary": "2026-11-24T16:35:00+08:00",
+            "catchupBoundary": "2026-11-24T19:30:00+08:00",
             "userSid": "S-1-5-21-1-2-3-1001",
             "commandXml": r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
             "argumentsXml": escape(f'-DataDir "{self.data_root}"'),
@@ -168,6 +173,7 @@ class AfterCloseLauncherTests(unittest.TestCase):
         self.assert_task_xml(xml, self.data_root)
         self.assertLess(script.index("if ($Preview) {\n    Write-Output"), script.index("Register-ScheduledTask"))
         self.assertIn('T16:35:00+08:00"', script)
+        self.assertIn('T19:30:00+08:00"', script)
         self.assertIn('-Force:$Replace', script)
 
     @unittest.skipUnless(os.name == "nt" and shutil.which("powershell.exe"), "Windows PowerShell required")
@@ -176,6 +182,7 @@ class AfterCloseLauncherTests(unittest.TestCase):
         installer = str(INSTALLER).replace("'", "''")
         store = str(self.data_root).replace("'", "''")
         command = (
+            "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
             "function Get-ScheduledTask { throw 'Preview touched Task Scheduler' }; "
             "function Register-ScheduledTask { throw 'Preview touched Task Scheduler' }; "
             "function Unregister-ScheduledTask { throw 'Preview touched Task Scheduler' }; "

@@ -145,8 +145,8 @@ def _run(app_state: Any) -> None:
                         "evening" if evening else "shared post-close")
             # 與 16:30 (或晚間) 排程同一條流程 (資料更新 + 研究檢視表 + Quant + Auto Watch + 自動 AI 說明 + 收盤推播)
             daily_pipeline.set_app_state(app_state)
-            daily_pipeline.run_taiwan_update(evening=evening, trigger="startup_catchup")
-            _LAST.update(status="ran", reason=reason)
+            status = daily_pipeline.run_due_after_close(evening=evening, trigger="startup_catchup")
+            _LAST.update(status=status, reason=reason)
             qs = getattr(app_state, "quote_service", None)
             if qs is not None and hasattr(qs, "_broadcast_quote_updated"):
                 with contextlib.suppress(Exception):

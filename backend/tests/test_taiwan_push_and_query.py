@@ -417,7 +417,7 @@ def test_startup_catchup_runs_evening_chain_when_only_after_close_work_is_pendin
     monkeypatch.setattr(startup_catchup, "_catchup_official_evidence", lambda app_state: {})
     monkeypatch.setattr(startup_catchup, "needs_fundamentals_catchup", lambda: (False, "current"))
     monkeypatch.setattr(daily_pipeline, "set_app_state", lambda app_state: None)
-    monkeypatch.setattr(daily_pipeline, "run_taiwan_update", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(daily_pipeline, "run_due_after_close", lambda **kwargs: calls.append(kwargs) or "ran")
     startup_catchup._LAST.clear()
     startup_catchup._run(SimpleNamespace())
     assert calls == ([expected] if expected else [])

@@ -28,8 +28,9 @@ try {
     Write-TaskLog 'Checking the selected store and the background backend.'
     Push-Location $BackendDir
     try {
+        # Release the log between messages: the backend may run until logout.
         & $Uv.Source run --project $BackendDir python -m app.after_close_launcher --data-dir $DataDir |
-            Out-File -LiteralPath $Log -Append -Encoding UTF8
+            ForEach-Object { Write-TaskLog $_ }
         $code = $LASTEXITCODE
     }
     finally {
