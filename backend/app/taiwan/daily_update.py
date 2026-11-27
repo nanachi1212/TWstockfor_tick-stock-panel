@@ -484,7 +484,7 @@ class TaiwanDailyUpdateService:
         benchmark = None
         if self.benchmark_store is not None:
             try:
-                benchmark = self.benchmark_store.refresh()
+                benchmark = self.benchmark_store.refresh(target_date=target)
             except Exception as e:
                 logger.exception("Benchmark refresh failed: %s", e)
                 benchmark = {"rows_written": 0, "latest": {}, "failed": [{"error": str(e)[:200]}]}

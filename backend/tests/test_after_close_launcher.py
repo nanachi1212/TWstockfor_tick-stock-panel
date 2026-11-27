@@ -138,8 +138,9 @@ class AfterCloseLauncherTests(unittest.TestCase):
     def assert_task_xml(self, xml, expected_store):
         task = ElementTree.fromstring(xml)
         triggers = task.findall("t:Triggers/t:CalendarTrigger", TASK_NS)
-        self.assertEqual(len(triggers), 2)
-        for trigger, expected_time in zip(triggers, [(16, 35), (19, 30)], strict=True):
+        expected_times = [(16, 35), (19, 30), (23, 0)]
+        self.assertEqual(len(triggers), len(expected_times))
+        for trigger, expected_time in zip(triggers, expected_times, strict=True):
             start = datetime.fromisoformat(trigger.findtext("t:StartBoundary", namespaces=TASK_NS))
             self.assertEqual(start.utcoffset(), timedelta(hours=8))
             self.assertEqual((start.hour, start.minute), expected_time)
@@ -163,6 +164,7 @@ class AfterCloseLauncherTests(unittest.TestCase):
         variables = {
             "boundary": "2026-11-24T16:35:00+08:00",
             "catchupBoundary": "2026-11-24T19:30:00+08:00",
+            "lateBoundary": "2026-11-24T23:00:00+08:00",
             "userSid": "S-1-5-21-1-2-3-1001",
             "commandXml": r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
             "argumentsXml": escape(f'-DataDir "{self.data_root}"'),
@@ -174,6 +176,7 @@ class AfterCloseLauncherTests(unittest.TestCase):
         self.assertLess(script.index("if ($Preview) {\n    Write-Output"), script.index("Register-ScheduledTask"))
         self.assertIn('T16:35:00+08:00"', script)
         self.assertIn('T19:30:00+08:00"', script)
+        self.assertIn('T23:00:00+08:00"', script)
         self.assertIn('-Force:$Replace', script)
 
     @unittest.skipUnless(os.name == "nt" and shutil.which("powershell.exe"), "Windows PowerShell required")

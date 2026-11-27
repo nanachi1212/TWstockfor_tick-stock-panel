@@ -340,6 +340,109 @@ def test_benchmark_one_exchange_failure_is_isolated():
     assert stats["latest"]["TPEX_INDEX"] == "2026-09-30"
 
 
+def test_taiex_monthly_fallback_reads_exact_target_and_records_its_source():
+    from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+    from app.taiwan.enrichment.index import TaiwanIndexProvider
+
+    target = date(2026, 11, 27)
+    store = TaiwanBenchmarkStore()
+    openapi = TaiwanIndexProvider.TWSE_INDEX_URL
+    monthly = "https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST?date=20261127&response=json"
+    responses = {
+        openapi: [{"Date": "1151126", "ClosingIndex": "39151.81"},
+                  {"Date": "1151130", "ClosingIndex": "50000"}],
+        monthly: {"stat": "OK", "date": "20261127", "title": "115年11月 發行量加權股價指數歷史資料",
+                  "fields": ["日期", "收盤指數", "最高指數", "開盤指數", "最低指數"],
+                  "data": [["115/11/26", "39,151.81", "39,459.95", "38,435.99", "38,435.99"],
+                           ["115/11/27", "39,308.08", "39,495.41", "39,168.57", "38,890.53"],
+                           ["115/11/30", "50,000", "50,000", "50,000", "50,000"]]},
+    }
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return responses[url]
+
+    store.refresh(lambda url: [{"Date": "1151126", "ClosingIndex": "39151.81"}] if url == openapi else [])
+    before = store.read().to_dicts()
+    stats = store.refresh(fetch, target_date=target, symbols=("TAIEX",))
+    assert calls == [openapi, monthly]
+    assert stats["failed"] == [] and stats["latest"] == {"TAIEX": "2026-11-27"}
+    rows = store.read().sort("date").to_dicts()
+    assert [r["date"] for r in rows] == [date(2026, 11, 26), target]
+    assert [r["source_url"] for r in rows] == [openapi, monthly]
+    assert rows[:-1] == before
+    assert [rows[-1][k] for k in ("open", "high", "low", "close")] == [39168.57, 39495.41, 38890.53, 39308.08]
+    assert store.latest("TAIEX")["change"] == 156.27
+    calls.clear()
+    store.refresh(fetch, target_date=target, symbols=("TAIEX",))
+    assert calls == [] and store.read().to_dicts() == rows
+
+
+@pytest.mark.parametrize("invalid", ["date", "title", "columns", "low", "close", "duplicate"])
+def test_taiex_monthly_does_not_publish_wrong_or_invalid_report(invalid):
+    from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+    from app.taiwan.enrichment.index import TaiwanIndexProvider
+
+    report = {"stat": "OK", "date": "20261127", "title": "115年11月 發行量加權股價指數歷史資料",
+              "fields": ["日期", "開盤指數", "最高指數", "最低指數", "收盤指數"],
+              "data": [["115/11/27", "12", "16", "10", "15"]]}
+    if invalid == "date":
+        report["data"][0][0] = "115/11/26"
+    elif invalid == "title":
+        report["title"] = "其他指數歷史資料"
+    elif invalid == "columns":
+        report["fields"][2] = "成交額"
+    elif invalid == "low":
+        report["data"][0][3] = "16"
+    elif invalid == "close":
+        report["data"][0][4] = "NaN"
+    else:
+        report["data"].append(report["data"][0].copy())
+    openapi = TaiwanIndexProvider.TWSE_INDEX_URL
+    store = TaiwanBenchmarkStore()
+    store.refresh(lambda url: [{"Date": "1151126", "ClosingIndex": "10"}] if url == openapi else [])
+    stats = store.refresh(lambda url: [{"Date": "1151126", "ClosingIndex": "10"}]
+                          if url == openapi else report, target_date=date(2026, 11, 27), symbols=("TAIEX",))
+    assert stats["latest"]["TAIEX"] == "2026-11-26" and store.read().height == 1
+    assert bool(stats["failed"]) == (invalid != "date")
+
+
+def test_taiex_primary_contains_target_does_not_request_monthly():
+    from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+    from app.taiwan.enrichment.index import TaiwanIndexProvider
+
+    store = TaiwanBenchmarkStore()
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        return [{"Date": "1151127", "ClosingIndex": "39308.08"}]
+
+    stats = store.refresh(fetch, target_date=date(2026, 11, 27), symbols=("TAIEX",))
+    assert stats == {"rows_written": 1, "latest": {"TAIEX": "2026-11-27"}, "failed": []}
+    assert calls == [TaiwanIndexProvider.TWSE_INDEX_URL]
+    assert store.latest("TAIEX")["source_url"] == calls[0]
+
+
+def test_taiex_primary_failure_and_monthly_failure_keep_previous_close():
+    from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+    from app.taiwan.enrichment.index import TaiwanIndexProvider
+
+    store = TaiwanBenchmarkStore()
+    openapi = TaiwanIndexProvider.TWSE_INDEX_URL
+    store.refresh(lambda url: [{"Date": "1151126", "ClosingIndex": "39151.81"}] if url == openapi else [])
+    before = store.path.read_bytes()
+
+    def fail(url):
+        raise OSError("HTTP 503" if url == openapi else "HTTP 429")
+
+    stats = store.refresh(fail, target_date=date(2026, 11, 27), symbols=("TAIEX",))
+    assert stats["latest"] == {"TAIEX": "2026-11-26"} and len(stats["failed"]) == 1
+    assert "503" in stats["failed"][0]["error"] and "429" in stats["failed"][0]["error"]
+    assert store.path.read_bytes() == before
+
+
 def test_market_intelligence_indexes_come_from_persisted_official_benchmark():
     from app.taiwan.benchmark_store import TaiwanBenchmarkStore
     from app.taiwan.market_intelligence import persisted_index_snapshot

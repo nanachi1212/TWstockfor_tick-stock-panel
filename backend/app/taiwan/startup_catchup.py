@@ -3,7 +3,7 @@
 後端沒在 16:30 執行時 (電腦關機、程式沒開)，日線就會停在舊日期。
 這裡在啟動後延遲幾秒檢查資料新鮮度；只要日線落後最近已確認交易日，
 就在背景執行一次既有的增量更新 (與 16:30 排程同一條流程)，不另建資料路徑。
-日線已最新但法人/融資券或正式選股鎖定沒齊 (錯過晚間排程) 時，改補跑晚間那一段。
+日線已最新但法人、融資券、加權指數或正式選股鎖定沒齊時，交由晚間補抓；只缺指數時只抓指數。
 
 - 不在盤中補跑 (官方全市場日線要收盤後才完整)。
 - 一個行程只補跑一次，失敗只記 log，不影響啟動。
@@ -72,6 +72,7 @@ def pending_after_close() -> str | None:
     """
     from datetime import date
 
+    from app.taiwan.benchmark_store import latest_benchmark
     from app.taiwan.daily_update import TaiwanDailyUpdateService
     from app.taiwan.selection_review_service import get_selection_review_service
     from app.taiwan.selection_v2 import STRATEGY_IDS
@@ -81,14 +82,17 @@ def pending_after_close() -> str | None:
     target = freshness.target_latest_trading_date
     if not freshness.is_fully_current:
         return f"after_close_inputs:{target}"
-    # Both can be outstanding at once; name every one so the reported reason is exact.
+    session = date.fromisoformat(target)
     pending = []
-    if not service.margin_store.has_verified_publication(date.fromisoformat(target)):
+    if not service.margin_store.has_verified_publication(session):
         pending.append("margin_unverified")
     locked = {batch.strategy_id for batch in get_selection_review_service().read_snapshots()
               if batch.record_type == "forward_batch" and batch.source_data_date == target}
     if not locked.issuperset(STRATEGY_IDS):
         pending.append("selection_lock")
+    index = latest_benchmark("TAIEX", on_or_before=session)
+    if not index or index["date"] != session:
+        pending.append("taiex")
     return f"{'+'.join(pending)}:{target}" if pending else None
 
 

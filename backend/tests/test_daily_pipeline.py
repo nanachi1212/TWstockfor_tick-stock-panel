@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import polars as pl
 import pytest
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MISSED
 
@@ -18,6 +19,56 @@ def _result(day, overall="success"):
                            institutional=SimpleNamespace(status="success"), margin=SimpleNamespace(status="success"),
                            freshness=SimpleNamespace(daily_as_of=day.isoformat(), daily_status="current",
                                                      institutional_as_of=day.isoformat()))
+
+
+@pytest.mark.asyncio
+async def test_2300_and_cold_start_only_repair_the_missing_taiex(taiwan_data_env, monkeypatch):
+    from app.taiwan import benchmark_store, selection_review_service
+    from app.taiwan.selection_v2 import STRATEGY_IDS
+
+    now = datetime.fromisoformat("2026-11-27T23:00:00+08:00")
+    target = now.date()
+    monkeypatch.setattr(daily_pipeline, "taipei_now", lambda: now)
+    service = SimpleNamespace(get_freshness=lambda: SimpleNamespace(
+        is_fully_current=True, target_latest_trading_date=target.isoformat()),
+        margin_store=SimpleNamespace(has_verified_publication=lambda day: day == target))
+    monkeypatch.setattr(daily_update, "TaiwanDailyUpdateService", lambda: service)
+    monkeypatch.setattr(selection_review_service, "get_selection_review_service", lambda: SimpleNamespace(
+        read_snapshots=lambda: [SimpleNamespace(record_type="forward_batch", strategy_id=s, source_data_date=str(target))
+                                for s in STRATEGY_IDS]))
+    calls = []
+
+    def store_day(store, day):
+        store.write(pl.DataFrame([{"symbol": "TAIEX", "date": day, "close": 100.0}], schema=benchmark_store._SCHEMA))
+
+    store_day(benchmark_store.TaiwanBenchmarkStore(), target + timedelta(days=3))
+
+    def refresh(store, *, target_date, symbols):
+        assert target_date == target and symbols == ("TAIEX",)
+        calls.append(target_date)
+        if len(calls) > 1:
+            store_day(store, target_date)
+        return {"latest": {"TAIEX": None if len(calls) == 1 else str(target)}, "failed": []}
+
+    monkeypatch.setattr(benchmark_store.TaiwanBenchmarkStore, "refresh", refresh)
+    full_job = Mock(side_effect=AssertionError("daily/flows and downstream actions should not run"))
+    monkeypatch.setattr(daily_pipeline, "run_taiwan_update", full_job)
+    marker = taiwan_data_env["taiwan_root"] / "after_close_primary.json"
+    marker.write_text(json.dumps({"primary_daily_as_of": str(target)}))
+    marker_before = marker.read_bytes()
+    scheduler = daily_pipeline.start_scheduler(Mock(), Mock())
+    scheduler.pause()
+    try:
+        job = scheduler.get_job("taiwan_evening_update_2300")
+        assert job.trigger.get_next_fire_time(None, now) == now
+        assert job.func(**job.kwargs) == "incomplete"  # failed publication remains retryable
+        assert daily_pipeline.run_due_after_close(evening=True, trigger="startup_catchup") == "ran"
+        assert job.func(**job.kwargs) == "current"
+        assert calls == [target, target] and marker.read_bytes() == marker_before
+        full_job.assert_not_called()
+    finally:
+        scheduler.shutdown(wait=True)
+        await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio

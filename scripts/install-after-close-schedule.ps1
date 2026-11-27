@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Register weekday backend launches at 16:35 and 19:30 Taipei time.
+    Register weekday backend launches at 16:35, 19:30 and 23:00 Taipei time.
 
 .DESCRIPTION
     Use -DataDir with the existing data directory used by your desktop or source install.
@@ -54,6 +54,7 @@ $todayInTaipei = [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(8)).ToS
     'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
 $boundary = "${todayInTaipei}T16:35:00+08:00"
 $catchupBoundary = "${todayInTaipei}T19:30:00+08:00"
+$lateBoundary = "${todayInTaipei}T23:00:00+08:00"
 $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $arguments = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -DataDir "{1}"' -f $Runner, $Store.FullName
 $commandXml = [Security.SecurityElement]::Escape($PowerShell.FullName)
@@ -73,6 +74,14 @@ $taskXml = @"
     </CalendarTrigger>
     <CalendarTrigger>
       <StartBoundary>$catchupBoundary</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByWeek>
+        <WeeksInterval>1</WeeksInterval>
+        <DaysOfWeek><Monday/><Tuesday/><Wednesday/><Thursday/><Friday/></DaysOfWeek>
+      </ScheduleByWeek>
+    </CalendarTrigger>
+    <CalendarTrigger>
+      <StartBoundary>$lateBoundary</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <WeeksInterval>1</WeeksInterval>
@@ -118,6 +127,6 @@ if ((Get-ScheduledTask -TaskName $TaskName -TaskPath '\' -ErrorAction SilentlyCo
 }
 Register-ScheduledTask -TaskName $TaskName -TaskPath '\' -Xml $taskXml -Force:$Replace | Out-Null
 $task = Get-ScheduledTask -TaskName $TaskName -TaskPath '\' -ErrorAction Stop
-Write-Host "Registered scheduled task: $TaskName ($($task.State)), weekdays 16:35 and 19:30 Taipei (UTC+08:00)"
+Write-Host "Registered scheduled task: $TaskName ($($task.State)), weekdays 16:35, 19:30 and 23:00 Taipei (UTC+08:00)"
 Write-Host 'Remove with: .\scripts\install-after-close-schedule.ps1 -Remove'
 exit 0

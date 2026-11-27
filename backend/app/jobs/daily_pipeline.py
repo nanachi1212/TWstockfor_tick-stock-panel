@@ -174,6 +174,23 @@ def run_taiwan_update(evening: bool = False, *, trigger: str = "scheduled",
         notify_daily_data_updated()
 
 
+def _refresh_missing_taiex(target: date, trigger: str) -> str:
+    from app.taiwan.benchmark_store import TaiwanBenchmarkStore
+
+    store = TaiwanBenchmarkStore()
+    try:
+        result = store.refresh(target_date=target, symbols=("TAIEX",))
+        latest = store.latest("TAIEX", on_or_before=target)
+    except Exception:
+        logger.exception("TAIEX-only catch-up (%s) failed for %s", trigger, target)
+        return "failed"
+    logger.info("TAIEX-only catch-up (%s) for %s: %s", trigger, target, result)
+    if latest is None or latest["date"] != target:
+        return "incomplete"
+    notify_daily_data_updated()
+    return "ran"
+
+
 def run_due_after_close(evening: bool = False, *, trigger: str = "scheduled") -> str:
     """Coalesce a delayed cron/boot run against the last eligible Taipei session."""
     from app.taiwan.backfill_worker import WorkerBusyError, WorkerLock
@@ -209,8 +226,12 @@ def run_due_after_close(evening: bool = False, *, trigger: str = "scheduled") ->
             # Whichever obtains the lock first owns the missed primary pass. A failed
             # earlier attempt instead leaves 19:30 to repair inputs and selections only.
             primary = same_day and not attempted and (not evening or trigger != "startup_catchup")
-            if not primary and not pending_after_close():
-                return "current"
+            if not primary:
+                pending = pending_after_close()
+                if pending is None:
+                    return "current"
+                if pending == f"taiex:{session}":
+                    return _refresh_missing_taiex(target, trigger)
             late_job = evening and trigger == "scheduled" and same_day and now.time() >= time(21, 30)
 
             def save_attempt(status):

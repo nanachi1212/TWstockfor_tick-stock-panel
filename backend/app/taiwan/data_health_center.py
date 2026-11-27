@@ -839,7 +839,7 @@ class DataHealthService:
         if not row:
             return {
                 "status": "unavailable",
-                "source": "TWSE MI_5MINS_HIST / TPEx tpex_index（官方 OpenAPI）",
+                "source": "TWSE MI_5MINS_HIST（OpenAPI、官網月表）" if key == "taiex" else "TPEx tpex_index（官方 OpenAPI）",
                 "freshness": "官方指數日收盤，隨盤後更新儲存",
                 "reason": f"截至 {target} 尚無官方指數收盤；執行盤後更新後自動取得",
             }

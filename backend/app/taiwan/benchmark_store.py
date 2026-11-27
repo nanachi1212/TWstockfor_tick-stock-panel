@@ -16,6 +16,7 @@ from typing import Any
 
 import polars as pl
 
+from app.taiwan.enrichment.models import MarketIndex
 from app.taiwan.realtime.calendar import taipei_now
 
 _SCHEMA = pl.Schema({
@@ -79,8 +80,21 @@ class TaiwanBenchmarkStore:
             "change_pct": change / prev if change is not None and prev else None,
         }
 
-    def refresh(self, fetch_json=None) -> dict[str, Any]:
-        """Fetch month-to-date official series for both exchanges (2 HTTP calls)."""
+    def _write_indices(self, rows: list[MarketIndex], retrieved_at: str) -> int:
+        frame = pl.DataFrame(
+            [{
+                "symbol": r.symbol, "date": r.date,
+                # Missing numbers arrive as None; an index level of 0 is not a value either.
+                "open": r.open or None, "high": r.high or None, "low": r.low or None,
+                "close": r.close, "source": r.meta.source, "source_url": r.meta.source_url,
+                "retrieved_at": retrieved_at,
+            } for r in rows], schema=_SCHEMA,
+        )
+        return self.write(frame)
+
+    def refresh(self, fetch_json=None, *, target_date: date | None = None,
+                symbols: tuple[str, ...] | None = None) -> dict[str, Any]:
+        """Refresh month-to-date, or repair just the selected symbols' missing target close."""
         from app.taiwan.enrichment.index import TaiwanIndexProvider
         from app.taiwan.institutional_margin_refresh import _fetch_json_with_retry
 
@@ -92,25 +106,40 @@ class TaiwanBenchmarkStore:
             ("TAIEX", provider.TWSE_INDEX_URL, provider.parse_taiex_rows),
             ("TPEX_INDEX", provider.TPEX_INDEX_URL, provider.parse_tpex_rows),
         ):
+            if symbols is not None and symbol not in symbols:
+                continue
             try:
+                repair = target_date is not None and symbols is not None
+                if repair:
+                    existing = self.latest(symbol, target_date)
+                    stats["latest"][symbol] = str(existing["date"]) if existing else None
+                    if existing and existing["date"] == target_date:
+                        continue
                 payload = fetch(url)
                 rows = payload if isinstance(payload, list) else []
-                parsed = [r for r in parse(rows, url) if r.close > 0]
-                frame = pl.DataFrame(
-                    [{
-                        "symbol": symbol, "date": r.date,
-                        # Missing numbers arrive as None; an index level of 0 is not a value either.
-                        "open": r.open or None, "high": r.high or None, "low": r.low or None,
-                        "close": r.close, "source": r.meta.source, "source_url": url,
-                        "retrieved_at": retrieved_at,
-                    } for r in parsed],
-                    schema=_SCHEMA,
-                )
-                stats["rows_written"] += self.write(frame)
-                latest = self.latest(symbol)
+                parsed = [r for r in parse(rows, url) if r.close > 0 and (not target_date or r.date <= target_date)]
+                if repair:
+                    parsed = [r for r in parsed if r.date == target_date]
+                stats["rows_written"] += self._write_indices(parsed, retrieved_at)
+                latest = self.latest(symbol, target_date)
                 stats["latest"][symbol] = str(latest["date"]) if latest else None
             except Exception as exc:
                 stats["failed"].append({"symbol": symbol, "error": f"{type(exc).__name__}: {exc}"[:200]})
+        if target_date and (symbols is None or "TAIEX" in symbols) and stats["latest"].get("TAIEX") != target_date.isoformat():
+            monthly_url = provider.TWSE_MONTHLY_URL.format(day=target_date)
+            try:
+                points = provider.parse_taiex_monthly(fetch(monthly_url), target_date, monthly_url)
+                if points:
+                    stats["rows_written"] += self._write_indices(points, retrieved_at)
+                    stats["latest"]["TAIEX"] = target_date.isoformat()
+                    stats["failed"] = [entry for entry in stats["failed"] if entry["symbol"] != "TAIEX"]
+            except Exception as exc:
+                previous = next((item for item in stats["failed"] if item["symbol"] == "TAIEX"), None)
+                message = f"TWSE monthly: {type(exc).__name__}: {exc}"[:200]
+                if previous:
+                    previous["error"] = f"OpenAPI: {previous['error']}; {message}"
+                else:
+                    stats["failed"].append({"symbol": "TAIEX", "error": message})
         return stats
 
 

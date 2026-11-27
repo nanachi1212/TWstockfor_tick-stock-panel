@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -375,10 +375,15 @@ def test_needs_catchup_skips_during_session_and_when_current(monkeypatch):
 def test_pending_after_close_names_every_unfinished_step(monkeypatch):
     import app.taiwan.daily_update as du
     import app.taiwan.selection_review_service as review
+    from app.taiwan import benchmark_store
     from app.taiwan.selection_v2 import STRATEGY_IDS
 
     day = "2026-10-08"
-    state = SimpleNamespace(current=False, verified=False, locked=STRATEGY_IDS[1:])
+    state = SimpleNamespace(current=False, verified=False, locked=STRATEGY_IDS[1:], index_date=date.fromisoformat(day))
+    def latest(symbol, store=None, on_or_before=None):
+        assert symbol == "TAIEX" and on_or_before == date.fromisoformat(day)
+        return {"date": state.index_date} if state.index_date else None
+    monkeypatch.setattr(benchmark_store, "latest_benchmark", latest)
     monkeypatch.setattr(du, "TaiwanDailyUpdateService", lambda: SimpleNamespace(
         get_freshness=lambda: SimpleNamespace(is_fully_current=state.current, target_latest_trading_date=day),
         margin_store=SimpleNamespace(has_verified_publication=lambda d: state.verified and d.isoformat() == day),
@@ -397,11 +402,17 @@ def test_pending_after_close_names_every_unfinished_step(monkeypatch):
     assert startup_catchup.pending_after_close() is None
     state.verified = False
     assert startup_catchup.pending_after_close() == f"margin_unverified:{day}"
+    state.index_date = None
+    assert startup_catchup.pending_after_close() == f"margin_unverified+taiex:{day}"
+    state.verified = True
+    state.index_date = date(2026, 10, 7)
+    assert startup_catchup.pending_after_close() == f"taiex:{day}"
 
 
 @pytest.mark.parametrize("need,reason,pending,expected", [
     (True, "daily_stale:2026-10-06", "selection_lock:2026-10-08", {"evening": False, "trigger": "startup_catchup"}),
     (False, "current", "selection_lock:2026-10-08", {"evening": True, "trigger": "startup_catchup"}),
+    (False, "current", "taiex:2026-10-08", {"evening": True, "trigger": "startup_catchup"}),
     (False, "current", None, None),
     (False, "market_open", "selection_lock:2026-10-08", None),
 ])

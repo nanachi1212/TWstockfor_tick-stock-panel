@@ -12,6 +12,7 @@ Guarantees:
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime
 from typing import Any
 
@@ -48,7 +49,8 @@ def _clean_float(val: Any) -> float | None:
     if not s or s == "--":
         return None
     try:
-        return float(s)
+        number = float(s)
+        return number if math.isfinite(number) else None
     except (ValueError, TypeError):
         return None
 
@@ -57,7 +59,43 @@ class TaiwanIndexProvider:
     """Parses and normalizes TAIEX and TPEx Index daily series."""
 
     TWSE_INDEX_URL = "https://openapi.twse.com.tw/v1/indicesReport/MI_5MINS_HIST"
+    TWSE_MONTHLY_URL = "https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST?date={day:%Y%m%d}&response=json"
     TPEX_INDEX_URL = "https://www.tpex.org.tw/openapi/v1/tpex_index"
+
+    def parse_taiex_monthly(self, report: dict, target: date, url: str) -> list[MarketIndex]:
+        """Read only the requested session from the official website's named columns."""
+        if not isinstance(report, dict):
+            raise ValueError("TWSE monthly index response is not a report")
+        if "沒有符合條件的資料" in str(report.get("stat")):
+            return []
+        title = str(report.get("title", "")).split()
+        if (report.get("stat") != "OK" or title[-1:] != ["發行量加權股價指數歷史資料"]
+                or not str(report.get("date", "")).startswith(target.strftime("%Y%m"))):
+            raise ValueError("Unexpected TWSE monthly index report")
+        fields = report.get("fields")
+        columns = {"日期": "Date", "開盤指數": "OpeningIndex", "最高指數": "HighestIndex",
+                   "最低指數": "LowestIndex", "收盤指數": "ClosingIndex"}
+        if (not isinstance(fields, list) or any(fields.count(key) != 1 for key in columns)
+                or not isinstance(report.get("data"), list)):
+            raise ValueError("Unexpected TWSE monthly index columns or rows")
+        indices = {key: fields.index(label) for label, key in columns.items()}
+        selected = []
+        for row in report["data"]:
+            if not isinstance(row, list) or len(row) != len(fields):
+                raise ValueError("Invalid TWSE monthly index row")
+            if _parse_tw_date(row[indices["Date"]]) == target:
+                selected.append({key: row[i] for key, i in indices.items()})
+        if not selected:
+            return []
+        result = self.parse_taiex_rows(selected, url)
+        if len(selected) != 1 or len(result) != 1:
+            raise ValueError("Missing or ambiguous TWSE monthly index close")
+        index = result[0]
+        if (not all(v is not None and math.isfinite(v) and v > 0
+                    for v in (index.open, index.high, index.low, index.close))
+                or not (index.low <= min(index.open, index.close) <= max(index.open, index.close) <= index.high)):
+            raise ValueError("Invalid TWSE monthly index OHLC values")
+        return result
 
     def parse_taiex_rows(
         self,

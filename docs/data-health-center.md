@@ -16,7 +16,7 @@
 | Financial Statements | 依法定申報期限判定應已公告期別；ETF 不適用，不計入 | 重新驗證 metadata |
 | Monthly Revenue | 依次月 10 日公告期限判定；ETF 不適用，不計入 | 重新驗證 metadata |
 | Foreign Shareholding | `FinMindCache` 已快取標的，沿用資料集 TTL | 重新驗證 metadata |
-| TAIEX | 官方 `MI_5MINS_HIST` OpenAPI，隨盤後更新存入 `taiwan/benchmark_index.parquet`；OpenAPI 晚一日時為「等待官方發布」 | 更新／重試（同日資料更新）、重新驗證 |
+| TAIEX | 盤後先查證交所 `MI_5MINS_HIST` OpenAPI。缺目標交易日時，改查證交所官網同月份的指數月表，以該日收盤及來源網址存入 `taiwan/benchmark_index.parquet`。單獨補指數時不重抓日線或法人。 | 更新／重試（同日資料更新）、重新驗證 |
 | TPEX Index | 官方 `tpex_index` OpenAPI，同上；即時指數不充當歷史 benchmark | 更新／重試、重新驗證 |
 | Trading Calendar | 兩交易所當日 `day_evidence`；官方日行情分區本身也是交易日證據（與 Live Quant 同一規則） | 重新驗證 metadata |
 | Security Master | 既有本地證券主檔；未記錄更新頻率時保持 partial | 重新驗證 metadata |
