@@ -11,7 +11,7 @@
 | Daily OHLC | `TaiwanDailyUpdateService.get_freshness()`、最新有效分區與交易所涵蓋 | 更新／重試、重新驗證 |
 | Realtime | 每檔最新一次觀察；只在盤中以報價年齡判過期（與 `get_quotes` 同一規則），盤後最後成交即最新 | 重新驗證 metadata |
 | Institutional | 既有 freshness、最新法人分區、來源與 TWSE／TPEx 涵蓋 | 更新／重試、重新驗證 |
-| Margin / Short | 同上；官方於當日晚間公布，16:30 後至晚間為「等待官方發布」，21:30／23:00 自動補抓 | 更新／重試、重新驗證 |
+| Margin / Short | 以目標交易日為準，當日分區須核實兩所公告日期才列正常。19:30、21:30、23:00 自動補抓。首次晚間補抓後，只有更新紀錄明載官方尚未發布才顯示等待 | 更新／重試、重新驗證 |
 | Securities Lending | `FinMindCache` 已快取標的，沿用資料集 TTL；日期為最近一筆借券成交（事件資料） | 重新驗證 metadata |
 | Financial Statements | 依法定申報期限判定應已公告期別；ETF 不適用，不計入 | 重新驗證 metadata |
 | Monthly Revenue | 依次月 10 日公告期限判定；ETF 不適用，不計入 | 重新驗證 metadata |

@@ -91,6 +91,20 @@ def test_margin_pending_from_updater_names_the_missing_exchange():
     assert status == "awaiting_publication" and "TPEx" in reason
 
 
+@pytest.mark.parametrize(("hour", "minute", "attempted", "pending", "status"), [
+    (16, 20, False, [], "not_run"),
+    (19, 29, True, [], "awaiting_publication"),
+    (19, 30, True, [], "stale"),
+    (19, 31, False, [], "stale"),
+    (23, 10, True, ["official_not_published"], "awaiting_publication"),
+])
+def test_margin_evening_health_distinguishes_schedule_from_official_evidence(
+    hour, minute, attempted, pending, status,
+):
+    now = EVENING.replace(hour=hour, minute=minute)
+    assert policy("margin", attempted=attempted, pending=pending, now=now)[0] == status
+
+
 def test_refresh_never_persists_one_exchange(tmp_path):
     from app.taiwan.institutional_margin_refresh import TaiwanMarginRefreshService
     from app.taiwan.margin_store import TaiwanMarginStore

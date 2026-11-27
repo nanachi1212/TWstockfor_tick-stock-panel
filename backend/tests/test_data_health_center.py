@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -148,7 +149,7 @@ def test_daily_metadata_reuses_freshness_and_checks_exchange_coverage(monkeypatc
 
     def store(symbols):
         return SimpleNamespace(
-            read_latest_date_rows=lambda: pl.DataFrame({"symbol": symbols}),
+            read_range=lambda *args, **kwargs: pl.DataFrame({"symbol": symbols}),
             _data_dir=tmp_path / "daily",
         )
 
@@ -181,15 +182,74 @@ def test_daily_metadata_reuses_freshness_and_checks_exchange_coverage(monkeypatc
     assert rows["daily"]["last_success"] is None  # no partition, no invented timestamp
     assert rows["daily"]["last_attempt"] is None  # no recorded updater run
 
-    def fail_partition():
+    def fail_partition(*args, **kwargs):
         raise ValueError("private partition path")
 
-    svc.inst_store.read_latest_date_rows = fail_partition
+    svc.inst_store.read_range = fail_partition
     rows = DataHealthService()._daily()
     assert rows["institutional"]["status"] == "error"
     assert rows["daily"]["status"] == "current"
     assert rows["margin"]["status"] == "stale"
     assert "private" not in rows["institutional"]["reason"]
+
+
+def test_health_reads_only_the_reported_session_and_checks_margin_evidence(monkeypatch):
+    from app.taiwan import daily_update
+
+    session, later = date(2026, 9, 29), date(2026, 9, 30)
+    monkeypatch.setattr(daily_update, "resolve_target_latest_trading_date", lambda *a, **k: session)
+    svc = daily_update.TaiwanDailyUpdateService()
+    symbol = ["2330.TWSE", "8069.TPEX"]
+    margin = pl.DataFrame({"date": [session] * 2, "symbol": symbol, "status": ["official"] * 2})
+    svc.margin_store.write_batch(margin, session)
+    svc.inst_store.write_batch(margin, session)
+    svc.inst_store.write_batch(margin.head(1).with_columns(pl.lit(later).alias("date")), later)
+    quotes = margin.with_columns(
+        *[pl.lit(100).alias(name) for name in ("open", "high", "low", "close", "volume", "amount")],
+        pl.lit(None, dtype=pl.String).alias("quote_ts"),
+    )
+    svc.daily_store.write_batch(quotes)
+    svc.daily_store.write_batch(quotes.head(1).with_columns(pl.lit(later).alias("date")), partial=True)
+    # A failed retry may touch the directory without replacing the published file.
+    partition = svc.daily_store._data_dir / f"date={session}" / "part.parquet"
+    os.utime(partition, (1_700_000_000, 1_700_000_000))
+    app = FastAPI()
+    app.include_router(data_health.router)
+    client = TestClient(app)
+
+    def market_rows():
+        rows = client.get("/api/taiwan/data-health").json()["datasets"]
+        return {row["id"]: row for row in rows}
+
+    rows = market_rows()
+    for key in ("daily", "institutional"):
+        assert (rows[key]["status"], rows[key]["data_date"]) == ("current", session.isoformat())
+    assert datetime.fromisoformat(rows["daily"]["last_success"]).timestamp() == 1_700_000_000
+    assert rows["margin"]["status"] == "partial" and "公告日期" in rows["margin"]["reason"]
+    assert "19:30、21:30、23:00" in rows["margin"]["freshness"]
+    svc.margin_store.write_batch(margin, session, verified_report_dates=(session, session))
+    assert market_rows()["margin"]["status"] == "current"
+
+
+def test_cold_health_get_defers_market_provider_until_a_missing_day_is_refreshed(monkeypatch):
+    from app.taiwan import daily_refresh, daily_update
+
+    day = date(2026, 9, 29)
+    built, fetched = [], []
+
+    def make_adapter():
+        built.append(True)
+        return SimpleNamespace(fetch_date=lambda d: fetched.append(d) or pl.DataFrame())
+
+    monkeypatch.setattr(daily_refresh, "OfficialDailySnapshotAdapter", make_adapter)
+    monkeypatch.setattr(daily_update, "resolve_target_latest_trading_date", lambda *a, **k: day)
+    app = FastAPI()
+    app.include_router(data_health.router)
+    result = TestClient(app).get("/api/taiwan/data-health")
+    assert result.status_code == 200 and built == []
+    svc = daily_update.TaiwanDailyUpdateService()
+    svc.daily_service.refresh_dates(day, day + timedelta(days=1))
+    assert built == [True] and fetched == [day, day + timedelta(days=1)]
 
 
 def test_social_403_is_reason_only_and_ai_degraded(monkeypatch):
@@ -471,6 +531,13 @@ def test_persisted_benchmark_available_awaiting_and_missing(monkeypatch):
     assert taiex["status"] == "awaiting_publication"  # official OpenAPI lags one session
     assert taiex["data_date"] == "2026-09-29"
     assert DataHealthService()._index("tpex_index")["status"] == "current"
+
+    # A newer stored date cannot make an older health target current.
+    monkeypatch.setattr(daily_update, "resolve_target_latest_trading_date", lambda *a, **k: date(2026, 9, 28))
+    monkeypatch.setattr(data_health_center, "taipei_now", lambda: now.replace(day=28))
+    row = DataHealthService()._index("taiex")
+    assert (row["status"], row["data_date"]) == ("stale", "2026-09-24")
+    assert DataHealthService()._index("tpex_index")["status"] == "unavailable"
 
 
 def test_persisted_benchmark_failed_refresh_is_not_publication_lag(monkeypatch):

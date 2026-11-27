@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 # Post-close cutoff when official post-market data is expected to be published
 DEFAULT_POST_CLOSE_HOUR = 16
 DEFAULT_POST_CLOSE_MINUTE = 0
+EVENING_UPDATE_TIMES = (time(19, 30), time(21, 30), time(23))
 # Missed sessions older than this are left to scripts/taiwan_historical_backfill.py.
 CENSUS_GAP_MAX_DAYS = 45
 # Recheck recent holes even after a newer partition has succeeded.

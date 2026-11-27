@@ -341,9 +341,11 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
         replace_existing=True,
     )
 
-    # 融資融券官方於「當日晚間」公布 (無固定時點), 16:30 批次必然取不到當日資料。
-    # 晚間沿用同一個增量更新器補抓; 已存在的日期不會重抓 (每次僅 ~2 次 HTTP)。
-    for hour, minute in ((19, 30), (21, 30), (23, 0)):
+    # 融資融券官方於當日晚間公布，沒有固定時點。
+    from app.taiwan.daily_update import EVENING_UPDATE_TIMES
+
+    for slot in EVENING_UPDATE_TIMES:
+        hour, minute = slot.hour, slot.minute
         scheduler.add_job(
             _scheduled_taiwan_update,
             kwargs={"evening": True, "trigger": "scheduled_1930"} if hour == 19 else {"evening": True},

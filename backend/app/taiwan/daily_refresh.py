@@ -90,7 +90,7 @@ class TaiwanDailyRefreshService:
         self._provider = provider or TaiwanHybridProvider()
         self._calendar = calendar or TaiwanTradingCalendar()
         self._evidence_store = evidence_store or ObservedUniverseStore()
-        self._snapshot_adapter = snapshot_adapter or OfficialDailySnapshotAdapter()
+        self._snapshot_adapter = snapshot_adapter
         self._concurrency = concurrency
         self._start_date = date.fromisoformat(start_date)
 
@@ -133,6 +133,10 @@ class TaiwanDailyRefreshService:
                 continue
 
             try:
+                # A cold adapter can fetch and persist the security master. Construct it
+                # only when fetching a missing session, never during freshness inspection.
+                if self._snapshot_adapter is None:
+                    self._snapshot_adapter = OfficialDailySnapshotAdapter()
                 df = self._snapshot_adapter.fetch_date(cur)
                 if not df.is_empty():
                     written = self._store.write_batch(df, partition_date=cur)

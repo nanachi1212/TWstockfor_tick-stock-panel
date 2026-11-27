@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.taiwan.daily_update import EVENING_UPDATE_TIMES
 from app.taiwan.realtime.calendar import taipei_now
 
 HealthStatus = Literal[
@@ -134,12 +135,12 @@ def daily_policy(
             return "awaiting_publication", safe_reason(pending[0])
         if failed and "empty_official_daily_snapshot" in failed[0]:
             return "awaiting_publication", REASONS["empty_official_daily_snapshot"]
-        if key == "margin" and not failed:
-            return "awaiting_publication", "融資融券官方於當日晚間公布；晚間排程自動補抓"
         if failed:
             return "stale", safe_reason(failed[0], "今日更新失敗，原有資料保留；下次排程自動重試")
         if not attempted and now.time() < SCHEDULED_UPDATE_GRACE:
             return "not_run", "今日盤後排程（16:30）尚未執行；官方資料將自動更新"
+        if key == "margin" and attempted and now.time() < EVENING_UPDATE_TIMES[0]:
+            return "awaiting_publication", "融資融券預計於當日晚間公布；晚間排程自動補抓"
         return "stale", "今日盤後更新未取得目標交易日資料；請按「重試」"
     return "stale", f"落後目標交易日 {days_behind} 個交易日"
 
@@ -238,7 +239,7 @@ def partition_mtime(store: Any, day: str | None) -> str | None:
     if not day:
         return None
     try:
-        stamp = (Path(store._data_dir) / f"date={day}").stat().st_mtime
+        stamp = (Path(store._data_dir) / f"date={day}" / "part.parquet").stat().st_mtime
     except (OSError, AttributeError):
         return None
     return datetime.fromtimestamp(stamp, UTC).isoformat()
@@ -478,6 +479,8 @@ class DataHealthService:
         return get_finbridge_provider().health_metadata()
 
     def _daily(self) -> dict[str, dict[str, Any]]:
+        import polars as pl
+
         from app.taiwan.daily_update import TaiwanDailyUpdateService, read_last_run
 
         svc = TaiwanDailyUpdateService()
@@ -485,6 +488,7 @@ class DataHealthService:
         target = freshness["target_latest_trading_date"]
         run = read_last_run(svc.daily_store) or {}
         run_for_target = run.get("target_latest_trading_date") == target
+        evening_times = "、".join(slot.strftime("%H:%M") for slot in EVENING_UPDATE_TIMES)
         result: dict[str, dict[str, Any]] = {}
         for key, store in (
             ("daily", svc.daily_store),
@@ -493,7 +497,16 @@ class DataHealthService:
         ):
             day = freshness[f"{key}_as_of"]
             try:
-                frame = store.read_latest_date_rows()
+                # The freshest eligible session can precede a partial or future partition.
+                session = date.fromisoformat(day) if day else None
+                if session is None:
+                    frame = pl.DataFrame()
+                elif key == "daily":
+                    frame = store.read_range(None, session, session, include_provenance=True)
+                else:
+                    frame = store.read_range(None, session, session)
+                unverified_margin = (key == "margin" and session is not None and day == target
+                                     and not store.has_verified_publication(session))
             except Exception:
                 result[key] = {
                     "status": "error",
@@ -519,6 +532,8 @@ class DataHealthService:
                 attempted=run_for_target,
                 now=taipei_now(),
             )
+            if unverified_margin and status == "current":
+                status, reason = "partial", "已有當日融資融券分區，雙市場官方公告日期尚未核實"
             sources = (
                 sorted(set(frame["source"].drop_nulls().to_list()))
                 if "source" in frame.columns
@@ -529,6 +544,7 @@ class DataHealthService:
                 "tpex:daily_trade",
                 "twse:mi_margn",
                 "tpex:margin_balance",
+                "twse_tpex_official_snapshot",
             }
             source = " / ".join(s for s in sources if s in allowed_sources) or f"Taiwan {key} store"
             result[key] = {
@@ -536,7 +552,7 @@ class DataHealthService:
                 "source": source,
                 "data_date": None if frame.is_empty() else day,
                 "freshness": f"目標交易日 {target}"
-                + ("；融資融券官方於當日晚間公布，21:30、23:00 自動補抓" if key == "margin"
+                + (f"；融資融券官方於當日晚間公布，{evening_times} 自動補抓" if key == "margin"
                    else "；16:00 後以當日為目標，16:30 排程更新"),
                 "reason": reason,
                 "last_attempt": timestamp(run.get("run_started_at")),
@@ -818,15 +834,15 @@ class DataHealthService:
         from app.taiwan.daily_update import read_last_run, resolve_target_latest_trading_date
 
         symbol = "TAIEX" if key == "taiex" else "TPEX_INDEX"
-        row = latest_benchmark(symbol)
+        target = resolve_target_latest_trading_date()
+        row = latest_benchmark(symbol, on_or_before=target)
         if not row:
             return {
                 "status": "unavailable",
                 "source": "TWSE MI_5MINS_HIST / TPEx tpex_index（官方 OpenAPI）",
                 "freshness": "官方指數日收盤，隨盤後更新儲存",
-                "reason": "尚未儲存官方指數收盤；執行盤後更新後自動取得",
+                "reason": f"截至 {target} 尚無官方指數收盤；執行盤後更新後自動取得",
             }
-        target = resolve_target_latest_trading_date()
         day = row["date"]
         run = read_last_run() or {}
         benchmark = run.get("benchmark") or {}
@@ -836,10 +852,10 @@ class DataHealthService:
             None,
         ) if run.get("target_latest_trading_date") == target.isoformat() else None
         status: HealthStatus = (
-            "current" if day >= target
+            "current" if day == target
             else "provider_error" if failure
             else "awaiting_publication" if target == taipei_now().date()
-            and day >= target - timedelta(days=7)
+            and day == _previous_daily_session()
             else "stale"
         )
         return {
@@ -851,7 +867,7 @@ class DataHealthService:
             if status == "current"
             else safe_reason(failure.get("error"), "本次官方指數更新失敗，原有資料保留")
             if status == "provider_error" and failure
-            else f"官方 OpenAPI 尚未提供 {target} 指數收盤；已儲存最近官方收盤"
+            else f"已儲存前一交易日官方收盤，{target} 指數收盤尚未入庫"
             if status == "awaiting_publication"
             else f"已儲存的官方指數收盤早於目標交易日 {target}",
             "last_success": timestamp(row.get("retrieved_at")),
